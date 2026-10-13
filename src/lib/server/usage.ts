@@ -1,22 +1,14 @@
 import { and, eq, sql } from "drizzle-orm";
 import type { UsageKind, UsageSummary } from "@/lib/types";
 import { isAdmin, type SessionUser } from "./auth";
+import { currentPlan, planLimit } from "./billing/plans";
 import { getDb, schema } from "./db";
 
-const DEFAULT_LIMITS: Record<UsageKind, number> = { chat: 50, image: 10, video: 2 };
-const ENV_NAMES: Record<UsageKind, string> = {
-  chat: "FREE_DAILY_CHAT",
-  image: "FREE_DAILY_IMAGE",
-  video: "FREE_DAILY_VIDEO",
-};
-
-/** Free-tier daily limit; null means unlimited. */
-export function dailyLimit(user: SessionUser, kind: UsageKind): number | null {
+/** Today's limit for this user; null means unlimited. */
+export async function dailyLimit(user: SessionUser, kind: UsageKind): Promise<number | null> {
   if (isAdmin(user.email)) return null;
-  const raw = process.env[ENV_NAMES[kind]]?.trim();
-  if (raw === "unlimited") return null;
-  const value = raw ? Number.parseInt(raw, 10) : NaN;
-  return Number.isFinite(value) && value >= 0 ? value : DEFAULT_LIMITS[kind];
+  const { plan } = await currentPlan(user.id);
+  return planLimit(plan, kind);
 }
 
 function today(): string {
@@ -29,8 +21,18 @@ const LIMIT_NAMES: Record<UsageKind, string> = {
   video: "видео",
 };
 
-export function limitMessage(kind: UsageKind, limit: number): string {
-  return `Дневной лимит исчерпан (${LIMIT_NAMES[kind]}: ${limit} в сутки). Лимит обновится в полночь по UTC.`;
+/** Error body for a reached limit; `code` lets the UI offer an upgrade. */
+export async function limitResponse(user: SessionUser, kind: UsageKind): Promise<Response> {
+  const limit = (await dailyLimit(user, kind)) ?? 0;
+  const { plan } = await currentPlan(user.id);
+  const hint = plan === "free" ? " Оформите Pro, чтобы получить больше." : "";
+  return Response.json(
+    {
+      error: `Дневной лимит исчерпан (${LIMIT_NAMES[kind]}: ${limit} в сутки). Лимит обновится в полночь по UTC.${hint}`,
+      code: "limit",
+    },
+    { status: 429 },
+  );
 }
 
 /**
@@ -39,9 +41,9 @@ export function limitMessage(kind: UsageKind, limit: number): string {
  * slip past the limit.
  */
 export async function consume(user: SessionUser, kind: UsageKind): Promise<boolean> {
-  const limit = dailyLimit(user, kind);
-  const db = await getDb();
+  const limit = await dailyLimit(user, kind);
   if (limit === 0) return false;
+  const db = await getDb();
   const rows = await db
     .insert(schema.usage)
     .values({ userId: user.id, day: today(), kind, count: 1 })
@@ -75,9 +77,11 @@ export async function usageSummary(user: SessionUser): Promise<UsageSummary> {
     .select({ kind: schema.usage.kind, count: schema.usage.count })
     .from(schema.usage)
     .where(and(eq(schema.usage.userId, user.id), eq(schema.usage.day, today())));
+  const admin = isAdmin(user.email);
+  const { plan } = await currentPlan(user.id);
   const used = (kind: UsageKind) => rows.find((r) => r.kind === kind)?.count ?? 0;
+  const limit = (kind: UsageKind) => (admin ? null : planLimit(plan, kind));
   const kinds: UsageKind[] = ["chat", "image", "video"];
-  return Object.fromEntries(
-    kinds.map((k) => [k, { used: used(k), limit: dailyLimit(user, k) }]),
-  ) as UsageSummary;
+  return Object.fromEntries(kinds.map((k) => [k, { used: used(k), limit: limit(k) }])) as UsageSummary;
 }
+

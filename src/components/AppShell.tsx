@@ -3,6 +3,7 @@
 import {
   Bot,
   Clapperboard,
+  Gem,
   Image as ImageIcon,
   LogOut,
   Menu,
@@ -24,6 +25,7 @@ const NAV = [
   { href: "/images", label: "Изображения", icon: ImageIcon },
   { href: "/video", label: "Видео", icon: Clapperboard },
   { href: "/assistants", label: "Мои ассистенты", icon: Bot },
+  { href: "/pricing", label: "Тарифы", icon: Gem },
   { href: "/settings", label: "Настройки", icon: Settings },
 ];
 
@@ -38,7 +40,14 @@ function UserMenu() {
           {(me.user.name || me.user.email).slice(0, 1).toUpperCase()}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm text-zinc-200">{me.user.name || me.user.email}</div>
+          <div className="flex items-center gap-1.5 truncate text-sm text-zinc-200">
+            <span className="truncate">{me.user.name || me.user.email}</span>
+            {me.plan.id === "pro" && (
+              <span className="shrink-0 rounded-md bg-violet-500/20 px-1.5 py-px text-[10px] font-semibold uppercase text-violet-200">
+                Pro
+              </span>
+            )}
+          </div>
           <div className="truncate text-xs text-zinc-500">
             {limit === null ? "Без лимитов" : `Сообщений сегодня: ${used} из ${limit}`}
           </div>

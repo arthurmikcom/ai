@@ -196,3 +196,68 @@ export const usage = pgTable(
   },
   (t) => [primaryKey({ columns: [t.userId, t.day, t.kind] })],
 );
+
+// ---------- Billing ----------
+
+/** One row per user that has ever paid. Access is granted while the period runs. */
+export const subscription = pgTable("subscription", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  plan: text("plan").$type<"pro">().notNull(),
+  provider: text("provider").$type<"stripe" | "yookassa" | "promo">().notNull(),
+  /** Stripe's status, or ours for YooKassa ("active" | "past_due" | "canceled"). */
+  status: text("status").notNull(),
+  currentPeriodEnd: timestamp("current_period_end").notNull(),
+  cancelAtPeriodEnd: boolean("cancel_at_period_end").default(false).notNull(),
+  stripeCustomerId: text("stripe_customer_id"),
+  stripeSubscriptionId: text("stripe_subscription_id").unique(),
+  /** Saved card for YooKassa autopayments. */
+  yookassaPaymentMethodId: text("yookassa_payment_method_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+/** YooKassa payments we created (first payments and renewals). */
+export const payment = pgTable(
+  "payment",
+  {
+    /** YooKassa payment id. */
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<"initial" | "renewal">().notNull(),
+    status: text("status").notNull(),
+    amount: text("amount").notNull(),
+    currency: text("currency").notNull(),
+    /** Set once the payment has extended the subscription (idempotency). */
+    appliedAt: timestamp("applied_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [index("payment_user_idx").on(t.userId, t.createdAt)],
+);
+
+/** Codes an admin hands out; each grants Pro for a number of days. */
+export const promoCode = pgTable("promo_code", {
+  code: text("code").primaryKey(),
+  days: integer("days").notNull(),
+  maxUses: integer("max_uses").notNull(),
+  uses: integer("uses").default(0).notNull(),
+  note: text("note"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const promoRedemption = pgTable(
+  "promo_redemption",
+  {
+    code: text("code")
+      .notNull()
+      .references(() => promoCode.code, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.code, t.userId] })],
+);

@@ -6,7 +6,7 @@ import type { StoredFile } from "@/lib/server/db/schema";
 import { describeError } from "@/lib/server/errors";
 import { jsonError, requireUser } from "@/lib/server/http";
 import { newKey, putFile, readFileBase64 } from "@/lib/server/storage";
-import { consume, dailyLimit, limitMessage, refund } from "@/lib/server/usage";
+import { consume, limitResponse, refund } from "@/lib/server/usage";
 import { parseChatSendRequest } from "@/lib/server/validate";
 import type { ChatRequest, ChatStreamEvent, InlineImage } from "@/lib/types";
 
@@ -45,9 +45,7 @@ export async function POST(request: Request) {
   let chat = await findChat(user.id, req.chatId);
   if (!chat && (!req.create || !req.message)) return jsonError("Чат не найден", 404);
 
-  if (!(await consume(user, "chat"))) {
-    return jsonError(limitMessage("chat", dailyLimit(user, "chat") ?? 0), 429);
-  }
+  if (!(await consume(user, "chat"))) return limitResponse(user, "chat");
 
   if (!chat) {
     if (!req.create || !req.message) return jsonError("Чат не найден", 404); // checked above; narrows types

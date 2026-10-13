@@ -68,6 +68,8 @@ export interface ChatMessage {
   provider?: ProviderId;
   model?: string;
   error?: string;
+  /** "limit" when the daily limit stopped this message (not stored). */
+  errorCode?: string;
   notice?: string;
   createdAt: number;
 }
@@ -168,6 +170,8 @@ export interface MediaItem {
   jobId?: string;
   progress?: number;
   error?: string;
+  /** "limit" when the daily limit blocked the request (not stored). */
+  errorCode?: string;
   files: MediaFile[];
   createdAt: number;
 }
@@ -179,10 +183,44 @@ export type UsageKind = "chat" | "image" | "video";
 /** Today's usage; `limit: null` means unlimited. */
 export type UsageSummary = Record<UsageKind, { used: number; limit: number | null }>;
 
+export type PlanId = "free" | "pro";
+
+export interface PlanInfo {
+  id: PlanId;
+  /** Where the paid period came from. */
+  provider?: "stripe" | "yookassa" | "promo";
+  /** End of the paid period (ms). */
+  periodEnd?: number;
+  /** True when it won't renew (cancelled, or a promo period). */
+  endsAtPeriodEnd?: boolean;
+  /** YooKassa/Stripe status, e.g. "past_due" after a failed renewal. */
+  status?: string;
+}
+
 export interface MeResponse {
   user: { id: string; name: string; email: string; image?: string | null };
   admin: boolean;
+  plan: PlanInfo;
   usage: UsageSummary;
   /** Social sign-in methods configured on this server. */
   social: { google: boolean; vk: boolean };
+}
+
+/** What /api/billing/plans tells the pricing page. */
+export interface BillingOptions {
+  limits: Record<PlanId, Record<UsageKind, number | null>>;
+  /** Payment methods configured on this server, with the Pro price for each. */
+  methods: {
+    yookassa: { price: string } | null;
+    stripe: { price: string } | null;
+  };
+}
+
+export interface PromoCode {
+  code: string;
+  days: number;
+  maxUses: number;
+  uses: number;
+  note?: string;
+  createdAt: number;
 }

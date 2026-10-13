@@ -5,6 +5,7 @@ import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
 import { getDb, schema, type DB } from "./db";
+import { cancelStripeForUser, stripeConfigured } from "./billing/stripe";
 import { deleteUserFiles } from "./storage";
 
 /** Sign-in methods beyond email + password, enabled by their env keys. */
@@ -81,8 +82,12 @@ function createAuth(db: DB, secret: string) {
     user: {
       deleteUser: {
         enabled: true,
-        // Rows go with the user (ON DELETE CASCADE); stored files don't.
-        beforeDelete: async (user) => deleteUserFiles(user.id),
+        // Rows go with the user (ON DELETE CASCADE); stored files and a
+        // running Stripe subscription don't, so stop them first.
+        beforeDelete: async (user) => {
+          if (stripeConfigured()) await cancelStripeForUser(user.id);
+          await deleteUserFiles(user.id);
+        },
       },
     },
     // Stored in the database so limits hold across serverless instances.

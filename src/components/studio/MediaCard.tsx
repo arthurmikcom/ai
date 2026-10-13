@@ -1,6 +1,7 @@
 "use client";
 
 import { Download, LoaderCircle, RotateCcw, Trash2, TriangleAlert, X } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { providerName } from "@/lib/catalog";
 import type { MediaItem } from "@/lib/types";
@@ -55,6 +56,11 @@ export function MediaCard({ item, modelLabel, onReuse, onDelete }: Props) {
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-4 text-center text-sm text-red-200">
             <TriangleAlert className="size-6" />
             <span className="line-clamp-5">{item.error}</span>
+            {item.errorCode === "limit" && (
+              <Link href="/pricing" className="font-medium text-white underline">
+                Тарифы →
+              </Link>
+            )}
           </div>
         )}
         {item.status === "succeeded" && url &&

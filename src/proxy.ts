@@ -2,6 +2,11 @@ import { getSessionCookie } from "better-auth/cookies";
 import { NextResponse, type NextRequest } from "next/server";
 
 const PUBLIC_PATHS = ["/login", "/api/auth"];
+/** Called by payment providers and Vercel Cron; each route authenticates itself. */
+const MACHINE_PATHS = ["/api/billing/stripe/webhook", "/api/billing/yookassa/webhook", "/api/cron"];
+
+const matches = (pathname: string, paths: string[]) =>
+  paths.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 
 function safeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
@@ -34,13 +39,13 @@ function passwordGate(request: NextRequest): NextResponse | null {
  * cookie (fast); every API route still verifies the session itself.
  */
 export function proxy(request: NextRequest) {
+  const { pathname, search } = request.nextUrl;
+  if (matches(pathname, MACHINE_PATHS)) return NextResponse.next();
+
   const blocked = passwordGate(request);
   if (blocked) return blocked;
 
-  const { pathname, search } = request.nextUrl;
-  if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
-    return NextResponse.next();
-  }
+  if (matches(pathname, PUBLIC_PATHS)) return NextResponse.next();
   if (getSessionCookie(request)) return NextResponse.next();
 
   if (pathname.startsWith("/api/")) {

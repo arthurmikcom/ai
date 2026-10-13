@@ -6,6 +6,7 @@ import { authClient } from "@/lib/client/auth";
 import { useModels } from "@/lib/client/useModels";
 import type { Capability, UsageKind } from "@/lib/types";
 import { useApp } from "./AppState";
+import { BillingSection, PromoAdmin } from "./BillingSection";
 
 const CAPABILITY_LABEL: Record<Capability, string> = {
   chat: "чат",
@@ -172,7 +173,7 @@ export function SettingsView() {
               </div>
 
               <div className="mt-5 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                {me.admin ? "Администратор — без лимитов" : "Бесплатный тариф: лимиты на сегодня"}
+                {me.admin ? "Администратор — без лимитов" : "Лимиты на сегодня"}
               </div>
               <div className="mt-3 grid gap-3 sm:grid-cols-3">
                 {(Object.keys(USAGE_LABEL) as UsageKind[]).map((kind) => {
@@ -206,7 +207,18 @@ export function SettingsView() {
           )}
         </div>
 
-        {me?.admin && <Providers />}
+        <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wider text-zinc-500">Подписка</h2>
+        <BillingSection />
+
+        {me?.admin && (
+          <>
+            <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wider text-zinc-500">
+              Промокоды <span className="normal-case tracking-normal">(видят только администраторы)</span>
+            </h2>
+            <PromoAdmin />
+            <Providers />
+          </>
+        )}
       </div>
     </div>
   );

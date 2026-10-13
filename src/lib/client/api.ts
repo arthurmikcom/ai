@@ -4,6 +4,8 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /** Machine-readable reason, e.g. "limit" when a daily limit is reached. */
+    readonly code?: string,
   ) {
     super(message);
   }
@@ -11,9 +13,9 @@ export class ApiError extends Error {
 
 /** Reads the error message our API routes return as { error }. */
 export async function errorOf(res: Response): Promise<ApiError> {
-  const body = (await res.json().catch(() => null)) as { error?: string } | null;
+  const body = (await res.json().catch(() => null)) as { error?: string; code?: string } | null;
   if (res.status === 401) goToLogin();
-  return new ApiError(res.status, body?.error ?? `Ошибка сервера (${res.status})`);
+  return new ApiError(res.status, body?.error ?? `Ошибка сервера (${res.status})`, body?.code);
 }
 
 /** The session ended (expired or signed out elsewhere). */

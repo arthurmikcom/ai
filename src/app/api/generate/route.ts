@@ -2,7 +2,7 @@ import { describeError } from "@/lib/server/errors";
 import { applyResult, createMedia } from "@/lib/server/gallery";
 import { jsonError, requireUser } from "@/lib/server/http";
 import { startGeneration } from "@/lib/server/media";
-import { consume, dailyLimit, limitMessage } from "@/lib/server/usage";
+import { consume, limitResponse } from "@/lib/server/usage";
 import { parseGenerateRequest } from "@/lib/server/validate";
 
 export const maxDuration = 120;
@@ -19,9 +19,7 @@ export async function POST(request: Request) {
   const req = parseGenerateRequest(await request.json().catch(() => null));
   if (typeof req === "string") return jsonError(req, 400);
 
-  if (!(await consume(user, req.kind))) {
-    return jsonError(limitMessage(req.kind, dailyLimit(user, req.kind) ?? 0), 429);
-  }
+  if (!(await consume(user, req.kind))) return limitResponse(user, req.kind);
 
   const row = await createMedia(user, req);
   try {

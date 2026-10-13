@@ -6,7 +6,7 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 import type { GenerateRequest, MediaItem, MediaKind } from "@/lib/types";
-import { api } from "./api";
+import { api, ApiError } from "./api";
 import { uid } from "./util";
 
 const POLL_MS = 5000;
@@ -79,6 +79,7 @@ export async function generate(req: GenerateRequest): Promise<void> {
       ...req,
       status: "failed",
       error: e instanceof Error ? e.message : String(e),
+      errorCode: e instanceof ApiError ? e.code : undefined,
       files: [],
       createdAt: Date.now(),
     };

@@ -1,6 +1,7 @@
 "use client";
 
 import { Brain, Check, ChevronDown, Copy, Info, RefreshCw, TriangleAlert } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 import type { ChatMessage, ModelInfo } from "@/lib/types";
 import { Markdown } from "./Markdown";
@@ -100,7 +101,14 @@ export function MessageView({ message, models, streaming, isLast, onRegenerate }
       {message.error && (
         <div className="mt-2 flex items-start gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
           <TriangleAlert className="mt-0.5 size-4 shrink-0" />
-          <span>{message.error}</span>
+          <span>
+            {message.error}
+            {message.errorCode === "limit" && (
+              <Link href="/pricing" className="ml-2 font-medium text-white underline">
+                Тарифы →
+              </Link>
+            )}
+          </span>
         </div>
       )}
 

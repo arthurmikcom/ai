@@ -11,7 +11,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { api, errorOf } from "@/lib/client/api";
+import { api, ApiError, errorOf } from "@/lib/client/api";
 import { authClient } from "@/lib/client/auth";
 import { useStoredJson } from "@/lib/client/useStored";
 import { readNdjson, uid } from "@/lib/client/util";
@@ -219,7 +219,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         if (controller.signal.aborted) {
           patchMessage(chatId, answerId, { notice: "Генерация остановлена." });
         } else {
-          patchMessage(chatId, answerId, { error: err instanceof Error ? err.message : String(err) });
+          patchMessage(chatId, answerId, {
+            error: err instanceof Error ? err.message : String(err),
+            errorCode: err instanceof ApiError ? err.code : undefined,
+          });
         }
       } finally {
         controllers.current.delete(chatId);
