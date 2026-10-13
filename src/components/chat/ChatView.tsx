@@ -1,6 +1,6 @@
 "use client";
 
-import { KeyRound, Sparkles, X } from "lucide-react";
+import { KeyRound, LoaderCircle, Sparkles, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useModels } from "@/lib/client/useModels";
@@ -82,7 +82,11 @@ export function ChatView() {
         }}
         className="min-h-0 flex-1 overflow-y-auto"
       >
-        {chat ? (
+        {chat && !chat.loaded ? (
+          <div className="flex h-full items-center justify-center">
+            <LoaderCircle className="size-6 animate-spin text-zinc-500" />
+          </div>
+        ) : chat ? (
           <div className="mx-auto flex max-w-3xl flex-col gap-8 px-4 py-6">
             {chat.messages.map((m, i) => (
               <MessageView
@@ -111,16 +115,21 @@ export function ChatView() {
             {noProviders ? (
               <div className="w-full max-w-lg rounded-2xl border border-amber-400/30 bg-amber-400/10 p-5 text-sm text-amber-100">
                 <div className="mb-2 flex items-center gap-2 font-medium">
-                  <KeyRound className="size-4" /> Подключите хотя бы одного провайдера
+                  <KeyRound className="size-4" /> Модели ещё не подключены
                 </div>
-                <p className="mb-3 text-amber-100/80">
-                  Добавьте API-ключ (например, ANTHROPIC_API_KEY или OPENAI_API_KEY) в файл
-                  <code className="mx-1 rounded bg-black/30 px-1">.env.local</code>и перезапустите
-                  сервер.
-                </p>
-                <Link href="/settings" className="font-medium text-amber-200 underline">
-                  Открыть настройки →
-                </Link>
+                {app.me?.admin ? (
+                  <>
+                    <p className="mb-3 text-amber-100/80">
+                      Добавьте API-ключ (например, ANTHROPIC_API_KEY или OPENAI_API_KEY) в переменные
+                      окружения сервера и перезапустите его.
+                    </p>
+                    <Link href="/settings" className="font-medium text-amber-200 underline">
+                      Открыть настройки →
+                    </Link>
+                  </>
+                ) : (
+                  <p className="text-amber-100/80">Сервис настраивается. Загляните чуть позже.</p>
+                )}
               </div>
             ) : (
               <div className="grid w-full gap-2 sm:grid-cols-2">

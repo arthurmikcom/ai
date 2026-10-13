@@ -43,11 +43,20 @@ export interface ModelsResponse {
 
 // ---------- Chat ----------
 
+/** An image attached to a chat message. */
 export interface Attachment {
   mime: string;
-  /** Base64 without the data: prefix. */
-  data: string;
+  /** Base64 without the data: prefix (only while uploading). */
+  data?: string;
+  /** Where the stored copy can be read (/api/files/…). */
+  url?: string;
   name?: string;
+}
+
+/** What the server sends to the model provider: always inline bytes. */
+export interface InlineImage {
+  mime: string;
+  data: string;
 }
 
 export interface ChatMessage {
@@ -63,15 +72,18 @@ export interface ChatMessage {
   createdAt: number;
 }
 
-export interface Chat {
+export interface ChatSummary {
   id: string;
   title: string;
-  messages: ChatMessage[];
   provider: ProviderId;
   model: string;
   assistantId?: string;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface Chat extends ChatSummary {
+  messages: ChatMessage[];
 }
 
 export interface Assistant {
@@ -85,12 +97,27 @@ export interface Assistant {
   createdAt: number;
 }
 
+/** Browser → /api/chat. The server loads the history itself. */
+export interface ChatSendRequest {
+  chatId: string;
+  /** Set when this is the first message of a new chat. */
+  create?: { assistantId?: string };
+  provider: ProviderId;
+  model: string;
+  deepThinking?: boolean;
+  /** The new user message; omitted when regenerating the last answer. */
+  message?: { id: string; content: string; attachments?: InlineImage[] };
+  /** Id for the assistant message the server will store. */
+  answerId: string;
+}
+
+/** Server → model provider adapters. */
 export interface ChatRequest {
   provider: ProviderId;
   model: string;
   system?: string;
   deepThinking?: boolean;
-  messages: Pick<ChatMessage, "role" | "content" | "attachments">[];
+  messages: { role: "user" | "assistant"; content: string; attachments?: InlineImage[] }[];
 }
 
 export type ChatStreamEvent =
@@ -126,7 +153,7 @@ export type GenerateResult =
   | { status: "failed"; error: string };
 
 export interface MediaFile {
-  blob: Blob;
+  url: string;
   mime: string;
 }
 
@@ -143,4 +170,19 @@ export interface MediaItem {
   error?: string;
   files: MediaFile[];
   createdAt: number;
+}
+
+// ---------- Account ----------
+
+export type UsageKind = "chat" | "image" | "video";
+
+/** Today's usage; `limit: null` means unlimited. */
+export type UsageSummary = Record<UsageKind, { used: number; limit: number | null }>;
+
+export interface MeResponse {
+  user: { id: string; name: string; email: string; image?: string | null };
+  admin: boolean;
+  usage: UsageSummary;
+  /** Social sign-in methods configured on this server. */
+  social: { google: boolean; vk: boolean };
 }

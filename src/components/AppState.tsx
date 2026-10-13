@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import {
   createContext,
   useCallback,
@@ -10,7 +11,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { assistantDB, chatDB } from "@/lib/client/db";
+import { api, errorOf } from "@/lib/client/api";
+import { authClient } from "@/lib/client/auth";
 import { useStoredJson } from "@/lib/client/useStored";
 import { readNdjson, uid } from "@/lib/client/util";
 import type {
@@ -18,14 +20,12 @@ import type {
   Attachment,
   Chat,
   ChatMessage,
-  ChatRequest,
+  ChatSendRequest,
   ChatStreamEvent,
+  ChatSummary,
+  MeResponse,
   ProviderId,
 } from "@/lib/types";
-
-const DEFAULT_SYSTEM =
-  "Ты — Nexus AI, умный и дружелюбный ассистент. Отвечай на языке пользователя. " +
-  "Используй Markdown, когда это помогает: списки, таблицы, блоки кода с указанием языка.";
 
 const MODEL_KEY = "nexus:model";
 
@@ -34,10 +34,19 @@ export interface ModelChoice {
   model: string;
 }
 
+/** A chat in memory; messages arrive when it's first opened. */
+export interface LocalChat extends Chat {
+  loaded: boolean;
+}
+
 interface AppState {
   ready: boolean;
-  chats: Chat[];
-  activeChat: Chat | null;
+  me: MeResponse | null;
+  refreshMe: () => void;
+  signOut: () => Promise<void>;
+
+  chats: LocalChat[];
+  activeChat: LocalChat | null;
   openChat: (id: string | null) => void;
   deleteChat: (id: string) => void;
   setChatModel: (id: string, choice: ModelChoice) => void;
@@ -56,8 +65,8 @@ interface AppState {
   isStreaming: (chatId: string) => boolean;
 
   assistants: Assistant[];
-  saveAssistant: (a: Assistant) => void;
-  deleteAssistant: (id: string) => void;
+  saveAssistant: (a: Assistant) => Promise<void>;
+  deleteAssistant: (id: string) => Promise<void>;
 }
 
 const Ctx = createContext<AppState | null>(null);
@@ -75,11 +84,14 @@ function titleFrom(text: string, attachments: Attachment[]): string {
 }
 
 export function AppStateProvider({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  const onLoginPage = pathname === "/login";
   const [ready, setReady] = useState(false);
+  const [me, setMe] = useState<MeResponse | null>(null);
   // The ref is the source of truth so async streaming code always sees the
   // latest chat; `chats` is the sorted snapshot that components render.
-  const chatsRef = useRef(new Map<string, Chat>());
-  const [chats, setChats] = useState<Chat[]>([]);
+  const chatsRef = useRef(new Map<string, LocalChat>());
+  const [chats, setChats] = useState<LocalChat[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [model, setModel] = useStoredJson<ModelChoice>(MODEL_KEY);
   const [draftAssistantId, setDraftAssistantId] = useState<string | null>(null);
@@ -92,50 +104,56 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     setChats([...chatsRef.current.values()].sort((a, b) => b.updatedAt - a.updatedAt));
   }, []);
 
+  const refreshMe = useCallback(() => {
+    api<MeResponse>("/api/me").then(setMe, (e) => console.error(e));
+  }, []);
+
   useEffect(() => {
-    Promise.all([chatDB.all(), assistantDB.all()])
-      .then(([saved, savedAssistants]) => {
-        for (const c of saved) chatsRef.current.set(c.id, c);
+    if (onLoginPage) return;
+    Promise.all([
+      api<MeResponse>("/api/me"),
+      api<ChatSummary[]>("/api/chats"),
+      api<Assistant[]>("/api/assistants"),
+    ])
+      .then(([profile, list, saved]) => {
+        setMe(profile);
+        for (const c of list) {
+          if (!chatsRef.current.has(c.id)) chatsRef.current.set(c.id, { ...c, messages: [], loaded: false });
+        }
         syncChats();
-        const sorted = savedAssistants.sort((a, b) => b.createdAt - a.createdAt);
-        assistantsRef.current = sorted;
-        setAssistants(sorted);
+        assistantsRef.current = saved;
+        setAssistants(saved);
       })
       .catch((e) => console.error("Не удалось загрузить данные", e))
       .finally(() => setReady(true));
-  }, [syncChats]);
+  }, [onLoginPage, syncChats]);
 
-  const update = useCallback((id: string, fn: (c: Chat) => Chat, persist = false) => {
-    const current = chatsRef.current.get(id);
-    if (!current) return;
-    const next = fn(current);
-    chatsRef.current.set(id, next);
-    syncChats();
-    if (persist) chatDB.put(next).catch((e) => console.error(e));
-  }, [syncChats]);
+  const update = useCallback(
+    (id: string, fn: (c: LocalChat) => LocalChat) => {
+      const current = chatsRef.current.get(id);
+      if (!current) return;
+      chatsRef.current.set(id, fn(current));
+      syncChats();
+    },
+    [syncChats],
+  );
 
   const patchMessage = useCallback(
-    (chatId: string, messageId: string, patch: Partial<ChatMessage>, persist = false) =>
-      update(
-        chatId,
-        (c) => ({
-          ...c,
-          messages: c.messages.map((m) => (m.id === messageId ? { ...m, ...patch } : m)),
-        }),
-        persist,
-      ),
+    (chatId: string, messageId: string, patch: Partial<ChatMessage>) =>
+      update(chatId, (c) => ({
+        ...c,
+        messages: c.messages.map((m) => (m.id === messageId ? { ...m, ...patch } : m)),
+      })),
     [update],
   );
 
   const run = useCallback(
-    async (chatId: string, deepThinking: boolean) => {
+    async (
+      chatId: string,
+      options: { deepThinking: boolean; message?: ChatMessage; create?: { assistantId?: string } },
+    ) => {
       const chat = chatsRef.current.get(chatId);
       if (!chat || controllers.current.has(chatId)) return;
-
-      const assistant = assistantsRef.current.find((a) => a.id === chat.assistantId);
-      const history: ChatRequest["messages"] = chat.messages
-        .filter((m) => m.role === "user" || (m.content && !m.error))
-        .map(({ role, content, attachments }) => ({ role, content, attachments }));
 
       const answerId = uid();
       update(chatId, (c) => ({
@@ -143,14 +161,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         updatedAt: Date.now(),
         messages: [
           ...c.messages,
-          {
-            id: answerId,
-            role: "assistant",
-            content: "",
-            provider: c.provider,
-            model: c.model,
-            createdAt: Date.now(),
-          },
+          { id: answerId, role: "assistant", content: "", provider: c.provider, model: c.model, createdAt: Date.now() },
         ],
       }));
 
@@ -174,12 +185,19 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       };
 
       try {
-        const body: ChatRequest = {
+        const { message } = options;
+        const body: ChatSendRequest = {
+          chatId,
+          create: options.create,
           provider: chat.provider,
           model: chat.model,
-          system: assistant?.systemPrompt || DEFAULT_SYSTEM,
-          deepThinking,
-          messages: history,
+          deepThinking: options.deepThinking,
+          message: message && {
+            id: message.id,
+            content: message.content,
+            attachments: message.attachments?.flatMap((a) => (a.data ? [{ mime: a.mime, data: a.data }] : [])),
+          },
+          answerId,
         };
         const res = await fetch("/api/chat", {
           method: "POST",
@@ -187,10 +205,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           body: JSON.stringify(body),
           signal: controller.signal,
         });
-        if (!res.ok) {
-          const err = (await res.json().catch(() => null)) as { error?: string } | null;
-          throw new Error(err?.error ?? `Ошибка сервера (${res.status})`);
-        }
+        if (!res.ok) throw await errorOf(res);
         for await (const event of readNdjson<ChatStreamEvent>(res)) {
           if (event.type === "text") text += event.text;
           else if (event.type === "reasoning") reasoning += event.text;
@@ -204,9 +219,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         if (controller.signal.aborted) {
           patchMessage(chatId, answerId, { notice: "Генерация остановлена." });
         } else {
-          patchMessage(chatId, answerId, {
-            error: err instanceof Error ? err.message : String(err),
-          });
+          patchMessage(chatId, answerId, { error: err instanceof Error ? err.message : String(err) });
         }
       } finally {
         controllers.current.delete(chatId);
@@ -215,15 +228,15 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           next.delete(chatId);
           return next;
         });
-        update(chatId, (c) => ({ ...c, updatedAt: Date.now() }), true);
+        update(chatId, (c) => ({ ...c, updatedAt: Date.now() }));
+        refreshMe();
       }
     },
-    [patchMessage, update],
+    [patchMessage, refreshMe, update],
   );
 
   const send = useCallback(
-    (text: string, attachments: Attachment[], deepThinking: boolean, model: ModelChoice | null) => {
-      let chatId = activeId;
+    (text: string, attachments: Attachment[], deepThinking: boolean, choice: ModelChoice | null) => {
       const message: ChatMessage = {
         id: uid(),
         role: "user",
@@ -232,28 +245,30 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         createdAt: Date.now(),
       };
 
-      if (chatId && chatsRef.current.has(chatId)) {
-        update(chatId, (c) => ({ ...c, messages: [...c.messages, message] }), true);
-      } else {
-        if (!model) return;
-        const assistant = assistantsRef.current.find((a) => a.id === draftAssistantId);
-        const chat: Chat = {
-          id: uid(),
-          title: titleFrom(text, attachments),
-          messages: [message],
-          provider: model.provider,
-          model: model.model,
-          assistantId: assistant?.id,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        };
-        chatId = chat.id;
-        chatsRef.current.set(chat.id, chat);
-        chatDB.put(chat).catch((e) => console.error(e));
-        syncChats();
-        setActiveId(chat.id);
+      const existing = activeId ? chatsRef.current.get(activeId) : undefined;
+      if (existing) {
+        update(existing.id, (c) => ({ ...c, messages: [...c.messages, message] }));
+        void run(existing.id, { deepThinking, message });
+        return;
       }
-      void run(chatId, deepThinking);
+
+      if (!choice) return;
+      const assistantId = assistantsRef.current.find((a) => a.id === draftAssistantId)?.id;
+      const chat: LocalChat = {
+        id: uid(),
+        title: titleFrom(text, attachments),
+        messages: [message],
+        provider: choice.provider,
+        model: choice.model,
+        assistantId,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        loaded: true,
+      };
+      chatsRef.current.set(chat.id, chat);
+      syncChats();
+      setActiveId(chat.id);
+      void run(chat.id, { deepThinking, message, create: { assistantId } });
     },
     [activeId, draftAssistantId, run, syncChats, update],
   );
@@ -262,40 +277,55 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     (chatId: string, deepThinking: boolean) => {
       const chat = chatsRef.current.get(chatId);
       if (!chat || controllers.current.has(chatId)) return;
-      const last = chat.messages[chat.messages.length - 1];
-      if (last?.role === "assistant") {
+      if (chat.messages[chat.messages.length - 1]?.role === "assistant") {
         update(chatId, (c) => ({ ...c, messages: c.messages.slice(0, -1) }));
       }
-      void run(chatId, deepThinking);
+      void run(chatId, { deepThinking });
     },
     [run, update],
   );
 
   const stop = useCallback((chatId: string) => controllers.current.get(chatId)?.abort(), []);
 
+  const openChat = useCallback(
+    (id: string | null) => {
+      setActiveId(id);
+      if (id === null) {
+        setDraftAssistantId(null);
+        return;
+      }
+      const chat = chatsRef.current.get(id);
+      if (chat && !chat.loaded) {
+        api<Chat>(`/api/chats/${id}`).then(
+          (full) => update(id, (c) => ({ ...c, ...full, loaded: true })),
+          (e) => console.error(e),
+        );
+      }
+    },
+    [update],
+  );
+
   const deleteChat = useCallback(
     (id: string) => {
       controllers.current.get(id)?.abort();
       chatsRef.current.delete(id);
-      chatDB.remove(id).catch((e) => console.error(e));
       syncChats();
       setActiveId((current) => (current === id ? null : current));
+      api(`/api/chats/${id}`, { method: "DELETE" }).catch((e) => console.error(e));
     },
     [syncChats],
   );
 
   const setChatModel = useCallback(
     (id: string, choice: ModelChoice) => {
-      update(id, (c) => ({ ...c, ...choice }), true);
+      update(id, (c) => ({ ...c, ...choice }));
       setModel(choice);
+      api(`/api/chats/${id}`, { method: "PATCH", body: JSON.stringify(choice) }).catch((e) =>
+        console.error(e),
+      );
     },
     [setModel, update],
   );
-
-  const openChat = useCallback((id: string | null) => {
-    setActiveId(id);
-    if (id === null) setDraftAssistantId(null);
-  }, []);
 
   const startChatWith = useCallback(
     (assistantId: string | null) => {
@@ -310,25 +340,36 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     [setModel],
   );
 
-  const saveAssistant = useCallback((a: Assistant) => {
-    const next = [a, ...assistantsRef.current.filter((x) => x.id !== a.id)].sort(
+  const saveAssistant = useCallback(async (a: Assistant) => {
+    const saved = await api<Assistant>("/api/assistants", { method: "POST", body: JSON.stringify(a) });
+    const next = [saved, ...assistantsRef.current.filter((x) => x.id !== saved.id)].sort(
       (x, y) => y.createdAt - x.createdAt,
     );
     assistantsRef.current = next;
     setAssistants(next);
-    assistantDB.put(a).catch((e) => console.error(e));
   }, []);
 
-  const deleteAssistant = useCallback((id: string) => {
+  const deleteAssistant = useCallback(async (id: string) => {
+    await api(`/api/assistants/${id}`, { method: "DELETE" });
     const next = assistantsRef.current.filter((x) => x.id !== id);
     assistantsRef.current = next;
     setAssistants(next);
-    assistantDB.remove(id).catch((e) => console.error(e));
+  }, []);
+
+  const signOut = useCallback(async () => {
+    controllers.current.forEach((c) => c.abort());
+    await authClient.signOut();
+    // A full reload, so nothing of this account stays in memory.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+    window.location.assign("/login");
   }, []);
 
   const value = useMemo<AppState>(
     () => ({
       ready,
+      me,
+      refreshMe,
+      signOut,
       chats,
       activeChat: (activeId && chats.find((c) => c.id === activeId)) || null,
       openChat,
@@ -348,6 +389,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     }),
     [
       ready,
+      me,
+      refreshMe,
+      signOut,
       chats,
       activeId,
       openChat,

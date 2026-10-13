@@ -7,7 +7,7 @@ import { generate, removeMedia, useMediaItems } from "@/lib/client/media";
 import { useModels } from "@/lib/client/useModels";
 import { useStoredJson } from "@/lib/client/useStored";
 import type { AspectRatio, MediaKind } from "@/lib/types";
-import type { ModelChoice } from "../AppState";
+import { useApp, type ModelChoice } from "../AppState";
 import { findModel, ModelPicker } from "../ModelPicker";
 import { MediaCard } from "./MediaCard";
 
@@ -42,6 +42,7 @@ const RATIOS: Record<MediaKind, AspectRatio[]> = {
 };
 
 export function MediaStudio({ kind }: { kind: MediaKind }) {
+  const { me } = useApp();
   const copy = COPY[kind];
   const { data, loading } = useModels(kind);
   const models = useMemo(() => data?.models ?? [], [data]);
@@ -85,14 +86,20 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
               <KeyRound className="size-4" /> Нет подключённых провайдеров для{" "}
               {kind === "image" ? "изображений" : "видео"}
             </div>
-            <p className="mb-3 text-amber-100/80">
-              {kind === "image"
-                ? "Добавьте OPENAI_API_KEY, GEMINI_API_KEY или REPLICATE_API_TOKEN в .env.local."
-                : "Добавьте GEMINI_API_KEY (Veo) или REPLICATE_API_TOKEN в .env.local."}
-            </p>
-            <Link href="/settings" className="font-medium text-amber-200 underline">
-              Открыть настройки →
-            </Link>
+            {me?.admin ? (
+              <>
+                <p className="mb-3 text-amber-100/80">
+                  {kind === "image"
+                    ? "Добавьте OPENAI_API_KEY, GEMINI_API_KEY или REPLICATE_API_TOKEN в переменные окружения сервера."
+                    : "Добавьте GEMINI_API_KEY (Veo) или REPLICATE_API_TOKEN в переменные окружения сервера."}
+                </p>
+                <Link href="/settings" className="font-medium text-amber-200 underline">
+                  Открыть настройки →
+                </Link>
+              </>
+            ) : (
+              <p className="text-amber-100/80">Эта функция скоро появится.</p>
+            )}
           </div>
         ) : (
           <div className="mt-6 rounded-3xl border border-white/10 bg-zinc-900 p-3">

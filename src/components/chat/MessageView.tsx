@@ -47,7 +47,7 @@ export function MessageView({ message, models, streaming, isLast, onRegenerate }
               // eslint-disable-next-line @next/next/no-img-element -- local data URL
               <img
                 key={i}
-                src={`data:${a.mime};base64,${a.data}`}
+                src={a.url ?? `data:${a.mime};base64,${a.data}`}
                 alt={a.name ?? "вложение"}
                 className="max-h-48 rounded-xl border border-white/10 object-cover"
               />

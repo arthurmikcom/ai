@@ -2,7 +2,6 @@
 
 import { Download, LoaderCircle, RotateCcw, Trash2, TriangleAlert, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { objectUrl } from "@/lib/client/media";
 import { providerName } from "@/lib/catalog";
 import type { MediaItem } from "@/lib/types";
 
@@ -33,7 +32,7 @@ interface Props {
 
 export function MediaCard({ item, modelLabel, onReuse, onDelete }: Props) {
   const file = item.files[0];
-  const url = file ? objectUrl(file.blob) : undefined;
+  const url = file?.url;
   const [zoom, setZoom] = useState(false);
   const isVideo = file?.mime.startsWith("video/") ?? item.kind === "video";
   const ext = file?.mime.split("/")[1]?.split(";")[0] ?? (isVideo ? "mp4" : "png");

@@ -70,20 +70,29 @@ function Editor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
   const app = useApp();
   const { data, loading } = useModels("chat");
   const [form, setForm] = useState<Draft>(draft);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const valid = form.name.trim() && form.systemPrompt.trim();
 
-  const save = () => {
+  const save = async () => {
     if (!valid) return;
-    app.saveAssistant({
-      ...form,
-      id: form.id ?? uid(),
-      createdAt: form.createdAt ?? Date.now(),
-      name: form.name.trim(),
-      emoji: form.emoji.trim() || "🤖",
-      description: form.description.trim(),
-      systemPrompt: form.systemPrompt.trim(),
-    });
-    onClose();
+    setSaving(true);
+    setError(null);
+    try {
+      await app.saveAssistant({
+        ...form,
+        id: form.id ?? uid(),
+        createdAt: form.createdAt ?? Date.now(),
+        name: form.name.trim(),
+        emoji: form.emoji.trim() || "🤖",
+        description: form.description.trim(),
+        systemPrompt: form.systemPrompt.trim(),
+      });
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось сохранить");
+      setSaving(false);
+    }
   };
 
   const field = "w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-violet-400/50";
@@ -167,6 +176,7 @@ function Editor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
           </div>
         </div>
 
+        {error && <p className="mt-4 text-sm text-red-300">{error}</p>}
         <div className="mt-6 flex justify-end gap-2">
           <button
             type="button"
@@ -177,8 +187,8 @@ function Editor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
           </button>
           <button
             type="button"
-            onClick={save}
-            disabled={!valid}
+            onClick={() => void save()}
+            disabled={!valid || saving}
             className="rounded-xl bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-white disabled:opacity-40"
           >
             Сохранить
@@ -250,7 +260,9 @@ export function AssistantsView() {
                   <button
                     type="button"
                     onClick={() => {
-                      if (confirm(`Удалить ассистента «${a.name}»?`)) app.deleteAssistant(a.id);
+                      if (confirm(`Удалить ассистента «${a.name}»?`)) {
+                        app.deleteAssistant(a.id).catch((e) => alert(e instanceof Error ? e.message : e));
+                      }
                     }}
                     title="Удалить"
                     className="rounded-xl p-2 text-zinc-400 hover:bg-white/5 hover:text-red-300"

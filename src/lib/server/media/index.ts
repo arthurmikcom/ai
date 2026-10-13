@@ -1,4 +1,4 @@
-import type { GenerateRequest, GenerateResult, MediaKind, ProviderId } from "@/lib/types";
+import type { GenerateRequest, GenerateResult, MediaKind, MediaOutput, ProviderId } from "@/lib/types";
 import { apiKey } from "../config";
 import { checkGoogleVideo, generateGoogleImage, startGoogleVideo } from "./google";
 import { generateOpenAIImage } from "./openai";
@@ -27,11 +27,10 @@ export async function checkGeneration(
 }
 
 /**
- * Hosts we are willing to download generated media from on the user's behalf.
- * Anything else is refused so the media proxy can't be used to reach
- * arbitrary URLs from the server.
+ * Hosts we download generated media from. Anything else is refused, so a
+ * provider response can never make the server fetch an arbitrary URL.
  */
-export function mediaSource(
+function mediaSource(
   provider: ProviderId,
   rawUrl: string,
 ): { url: URL; headers: Record<string, string> } | null {
@@ -54,4 +53,33 @@ export function mediaSource(
     return key ? { url, headers: { "x-goog-api-key": key } } : null;
   }
   return null;
+}
+
+/** Fetches one generated output as bytes ready to be stored. */
+export async function downloadOutput(
+  provider: ProviderId,
+  output: MediaOutput,
+  kind: MediaKind,
+): Promise<{ body: Buffer | ReadableStream<Uint8Array>; mime: string }> {
+  if (output.type === "base64") {
+    return { body: Buffer.from(output.data, "base64"), mime: output.mime };
+  }
+  const source = mediaSource(provider, output.url);
+  if (!source) throw new Error("Недопустимый адрес результата");
+
+  let res = await fetch(source.url, { headers: source.headers, redirect: "manual" });
+  // Google answers with a redirect to signed storage; follow it without our
+  // API key so the key never leaves the provider's own host.
+  const location = res.headers.get("location");
+  if (res.status >= 300 && res.status < 400 && location) {
+    const next = new URL(location, source.url);
+    if (next.protocol !== "https:") throw new Error("Недопустимый редирект");
+    res = await fetch(next);
+  }
+  if (!res.ok || !res.body) throw new Error("Не удалось скачать результат");
+
+  const type = res.headers.get("content-type")?.split(";")[0].trim();
+  const fallback = kind === "video" ? "video/mp4" : "image/png";
+  const mime = type && /^(image|video)\//.test(type) ? type : fallback;
+  return { body: res.body, mime };
 }

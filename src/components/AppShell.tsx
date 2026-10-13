@@ -4,6 +4,7 @@ import {
   Bot,
   Clapperboard,
   Image as ImageIcon,
+  LogOut,
   Menu,
   MessageSquare,
   MessageSquarePlus,
@@ -25,6 +26,35 @@ const NAV = [
   { href: "/assistants", label: "Мои ассистенты", icon: Bot },
   { href: "/settings", label: "Настройки", icon: Settings },
 ];
+
+function UserMenu() {
+  const { me, signOut } = useApp();
+  if (!me) return null;
+  const { used, limit } = me.usage.chat;
+  return (
+    <div className="border-t border-white/5 p-3">
+      <div className="flex items-center gap-3 rounded-xl px-2 py-1.5">
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-violet-500/20 text-sm font-medium text-violet-200">
+          {(me.user.name || me.user.email).slice(0, 1).toUpperCase()}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm text-zinc-200">{me.user.name || me.user.email}</div>
+          <div className="truncate text-xs text-zinc-500">
+            {limit === null ? "Без лимитов" : `Сообщений сегодня: ${used} из ${limit}`}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => void signOut()}
+          title="Выйти"
+          className="rounded-lg p-1.5 text-zinc-500 hover:bg-white/5 hover:text-zinc-200"
+        >
+          <LogOut className="size-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function Sidebar({ onNavigate }: { onNavigate: () => void }) {
   const app = useApp();
@@ -121,12 +151,15 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
           );
         })}
       </div>
+      <UserMenu />
     </div>
   );
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
+  const pathname = usePathname();
+  if (pathname === "/login") return <>{children}</>;
 
   return (
     <div className="flex h-dvh overflow-hidden bg-zinc-950 text-zinc-100">
