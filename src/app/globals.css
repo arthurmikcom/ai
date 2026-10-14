@@ -37,11 +37,14 @@ body {
 
 ::selection { background: #a68aff40; color: #f6f5fc; }
 button, a, input, textarea { -webkit-tap-highlight-color: transparent; }
-button:not(:disabled), a { cursor: pointer; }
-button, a { transition: background-color 180ms, color 180ms, border-color 180ms, box-shadow 180ms, transform 180ms; }
-button:disabled { cursor: not-allowed; }
-:focus-visible { outline: 2px solid #a68aff; outline-offset: 4px; }
-input:focus-visible, textarea:focus-visible { outline-offset: 2px; }
+/* Element defaults live in the base layer so utilities (outline-none, transition…) can override them. */
+@layer base {
+  button:not(:disabled), a { cursor: pointer; }
+  button, a { transition: background-color 180ms, color 180ms, border-color 180ms, box-shadow 180ms, transform 180ms; }
+  button:disabled { cursor: not-allowed; }
+  :focus-visible { outline: 2px solid #a68aff; outline-offset: 4px; }
+  input:focus-visible, textarea:focus-visible { outline-offset: 2px; }
+}
 
 .brand-mark { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 36px; height: 36px; border-radius: 12px; color: #ccb4ff; background: #a68aff12; border: 1px solid #a68aff24; }
 .brand-mark svg { width: 25px; height: 25px; }
@@ -50,10 +53,10 @@ input:focus-visible, textarea:focus-visible { outline-offset: 2px; }
 .nexus-button { border: 1px solid #b088ff70; background: linear-gradient(135deg, #984cf0, #6d36ca); color: #fff; font-weight: 600; box-shadow: inset 0 1px 0 #ffffff18, 0 5px 24px #7c3aed20; }
 .nexus-button:hover:not(:disabled) { background: linear-gradient(135deg, #ae67ff, #8141e5); box-shadow: 0 4px 22px #a68aff35; transform: translateY(-1px); }
 .nexus-button:active:not(:disabled) { transform: translateY(0); }
-.nexus-button:disabled { opacity: .45; }
+.nexus-button:disabled { opacity: .4; filter: grayscale(.7); box-shadow: none; }
 .surface-card { background: linear-gradient(135deg, #1a1627, #13101b); border: 1px solid #ffffff0d; box-shadow: 0 12px 32px #00000010; }
 .section-label { font-size: 10px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: #938da8; }
-.page-content { width: 100%; max-width: 1160px; margin-inline: auto; padding: 42px 48px 64px; animation: page-enter 500ms ease-out both; }
+.page-content { width: 100%; max-width: 1160px; margin-inline: auto; padding: 42px 48px 64px; animation: page-enter 500ms ease-out; }
 .page-heading { margin-bottom: 30px; }
 .page-eyebrow { display: flex; align-items: center; gap: 10px; color: #a9a1c0; font-size: 10px; font-weight: 500; letter-spacing: .16em; text-transform: uppercase; margin-bottom: 22px; }
 .page-eyebrow > span { color: #ccb4ff; font-family: var(--font-mono); border: 1px solid #ccb4ff30; border-radius: 5px; padding: 3px 6px; letter-spacing: 0; }
@@ -62,6 +65,8 @@ input:focus-visible, textarea:focus-visible { outline-offset: 2px; }
 .app-main { background: radial-gradient(ellipse at 85% 0, #6f36e512, transparent 45%), #09080f; }
 .app-sidebar { width: 264px; background: radial-gradient(ellipse at 0 85%, #733fe912, transparent 55%), #100e18; }
 .sidebar-nav { position: relative; border: 1px solid transparent; }
+/* Short screens (laptops, phones): tighter menu so recent chats stay in view. */
+@media (max-height: 760px) { .sidebar-nav { padding-block: 6px; } }
 .sidebar-nav.is-active { border-color: #a68aff1c; background: linear-gradient(90deg, #a68aff12, #a68aff05); color: #ddd0ff; }
 .sidebar-nav.is-active::before { content: ""; position: absolute; left: -13px; top: 13px; bottom: 13px; width: 2px; border-radius: 2px; background: #ccb4ff; }
 .sidebar-upgrade { position: relative; overflow: hidden; background: radial-gradient(ellipse at 100% 0, #a68aff18, transparent 80%), #20172f; }
@@ -99,7 +104,7 @@ input:focus-visible, textarea:focus-visible { outline-offset: 2px; }
 .nexus-orb svg { width: 100%; height: 100%; overflow: visible; animation: orb-drift 8s ease-in-out infinite; }
 .profile-shortcut { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid #9564f570; border-radius: 50%; color: #e6dbff; background: #191325; font-size: 12px; }
 .profile-shortcut:hover { border-color: #ccb4ff; background: #2b1c45; }
-.home-dashboard { position: relative; max-width: 1320px; margin-inline: auto; padding: 14px 36px 24px; animation: page-enter 500ms ease-out; }
+.home-dashboard { position: relative; max-width: 1320px; margin-inline: auto; padding: 14px 36px 24px; overflow-x: clip; animation: page-enter 500ms ease-out; }
 .home-hero { position: relative; display: grid; grid-template-columns: 1.05fr 1fr; align-items: center; min-height: 310px; }
 .home-intro { position: relative; z-index: 1; padding-left: 14px; }
 .home-intro .section-label { color: #b99bdd; letter-spacing: .23em; }
@@ -119,7 +124,7 @@ input:focus-visible, textarea:focus-visible { outline-offset: 2px; }
 .home-actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
 .home-action-card { --action: 88, 149, 255; display: block; position: relative; overflow: hidden; text-align: left; min-height: 156px; padding: 18px 20px; border: 1px solid rgba(var(--action), .42); border-radius: 19px; background: radial-gradient(ellipse at 0 0, rgba(var(--action), .2), transparent 85%), #10101c; box-shadow: inset 0 1px 0 rgba(var(--action), .1), 0 9px 28px #0002; }
 .home-action-card:hover:not(:disabled) { transform: translateY(-3px); border-color: rgba(var(--action), .85); box-shadow: 0 10px 32px rgba(var(--action), .13); }
-.home-action-card:disabled { filter: saturate(.7); }
+.home-action-card:disabled { opacity: .5; filter: saturate(.5); }
 .home-action-1 { --action: 161, 91, 255; }
 .home-action-2 { --action: 234, 158, 62; }
 .home-action-3 { --action: 213, 82, 221; }
@@ -194,6 +199,9 @@ input:focus-visible, textarea:focus-visible { outline-offset: 2px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+  /* Spinners and typing dots show that something is happening; keep them. */
+  .animate-spin { animation: var(--animate-spin) !important; }
+  .animate-pulse { animation: var(--animate-pulse) !important; }
 }
 @media (max-width: 360px) {
   .login-story h2 { font-size: 29px; }

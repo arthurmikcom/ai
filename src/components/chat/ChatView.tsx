@@ -132,44 +132,8 @@ export function ChatView() {
               </div>
             </div>
 
-            <div className="home-actions">
-              {SUGGESTIONS.slice(0, 2).map((s, index) => (
-                <button key={s.title} type="button" disabled={!current || noProviders} onClick={() => app.send(s.text, [], deepThinking, choice)} className={`home-action-card home-action-${index}`}>
-                  <div className="home-action-top"><span className="home-action-icon"><s.icon className="size-6" /></span><ArrowUpRight className="size-4" /></div>
-                  <h2>{s.title}</h2>
-                  <p>{index === 0 ? "Сложные темы — понятными словами." : "Скрипты, сайты и решения сложных задач."}</p>
-                </button>
-              ))}
-              <Link href="/images" className="home-action-card home-action-2">
-                <div className="home-action-top"><span className="home-action-icon"><ImageIcon className="size-6" /></span><ArrowUpRight className="size-4" /></div>
-                <h2>Создай изображение</h2><p>Из идеи в визуал — по вашему описанию.</p>
-              </Link>
-              <Link href="/video" className="home-action-card home-action-3">
-                <div className="home-action-top"><span className="home-action-icon"><Clapperboard className="size-6" /></span><ArrowUpRight className="size-4" /></div>
-                <h2>Сгенерируй видео</h2><p>Сцены и новые миры, которые оживают.</p>
-              </Link>
-            </div>
-
-            <div className="home-extra-prompts">
-              <span>Ещё идеи:</span>
-              {SUGGESTIONS.slice(2).map(s => (
-                <button key={s.title} type="button" disabled={!current || noProviders} onClick={() => app.send(s.text, [], deepThinking, choice)}><s.icon className="size-3.5" />{s.title}</button>
-              ))}
-            </div>
-
-            <section className="home-assistants">
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <Link href="/assistants" className="flex items-center gap-2 text-base font-medium text-zinc-100">Мои ассистенты <ArrowRight className="size-4 text-zinc-500" /></Link>
-                <Link href="/assistants" className="flex items-center gap-2 text-xs text-zinc-400 hover:text-violet-200"><Plus className="size-4" />Создать ассистента</Link>
-              </div>
-              <div className="assistant-shortcuts">
-                {ASSISTANT_LINKS.map(a => <Link key={a.name} href="/assistants" className="assistant-shortcut"><span className="assistant-shortcut-icon" aria-hidden="true">{a.emoji}</span><span><strong>{a.name}</strong><small>{a.detail}</small></span></Link>)}
-              </div>
-              <p className="mt-2 text-[10px] text-zinc-500">Готовые шаблоны — настройте под себя в разделе ассистентов.</p>
-            </section>
-
             {noProviders && (
-              <div className="empty-notice mt-5 w-full rounded-2xl border p-4 text-xs text-zinc-300">
+              <div className="empty-notice mb-5 w-full rounded-2xl border p-4 text-xs text-zinc-300">
                 <div className="mb-2 flex items-center gap-2 font-medium">
                   <KeyRound className="size-4" /> Модели ещё не подключены
                 </div>
@@ -186,6 +150,42 @@ export function ChatView() {
                 ) : (
                   <p className="text-zinc-400">Сервис настраивается. Загляните чуть позже.</p>
                 )}
+            <div className="home-actions">
+              {SUGGESTIONS.slice(0, 2).map((s, index) => (
+                <button key={s.title} type="button" disabled={!current || noProviders} onClick={() => app.send(s.text, [], deepThinking, choice)} className={`home-action-card home-action-${index}`}>
+                  <div className="home-action-top"><span className="home-action-icon"><s.icon className="size-6" /></span><ArrowUpRight className="size-4" /></div>
+                  <h2>{s.title}</h2>
+                  <p className="line-clamp-3">{s.text}</p>
+                </button>
+              ))}
+              <Link href="/images" className="home-action-card home-action-2">
+                <div className="home-action-top"><span className="home-action-icon"><ImageIcon className="size-6" /></span><ArrowUpRight className="size-4" /></div>
+                <h2>Создай изображение</h2><p>Из идеи в визуал — по вашему описанию.</p>
+              </Link>
+              <Link href="/video" className="home-action-card home-action-3">
+                <div className="home-action-top"><span className="home-action-icon"><Clapperboard className="size-6" /></span><ArrowUpRight className="size-4" /></div>
+                <h2>Сгенерируй видео</h2><p>Сцены и новые миры, которые оживают.</p>
+              </Link>
+            </div>
+
+            <div className="home-extra-prompts">
+              <span>Ещё идеи:</span>
+              {SUGGESTIONS.slice(2).map(s => (
+                <button key={s.title} type="button" title={s.text} disabled={!current || noProviders} onClick={() => app.send(s.text, [], deepThinking, choice)}><s.icon className="size-3.5" />{s.title}</button>
+              ))}
+            </div>
+
+            <section className="home-assistants">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <Link href="/assistants" className="flex items-center gap-2 text-base font-medium text-zinc-100">Мои ассистенты <ArrowRight className="size-4 text-zinc-500" /></Link>
+                <Link href="/assistants" className="flex items-center gap-2 text-xs text-zinc-400 hover:text-violet-200"><Plus className="size-4" />Создать ассистента</Link>
+              </div>
+              <div className="assistant-shortcuts">
+                {ASSISTANT_LINKS.map(a => <Link key={a.name} href="/assistants" className="assistant-shortcut"><span className="assistant-shortcut-icon" aria-hidden="true">{a.emoji}</span><span><strong>{a.name}</strong><small>{a.detail}</small></span></Link>)}
+              </div>
+              <p className="mt-2 text-[10px] text-zinc-500">Готовые шаблоны — настройте под себя в разделе ассистентов.</p>
+            </section>
+
               </div>
             )}
           </div>

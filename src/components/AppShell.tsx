@@ -102,6 +102,9 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
         </button>
       </div>
 
+      {/* Navigation, history and the upgrade card scroll together, so on short
+          screens the chat list and the user menu below never get squeezed out. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div className="section-label mb-2 mt-7 px-6">Пространство</div>
       <nav aria-label="Основная навигация" className="space-y-1 px-5">
         {NAV.map(({ href, label, icon: Icon }) => {
@@ -122,7 +125,7 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
         })}
       </nav>
 
-      <div className="mt-6 min-h-0 flex-1 overflow-y-auto px-5 pb-4">
+      <div className="mt-6 flex-1 px-5 pb-4">
         <div className="section-label px-1">Ваши диалоги</div>
         {rows.length === 0 && (
           <div className="mt-4 rounded-xl border border-dashed border-white/10 px-3 py-4 text-[11px] leading-5 text-zinc-500">
@@ -177,6 +180,7 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
           <p className="mt-2 text-[11px] leading-5 text-zinc-400">Больше места для больших идей. Откройте возможности Pro.</p>
         </Link>
       )}
+      </div>
       <UserMenu />
     </div>
   );
