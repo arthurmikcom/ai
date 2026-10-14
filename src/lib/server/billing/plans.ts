@@ -43,13 +43,32 @@ export async function currentPlan(userId: string): Promise<{ plan: PlanId; sub?:
   return { plan: isEntitled(sub) ? "pro" : "free", sub };
 }
 
-/** Adds one month to a date, keeping the day of month where possible (Jan 31 → Feb 28). */
-export function addMonth(from: Date): Date {
+/**
+ * Adds one month, landing on `anchorDay` where the month has it: with anchor
+ * 31, Jan 31 → Feb 28 → Mar 31 (not Mar 28), so short months don't make the
+ * billing date drift.
+ */
+export function addMonth(from: Date, anchorDay = from.getUTCDate()): Date {
   const next = new Date(from);
-  const day = next.getUTCDate();
   next.setUTCDate(1);
   next.setUTCMonth(next.getUTCMonth() + 1);
   const lastDay = new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth() + 1, 0)).getUTCDate();
-  next.setUTCDate(Math.min(day, lastDay));
+  next.setUTCDate(Math.min(anchorDay, lastDay));
   return next;
+}
+
+/** Stripe statuses in which the subscription still exists and may bill the card. */
+const STRIPE_LIVE = new Set(["active", "trialing", "past_due", "unpaid", "paused"]);
+
+export function isLiveStripe(status: string): boolean {
+  return STRIPE_LIVE.has(status);
+}
+
+/**
+ * A Stripe subscription that is still billing (even if a payment failed).
+ * While it exists we don't start another subscription or a YooKassa/promo
+ * period, or the user could end up paying twice.
+ */
+export function hasLiveStripe(sub: SubscriptionRow | undefined): boolean {
+  return sub?.provider === "stripe" && Boolean(sub.stripeSubscriptionId) && isLiveStripe(sub.status);
 }

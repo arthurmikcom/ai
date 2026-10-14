@@ -2,7 +2,7 @@ import { randomInt } from "node:crypto";
 import { desc, eq, sql } from "drizzle-orm";
 import type { PromoCode } from "@/lib/types";
 import { getDb, schema } from "../db";
-import { isEntitled } from "./plans";
+import { hasLiveStripe, isEntitled } from "./plans";
 
 const CODE_PATTERN = /^[A-Z0-9-]{4,40}$/;
 // No 0/O, 1/I/L: codes are typed by hand.
@@ -101,8 +101,8 @@ export async function redeemPromo(userId: string, rawCode: string): Promise<Date
         .for("update");
       const now = new Date();
       const active = isEntitled(sub, now);
-      if (active && sub?.provider === "stripe") {
-        throw new RedeemError("У вас уже есть подписка через Stripe — промокод можно активировать после её окончания");
+      if (hasLiveStripe(sub)) {
+        throw new RedeemError("У вас есть подписка через Stripe — промокод можно активировать после её окончания");
       }
 
       const start = active && sub ? sub.currentPeriodEnd : now;
@@ -119,8 +119,9 @@ export async function redeemPromo(userId: string, rawCode: string): Promise<Date
             provider,
             status: "active",
             currentPeriodEnd: until,
-            // Promo periods don't renew, so there's nothing to cancel.
-            ...(provider === "promo" ? { cancelAtPeriodEnd: false } : {}),
+            // Promo periods don't renew, so there's nothing to cancel; a finished
+            // Stripe subscription is no longer ours to track.
+            ...(provider === "promo" ? { cancelAtPeriodEnd: false, stripeSubscriptionId: null } : {}),
             updatedAt: now,
           },
         });

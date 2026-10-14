@@ -193,6 +193,10 @@ export interface PlanInfo {
   periodEnd?: number;
   /** True when it won't renew (cancelled, or a promo period). */
   endsAtPeriodEnd?: boolean;
+  /** When the next renewal will be charged (ms). */
+  renewsAt?: number;
+  /** A Stripe subscription still exists (even with a failed payment): manage it in Stripe's portal. */
+  stripeLive?: boolean;
   /** YooKassa/Stripe status, e.g. "past_due" after a failed renewal. */
   status?: string;
 }

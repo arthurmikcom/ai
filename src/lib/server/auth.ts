@@ -114,6 +114,7 @@ export interface SessionUser {
   id: string;
   name: string;
   email: string;
+  emailVerified: boolean;
   image?: string | null;
 }
 
@@ -123,10 +124,18 @@ export async function getSessionUser(headers: Headers): Promise<SessionUser | nu
   return session?.user ?? null;
 }
 
-export function isAdmin(email: string): boolean {
-  const admins = (process.env.ADMIN_EMAILS ?? "")
-    .split(",")
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean);
-  return admins.includes(email.toLowerCase());
+/**
+ * Admins: user ids listed in ADMIN_USER_IDS, or emails in ADMIN_EMAILS once
+ * the address is verified (e.g. signed in with Google). A bare email match
+ * isn't enough: anyone could register an unclaimed admin address with a
+ * password, since sign-up doesn't prove ownership of the email.
+ */
+export function isAdmin(user: Pick<SessionUser, "id" | "email" | "emailVerified">): boolean {
+  const list = (name: string) =>
+    (process.env[name] ?? "")
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean);
+  if (list("ADMIN_USER_IDS").includes(user.id)) return true;
+  return user.emailVerified && list("ADMIN_EMAILS").some((e) => e.toLowerCase() === user.email.toLowerCase());
 }

@@ -15,6 +15,13 @@
       "when": 1791926785771,
       "tag": "0001_billing",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791988429173,
+      "tag": "0002_billing_hardening",
+      "breakpoints": true
     }
   ]
 }

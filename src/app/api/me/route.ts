@@ -11,7 +11,7 @@ export async function GET(request: Request) {
   const [plan, usage] = await Promise.all([planInfo(user.id), usageSummary(user)]);
   const body: MeResponse = {
     user: { id: user.id, name: user.name, email: user.email, image: user.image },
-    admin: isAdmin(user.email),
+    admin: isAdmin(user),
     plan,
     usage,
     social: socialProviders(),

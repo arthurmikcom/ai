@@ -3,11 +3,11 @@
 // Webhooks carry no signature, so we never trust their body: every event is
 // confirmed by fetching the payment from the YooKassa API.
 
-import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, isNull, lte, notInArray, sql } from "drizzle-orm";
 import type { SessionUser } from "../auth";
 import { getDb, schema } from "../db";
 import { HttpError } from "../errors";
-import { addMonth, getSubscription, isEntitled, proPriceRub } from "./plans";
+import { addMonth, getSubscription, hasLiveStripe, isEntitled, proPriceRub } from "./plans";
 
 interface YkPayment {
   id: string;
@@ -40,6 +40,23 @@ const PERMANENT_DECLINES = new Set([
 const CHARGE_AHEAD_MS = DAY;
 /** …and retried daily for a few days after a failure. */
 const RETRY_WINDOW_MS = 3 * DAY;
+/** One new charge attempt per subscription per day. */
+const RETRY_EVERY_MS = 20 * 60 * 60 * 1000;
+/** YooKassa remembers an Idempotence-Key for 24 h; reuse ours only within that. */
+const IDEMPOTENCE_TTL_MS = 23 * 60 * 60 * 1000;
+/** Stop starting new charges before the cron function's time limit. */
+const RUN_BUDGET_MS = 240 * 1000;
+/** Hour (UTC) of the daily renewal run — keep in sync with vercel.json. */
+const RENEWAL_HOUR_UTC = 6;
+
+/** When the daily run will charge a period ending at `periodEnd`. */
+export function nextChargeAt(periodEnd: Date): Date {
+  const earliest = periodEnd.getTime() - CHARGE_AHEAD_MS;
+  const run = new Date(earliest);
+  run.setUTCHours(RENEWAL_HOUR_UTC, 0, 0, 0);
+  if (run.getTime() < earliest) run.setUTCDate(run.getUTCDate() + 1);
+  return run;
+}
 
 export function yookassaConfigured(): boolean {
   return Boolean(process.env.YOOKASSA_SHOP_ID && process.env.YOOKASSA_SECRET_KEY);
@@ -104,6 +121,9 @@ function receipt(email: string) {
 /** Creates the first payment (saving the card for autopay) and returns the payment page URL. */
 export async function startYooKassaCheckout(user: SessionUser, origin: string): Promise<string> {
   const sub = await getSubscription(user.id);
+  if (hasLiveStripe(sub)) {
+    throw new Error("У вас есть подписка Stripe — обновите карту или отмените её в «Управлять подпиской»");
+  }
   // A promo period can be topped up: the paid month starts when it ends.
   if (isEntitled(sub) && sub?.provider !== "promo") throw new Error("У вас уже есть Pro");
 
@@ -120,18 +140,18 @@ export async function startYooKassaCheckout(user: SessionUser, origin: string): 
       ...receipt(user.email),
     },
   });
-  const db = await getDb();
-  await db.insert(schema.payment).values({
-    id: payment.id,
-    userId: user.id,
-    kind: "initial",
-    status: payment.status,
-    amount: payment.amount.value,
-    currency: payment.amount.currency,
-  });
+  await recordPayment(payment, user.id, "initial");
   const url = payment.confirmation?.confirmation_url;
   if (!url) throw new Error("ЮKassa не вернула ссылку на оплату");
   return url;
+}
+
+async function recordPayment(p: YkPayment, userId: string, kind: "initial" | "renewal"): Promise<void> {
+  const db = await getDb();
+  await db
+    .insert(schema.payment)
+    .values({ id: p.id, userId, kind, status: p.status, amount: p.amount.value, currency: p.amount.currency })
+    .onConflictDoNothing();
 }
 
 /**
@@ -148,7 +168,11 @@ async function applyPayment(p: YkPayment): Promise<void> {
     return;
   }
 
-  await db.update(schema.payment).set({ status: p.status }).where(eq(schema.payment.id, p.id));
+  // Final statuses never change; a slower, older read must not overwrite them.
+  await db
+    .update(schema.payment)
+    .set({ status: p.status })
+    .where(and(eq(schema.payment.id, p.id), notInArray(schema.payment.status, ["succeeded", "canceled"])));
 
   if (p.status === "succeeded") {
     await db.transaction(async (tx) => {
@@ -167,16 +191,21 @@ async function applyPayment(p: YkPayment): Promise<void> {
       const now = new Date();
       // Extend from the end of the current period if it's still running, so
       // paying early (or a renewal charged a day ahead) loses nothing.
-      const start = isEntitled(sub, now) && sub ? sub.currentPeriodEnd : now;
+      const running = isEntitled(sub, now) && sub;
+      const start = running ? sub.currentPeriodEnd : now;
+      const anchorDay = (running && sub.provider === "yookassa" && sub.anchorDay) || start.getUTCDate();
       const values = {
         plan: "pro" as const,
         provider: "yookassa" as const,
         status: "active",
-        currentPeriodEnd: addMonth(start),
+        currentPeriodEnd: addMonth(start, anchorDay),
+        anchorDay,
         // A new first payment turns autopay (back) on; renewals keep the user's choice.
         cancelAtPeriodEnd: row.kind === "renewal" ? (sub?.cancelAtPeriodEnd ?? false) : false,
         yookassaPaymentMethodId:
           p.payment_method?.saved ? p.payment_method.id : (sub?.yookassaPaymentMethodId ?? null),
+        // Checkout refuses while a Stripe subscription is live, so any one left here is over.
+        stripeSubscriptionId: null,
         updatedAt: now,
       };
       await tx
@@ -187,11 +216,20 @@ async function applyPayment(p: YkPayment): Promise<void> {
   } else if (p.status === "canceled" && row.kind === "renewal") {
     // Pro keeps working until the paid period ends; the UI asks to pay again.
     // After a permanent decline the saved method is dropped so it's never retried.
+    // Only for the card that was declined: a late notice must not touch a newer card.
     const permanent = PERMANENT_DECLINES.has(p.cancellation_details?.reason ?? "");
+    const methodId = p.payment_method?.id;
+    if (!methodId) return;
     await db
       .update(schema.subscription)
       .set({ status: "past_due", ...(permanent ? { yookassaPaymentMethodId: null } : {}), updatedAt: new Date() })
-      .where(and(eq(schema.subscription.userId, row.userId), eq(schema.subscription.provider, "yookassa")));
+      .where(
+        and(
+          eq(schema.subscription.userId, row.userId),
+          eq(schema.subscription.provider, "yookassa"),
+          eq(schema.subscription.yookassaPaymentMethodId, methodId),
+        ),
+      );
   }
 }
 
@@ -207,8 +245,34 @@ export async function handleYooKassaWebhook(body: unknown): Promise<number> {
   if (typeof object?.id !== "string" || !/^[\w-]{10,64}$/.test(object.id)) return 400;
   const db = await getDb();
   const [row] = await db.select({ id: schema.payment.id }).from(schema.payment).where(eq(schema.payment.id, object.id));
-  // Refunds and payments we didn't create are acknowledged and ignored.
-  if (row) await fetchAndApply(object.id);
+  if (row) {
+    await fetchAndApply(object.id);
+    return 200;
+  }
+
+  // Unknown id: the server may have died between charging and saving the
+  // payment. The payment read from the API (with our secret key) is
+  // authoritative, so if its metadata says it's ours, record and apply it.
+  // Refunds and anything else not created by this app are ignored.
+  let payment: YkPayment;
+  try {
+    payment = await yk<YkPayment>(`/payments/${encodeURIComponent(object.id)}`);
+  } catch {
+    return 200;
+  }
+  const userId = payment.metadata?.userId;
+  const kind = payment.metadata?.kind;
+  if (!userId || (kind !== "initial" && kind !== "renewal")) return 200;
+  const [user] = await db.select({ id: schema.user.id }).from(schema.user).where(eq(schema.user.id, userId));
+  if (!user) return 200;
+  await recordPayment(payment, userId, kind);
+  if (kind === "renewal") {
+    await db
+      .update(schema.renewalAttempt)
+      .set({ paymentId: payment.id })
+      .where(and(eq(schema.renewalAttempt.userId, userId), isNull(schema.renewalAttempt.paymentId)));
+  }
+  await applyPayment(payment);
   return 200;
 }
 
@@ -243,18 +307,129 @@ export async function setAutoRenew(userId: string, enabled: boolean): Promise<bo
   return rows.length > 0;
 }
 
+type RenewalOutcome = "succeeded" | "failed" | "pending" | "skipped";
+
 /**
- * Charges subscriptions that are about to end (or ended within the retry
- * window) from their saved payment method. Safe to run several times a day:
- * each subscription gets at most one attempt per UTC day, and YooKassa
- * deduplicates by Idempotence-Key.
+ * Finds the renewal payment made for `userId` around `at` in YooKassa's
+ * payment list. null = there is none; undefined = YooKassa couldn't be asked.
  */
-export async function chargeRenewals(now = new Date()): Promise<{ attempted: number; succeeded: number; failed: number }> {
+async function findRenewalPayment(userId: string, at: Date): Promise<YkPayment | null | undefined> {
+  const from = new Date(at.getTime() - 60 * 1000).toISOString();
+  const to = new Date(at.getTime() + 15 * 60 * 1000).toISOString();
+  try {
+    const list = await yk<{ items: YkPayment[] }>(
+      `/payments?created_at.gte=${encodeURIComponent(from)}&created_at.lte=${encodeURIComponent(to)}&limit=100`,
+    );
+    return list.items.find((p) => p.metadata?.userId === userId && p.metadata?.kind === "renewal") ?? null;
+  } catch (err) {
+    console.error("[yookassa] payment lookup failed", err);
+    return undefined;
+  }
+}
+
+/**
+ * One renewal for one user. The attempt is written down before YooKassa is
+ * called; if a previous attempt's outcome is unknown (the server died mid-
+ * call) the same Idempotence-Key is reused, so YooKassa hands back the
+ * original payment instead of charging the card again.
+ */
+async function renewOne(userId: string, now: Date): Promise<RenewalOutcome> {
   const db = await getDb();
-  const due = await db
+
+  // Re-read the subscription right before charging: the user may have turned
+  // auto-renew off or the period may have moved since the run started.
+  const [row] = await db
     .select({ sub: schema.subscription, email: schema.user.email })
     .from(schema.subscription)
     .innerJoin(schema.user, eq(schema.user.id, schema.subscription.userId))
+    .where(eq(schema.subscription.userId, userId));
+  const sub = row?.sub;
+  if (
+    !sub ||
+    sub.provider !== "yookassa" ||
+    sub.cancelAtPeriodEnd ||
+    !sub.yookassaPaymentMethodId ||
+    sub.status === "canceled" ||
+    sub.currentPeriodEnd.getTime() > now.getTime() + CHARGE_AHEAD_MS ||
+    sub.currentPeriodEnd.getTime() <= now.getTime() - RETRY_WINDOW_MS
+  ) {
+    return "skipped";
+  }
+
+  const [last] = await db
+    .select()
+    .from(schema.renewalAttempt)
+    .where(
+      and(
+        eq(schema.renewalAttempt.userId, userId),
+        // Same period; a small window absorbs timestamp precision differences.
+        gte(schema.renewalAttempt.periodEnd, new Date(sub.currentPeriodEnd.getTime() - 1000)),
+        lte(schema.renewalAttempt.periodEnd, new Date(sub.currentPeriodEnd.getTime() + 1000)),
+      ),
+    )
+    .orderBy(desc(schema.renewalAttempt.createdAt))
+    .limit(1);
+
+  let key: string;
+  if (last && !last.paymentId && now.getTime() - last.createdAt.getTime() <= IDEMPOTENCE_TTL_MS) {
+    // Outcome unknown, but YooKassa still remembers the key: resending it is
+    // safe and returns the original payment if there was one.
+    key = last.key;
+  } else {
+    if (last && !last.paymentId) {
+      // Outcome unknown and the key has expired: look the payment up instead.
+      const found = await findRenewalPayment(userId, last.createdAt);
+      if (found === undefined) return "skipped"; // couldn't tell; try again next run
+      if (found) {
+        await recordPayment(found, userId, "renewal");
+        await db.update(schema.renewalAttempt).set({ paymentId: found.id }).where(eq(schema.renewalAttempt.key, last.key));
+        await applyPayment(found);
+        return found.status === "succeeded" ? "succeeded" : found.status === "canceled" ? "failed" : "pending";
+      }
+      // No payment was ever created: safe to make a fresh attempt.
+    }
+    if (last?.paymentId) {
+      const [payment] = await db.select().from(schema.payment).where(eq(schema.payment.id, last.paymentId));
+      if (payment && (payment.status === "pending" || payment.status === "waiting_for_capture")) {
+        // Still processing: ask YooKassa instead of waiting for a webhook that may never come.
+        const fresh = await fetchAndApply(payment.id);
+        return fresh.status === "succeeded" ? "succeeded" : fresh.status === "canceled" ? "failed" : "pending";
+      }
+      if (now.getTime() - last.createdAt.getTime() < RETRY_EVERY_MS) return "skipped";
+    }
+    key = `renew-${crypto.randomUUID()}`;
+    await db.insert(schema.renewalAttempt).values({ key, userId, periodEnd: sub.currentPeriodEnd });
+  }
+
+  const payment = await yk<YkPayment>("/payments", {
+    method: "POST",
+    idempotenceKey: key,
+    body: {
+      amount: amount(),
+      capture: true,
+      payment_method_id: sub.yookassaPaymentMethodId,
+      description: DESCRIPTION,
+      metadata: { userId, kind: "renewal" },
+      ...receipt(row.email),
+    },
+  });
+  await recordPayment(payment, userId, "renewal");
+  await db.update(schema.renewalAttempt).set({ paymentId: payment.id }).where(eq(schema.renewalAttempt.key, key));
+  await applyPayment(payment);
+  return payment.status === "succeeded" ? "succeeded" : payment.status === "canceled" ? "failed" : "pending";
+}
+
+/**
+ * Charges subscriptions that are about to end (or ended within the retry
+ * window) from their saved payment method. Safe to run several times a day:
+ * each subscription gets at most one new attempt per day.
+ */
+export async function chargeRenewals(now = new Date()): Promise<{ attempted: number; succeeded: number; failed: number; deferred: number }> {
+  const started = Date.now();
+  const db = await getDb();
+  const due = await db
+    .select({ userId: schema.subscription.userId })
+    .from(schema.subscription)
     .where(
       and(
         eq(schema.subscription.provider, "yookassa"),
@@ -265,63 +440,25 @@ export async function chargeRenewals(now = new Date()): Promise<{ attempted: num
         gt(schema.subscription.currentPeriodEnd, new Date(now.getTime() - RETRY_WINDOW_MS)),
       ),
     )
-    .limit(200);
+    .orderBy(schema.subscription.currentPeriodEnd);
 
-  const today = now.toISOString().slice(0, 10);
-  let attempted = 0;
-  let succeeded = 0;
-  let failed = 0;
-
-  for (const { sub, email } of due) {
-    // One attempt per day; never while another renewal is still processing.
-    const [recent] = await db
-      .select({ id: schema.payment.id })
-      .from(schema.payment)
-      .where(
-        and(
-          eq(schema.payment.userId, sub.userId),
-          eq(schema.payment.kind, "renewal"),
-          or(
-            inArray(schema.payment.status, ["pending", "waiting_for_capture"]),
-            gt(schema.payment.createdAt, new Date(now.getTime() - 20 * 60 * 60 * 1000)),
-          ),
-        ),
-      )
-      .limit(1);
-    if (recent) continue;
-
-    attempted++;
+  const result = { attempted: 0, succeeded: 0, failed: 0, deferred: 0 };
+  for (const { userId } of due) {
+    // Leave the rest for the next run rather than being killed mid-charge.
+    if (Date.now() - started > RUN_BUDGET_MS) {
+      result.deferred++;
+      continue;
+    }
     try {
-      const payment = await yk<YkPayment>("/payments", {
-        method: "POST",
-        idempotenceKey: `renew-${sub.userId}-${sub.currentPeriodEnd.getTime()}-${today}`,
-        body: {
-          amount: amount(),
-          capture: true,
-          payment_method_id: sub.yookassaPaymentMethodId,
-          description: DESCRIPTION,
-          metadata: { userId: sub.userId, kind: "renewal" },
-          ...receipt(email),
-        },
-      });
-      await db
-        .insert(schema.payment)
-        .values({
-          id: payment.id,
-          userId: sub.userId,
-          kind: "renewal",
-          status: payment.status,
-          amount: payment.amount.value,
-          currency: payment.amount.currency,
-        })
-        .onConflictDoNothing();
-      await applyPayment(payment);
-      if (payment.status === "succeeded") succeeded++;
-      else if (payment.status === "canceled") failed++;
+      const outcome = await renewOne(userId, now);
+      if (outcome !== "skipped") result.attempted++;
+      if (outcome === "succeeded") result.succeeded++;
+      if (outcome === "failed") result.failed++;
     } catch (err) {
-      failed++;
-      console.error("[yookassa] renewal failed", sub.userId, err);
+      result.failed++;
+      console.error("[yookassa] renewal failed", userId, err);
     }
   }
-  return { attempted, succeeded, failed };
+  if (result.deferred) console.warn(`[yookassa] ${result.deferred} renewals deferred to the next run`);
+  return result;
 }

@@ -6,7 +6,7 @@ import type { SessionUser } from "@/lib/server/auth";
 async function requireAdmin(request: Request): Promise<SessionUser | Response> {
   const user = await requireUser(request);
   if (user instanceof Response) return user;
-  return isAdmin(user.email) ? user : jsonError("Только для администраторов", 403);
+  return isAdmin(user) ? user : jsonError("Только для администраторов", 403);
 }
 
 export async function GET(request: Request) {

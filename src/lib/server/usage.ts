@@ -6,7 +6,7 @@ import { getDb, schema } from "./db";
 
 /** Today's limit for this user; null means unlimited. */
 export async function dailyLimit(user: SessionUser, kind: UsageKind): Promise<number | null> {
-  if (isAdmin(user.email)) return null;
+  if (isAdmin(user)) return null;
   const { plan } = await currentPlan(user.id);
   return planLimit(plan, kind);
 }
@@ -77,7 +77,7 @@ export async function usageSummary(user: SessionUser): Promise<UsageSummary> {
     .select({ kind: schema.usage.kind, count: schema.usage.count })
     .from(schema.usage)
     .where(and(eq(schema.usage.userId, user.id), eq(schema.usage.day, today())));
-  const admin = isAdmin(user.email);
+  const admin = isAdmin(user);
   const { plan } = await currentPlan(user.id);
   const used = (kind: UsageKind) => rows.find((r) => r.kind === kind)?.count ?? 0;
   const limit = (kind: UsageKind) => (admin ? null : planLimit(plan, kind));

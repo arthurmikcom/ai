@@ -2,7 +2,7 @@ import Stripe from "stripe";
 import { eq, or } from "drizzle-orm";
 import type { SessionUser } from "../auth";
 import { getDb, schema } from "../db";
-import { getSubscription, isEntitled } from "./plans";
+import { getSubscription, hasLiveStripe, isEntitled, isLiveStripe } from "./plans";
 
 export function stripeConfigured(): boolean {
   const env = process.env;
@@ -45,6 +45,9 @@ export async function stripePriceLabel(): Promise<string> {
 /** Starts a Stripe Checkout for the Pro subscription and returns its URL. */
 export async function startStripeCheckout(user: SessionUser, origin: string): Promise<string> {
   const sub = await getSubscription(user.id);
+  if (hasLiveStripe(sub)) {
+    throw new Error("У вас уже есть подписка Stripe — управляйте ею в настройках («Управлять подпиской»)");
+  }
   const promo = isEntitled(sub) && sub?.provider === "promo";
   if (isEntitled(sub) && !promo) throw new Error("У вас уже есть Pro");
   // Promo days aren't lost: billing starts when they end (Stripe needs ≥ 48 h).
@@ -73,6 +76,16 @@ export async function startStripeCheckout(user: SessionUser, origin: string): Pr
       })
       .onConflictDoUpdate({ target: schema.subscription.userId, set: { stripeCustomerId: customerId } });
   }
+
+  // Our table can lag behind Stripe; ask Stripe too before opening a second subscription.
+  const existing = await stripe().subscriptions.list({ customer: customerId, status: "all", limit: 20 });
+  if (existing.data.some((s) => isLiveStripe(s.status))) {
+    throw new Error("У вас уже есть подписка Stripe — управляйте ею в настройках («Управлять подпиской»)");
+  }
+  // Close checkout pages left open (another tab, an earlier attempt), so two of
+  // them can't both be paid and create two subscriptions.
+  const open = await stripe().checkout.sessions.list({ customer: customerId, status: "open", limit: 20 });
+  await Promise.all(open.data.map((s) => stripe().checkout.sessions.expire(s.id)));
 
   const session = await stripe().checkout.sessions.create({
     mode: "subscription",
@@ -132,11 +145,20 @@ async function syncSubscription(subscriptionId: string, userIdHint?: string | nu
   }
 
   const existing = await getSubscription(userId);
-  // Don't let events about an old Stripe subscription override a running
-  // YooKassa subscription. (A promo period may be replaced: checkout carries
-  // its remaining days over as a trial.)
-  if (existing?.provider === "yookassa" && isEntitled(existing) && existing.stripeSubscriptionId !== sub.id) {
-    return;
+  const isCurrent = existing?.stripeSubscriptionId === sub.id;
+  if (!isCurrent && existing && isEntitled(existing)) {
+    // Pro currently comes from something else. Only a promo period may be
+    // replaced (checkout carried its remaining days over as a trial).
+    const takesOverPromo = existing.provider === "promo" && (sub.status === "active" || sub.status === "trialing");
+    if (!takesOverPromo) {
+      // A second live subscription (e.g. paid in another tab) would bill the
+      // user twice; stop it. Events about old, finished ones are ignored.
+      if (isLiveStripe(sub.status)) {
+        console.warn("[stripe] cancelling duplicate subscription", sub.id, "for", userId);
+        await stripe().subscriptions.cancel(sub.id);
+      }
+      return;
+    }
   }
 
   const periodEnd = sub.items.data[0]?.current_period_end;
@@ -196,18 +218,20 @@ export async function handleStripeWebhook(body: string, signature: string | null
   return 200;
 }
 
-/** Stops Stripe billing, e.g. before the account is deleted. */
+/** Stops all Stripe billing for a user, e.g. before the account is deleted. */
 export async function cancelStripeForUser(userId: string): Promise<void> {
   const sub = await getSubscription(userId);
-  if (sub?.provider !== "stripe" || !sub.stripeSubscriptionId || sub.status === "canceled") return;
-  await stripe().subscriptions.cancel(sub.stripeSubscriptionId);
+  if (!sub?.stripeCustomerId) return;
+  const list = await stripe().subscriptions.list({ customer: sub.stripeCustomerId, status: "all", limit: 100 });
+  await Promise.all(list.data.filter((s) => isLiveStripe(s.status)).map((s) => stripe().subscriptions.cancel(s.id)));
 }
 
 /** After the redirect back from Checkout: apply the subscription without waiting for the webhook. */
 export async function syncStripeForUser(userId: string): Promise<void> {
   const sub = await getSubscription(userId);
   if (!sub?.stripeCustomerId) return;
-  const list = await stripe().subscriptions.list({ customer: sub.stripeCustomerId, limit: 1 });
+  // status "all": a cancelled subscription must be synced too (the default list hides it).
+  const list = await stripe().subscriptions.list({ customer: sub.stripeCustomerId, status: "all", limit: 1 });
   const latest = list.data[0];
   if (latest) await syncSubscription(latest.id, userId);
 }

@@ -162,6 +162,14 @@ export function SettingsView() {
                 <div className="min-w-0">
                   <div className="font-medium text-zinc-100">{me.user.name}</div>
                   <div className="text-sm text-zinc-400">{me.user.email}</div>
+                  <button
+                    type="button"
+                    title="Скопировать ID аккаунта"
+                    onClick={() => void navigator.clipboard.writeText(me.user.id)}
+                    className="mt-1 font-mono text-[11px] text-zinc-600 hover:text-zinc-400"
+                  >
+                    ID: {me.user.id}
+                  </button>
                 </div>
                 <button
                   type="button"

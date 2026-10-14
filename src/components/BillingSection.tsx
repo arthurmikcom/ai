@@ -68,14 +68,14 @@ export function BillingSection() {
             {plan.id === "free" && "Больше сообщений, картинок и видео — на тарифе Pro."}
             {plan.id === "pro" && plan.provider === "promo" && plan.periodEnd && `По промокоду до ${date(plan.periodEnd)}`}
             {plan.id === "pro" && plan.provider !== "promo" && plan.periodEnd &&
-              (plan.endsAtPeriodEnd
+              (plan.endsAtPeriodEnd || !plan.renewsAt
                 ? `Автопродление отключено. Доступ до ${date(plan.periodEnd)}`
-                : `Следующее списание ${date(plan.periodEnd)}`)}
+                : `Доступ до ${date(plan.periodEnd)}. Следующее списание — ${date(plan.renewsAt)}`)}
           </div>
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {plan.id === "free" && (
+          {plan.id === "free" && !plan.stripeLive && (
             <Link
               href="/pricing"
               className="rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 px-4 py-2 text-sm font-medium text-white hover:brightness-110"
@@ -83,7 +83,7 @@ export function BillingSection() {
               Перейти на Pro
             </Link>
           )}
-          {plan.id === "pro" && plan.provider === "stripe" && (
+          {plan.provider === "stripe" && plan.stripeLive && (
             <button
               type="button"
               disabled={busy}
@@ -120,10 +120,12 @@ export function BillingSection() {
         </div>
       </div>
 
-      {plan.status === "past_due" && (
+      {(plan.status === "past_due" || plan.status === "unpaid") && (
         <div className="mt-3 flex items-start gap-2 rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 text-sm text-amber-100">
           <TriangleAlert className="mt-0.5 size-4 shrink-0" />
-          Не удалось списать оплату за продление. Проверьте карту или оплатите заново на странице тарифов.
+          {plan.provider === "stripe"
+            ? "Не удалось списать оплату за продление. Обновите карту в «Управлять подпиской»."
+            : "Не удалось списать оплату за продление. Проверьте карту или оплатите заново на странице тарифов."}
         </div>
       )}
       {message && (

@@ -46,7 +46,8 @@ export function PricingView() {
 
   const current: PlanId = me?.plan.id ?? "free";
   // Pro from a promo code can be extended by subscribing; paid time starts after it.
-  const canBuy = current === "free" || me?.plan.provider === "promo";
+  // While a Stripe subscription still exists (even unpaid) it's managed in Stripe, not bought again.
+  const canBuy = !me?.plan.stripeLive && (current === "free" || me?.plan.provider === "promo");
   const anyMethod = Boolean(options?.methods.yookassa || options?.methods.stripe);
 
   const plans: { id: PlanId; name: string; tagline: string; price: string }[] = [

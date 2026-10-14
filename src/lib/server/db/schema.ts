@@ -214,6 +214,8 @@ export const subscription = pgTable("subscription", {
   stripeSubscriptionId: text("stripe_subscription_id").unique(),
   /** Saved card for YooKassa autopayments. */
   yookassaPaymentMethodId: text("yookassa_payment_method_id"),
+  /** Day of month the paid periods end on, so Jan 31 → Feb 28 → Mar 31. */
+  anchorDay: integer("anchor_day"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -260,4 +262,26 @@ export const promoRedemption = pgTable(
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (t) => [primaryKey({ columns: [t.code, t.userId] })],
+);
+
+/**
+ * A YooKassa renewal charge we are about to make, written before the API call.
+ * If the server dies mid-call, the next run reuses the same Idempotence-Key,
+ * so YooKassa returns the original payment instead of charging twice.
+ */
+export const renewalAttempt = pgTable(
+  "renewal_attempt",
+  {
+    /** Also the Idempotence-Key sent to YooKassa. */
+    key: text("key").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    /** End of the period being renewed. */
+    periodEnd: timestamp("period_end").notNull(),
+    /** Filled once YooKassa answered. */
+    paymentId: text("payment_id"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [index("renewal_attempt_user_idx").on(t.userId, t.periodEnd)],
 );
