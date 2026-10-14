@@ -1,5 +1,5 @@
 import type { PlanInfo } from "@/lib/types";
-import { currentPlan, hasLiveStripe } from "./plans";
+import { currentPlan, hasLiveStripe, needsYooKassaRepay } from "./plans";
 import { nextChargeAt } from "./yookassa";
 
 /** The user's plan as shown in the UI. */
@@ -24,5 +24,7 @@ export async function planInfo(userId: string): Promise<PlanInfo> {
         : sub.currentPeriodEnd.getTime(),
     status: sub.status,
     stripeLive: hasLiveStripe(sub),
+    cardSaved: sub.provider === "yookassa" && Boolean(sub.yookassaPaymentMethodId),
+    repay: plan === "pro" && needsYooKassaRepay(sub),
   };
 }

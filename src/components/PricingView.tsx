@@ -45,10 +45,14 @@ export function PricingView() {
   };
 
   const current: PlanId = me?.plan.id ?? "free";
-  // Pro from a promo code can be extended by subscribing; paid time starts after it.
+  // Pro from a promo code can be extended by subscribing, and a YooKassa period
+  // that won't renew by itself can be paid again; paid time starts after it.
   // While a Stripe subscription still exists (even unpaid) it's managed in Stripe, not bought again.
-  const canBuy = !me?.plan.stripeLive && (current === "free" || me?.plan.provider === "promo");
-  const anyMethod = Boolean(options?.methods.yookassa || options?.methods.stripe);
+  const repay = Boolean(me?.plan.repay);
+  const canBuy = !me?.plan.stripeLive && (current === "free" || me?.plan.provider === "promo" || repay);
+  // Stripe can't start after a YooKassa period without double-charging it.
+  const stripeMethod = repay ? null : options?.methods.stripe;
+  const anyMethod = Boolean(options?.methods.yookassa || stripeMethod);
 
   const plans: { id: PlanId; name: string; tagline: string; price: string }[] = [
     { id: "free", name: "Бесплатный", tagline: "Чтобы попробовать", price: "0 ₽" },
@@ -129,8 +133,9 @@ export function PricingView() {
                         <>
                           {current === "pro" && anyMethod && (
                             <p className="text-xs text-violet-200">
-                              У вас Pro по промокоду. Если оформить подписку сейчас, оплаченный месяц начнётся
-                              после окончания промо-периода.
+                              {repay
+                                ? "Подписка сама не продлится. Оплатите заново — новый месяц начнётся после окончания текущего."
+                                : "У вас Pro по промокоду. Если оформить подписку сейчас, оплаченный месяц начнётся после окончания промо-периода."}
                             </p>
                           )}
                           {anyMethod && (
@@ -158,7 +163,7 @@ export function PricingView() {
                               Оплатить картой или СБП · {options.methods.yookassa.price}
                             </button>
                           )}
-                          {options.methods.stripe && (
+                          {stripeMethod && (
                             <button
                               type="button"
                               disabled={busy !== null || !consent}
@@ -166,7 +171,7 @@ export function PricingView() {
                               className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 py-2.5 text-sm font-medium text-zinc-100 hover:bg-white/10 disabled:opacity-50"
                             >
                               {busy === "stripe" ? <LoaderCircle className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
-                              International card · {options.methods.stripe.price}
+                              International card · {stripeMethod.price}
                             </button>
                           )}
                           {!anyMethod && (

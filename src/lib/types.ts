@@ -199,6 +199,10 @@ export interface PlanInfo {
   stripeLive?: boolean;
   /** YooKassa/Stripe status, e.g. "past_due" after a failed renewal. */
   status?: string;
+  /** YooKassa: a card is saved, so auto-renew can be switched back on. */
+  cardSaved?: boolean;
+  /** YooKassa: the period won't renew by itself — the user can pay again from the pricing page. */
+  repay?: boolean;
 }
 
 export interface MeResponse {

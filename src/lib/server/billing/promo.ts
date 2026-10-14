@@ -119,6 +119,9 @@ export async function redeemPromo(userId: string, rawCode: string): Promise<Date
             provider,
             status: "active",
             currentPeriodEnd: until,
+            // The period now ends on another day of the month; the next
+            // YooKassa renewal re-anchors on it instead of cutting the month short.
+            anchorDay: null,
             // Promo periods don't renew, so there's nothing to cancel; a finished
             // Stripe subscription is no longer ours to track.
             ...(provider === "promo" ? { cancelAtPeriodEnd: false, stripeSubscriptionId: null } : {}),

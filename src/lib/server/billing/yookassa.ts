@@ -3,11 +3,12 @@
 // Webhooks carry no signature, so we never trust their body: every event is
 // confirmed by fetching the payment from the YooKassa API.
 
+import { createHash } from "node:crypto";
 import { and, desc, eq, gt, gte, inArray, isNull, lte, notInArray, sql } from "drizzle-orm";
 import type { SessionUser } from "../auth";
 import { getDb, schema } from "../db";
 import { HttpError } from "../errors";
-import { addMonth, getSubscription, hasLiveStripe, isEntitled, proPriceRub } from "./plans";
+import { addMonth, getSubscription, hasLiveStripe, isEntitled, needsYooKassaRepay, proPriceRub } from "./plans";
 
 interface YkPayment {
   id: string;
@@ -42,6 +43,8 @@ const CHARGE_AHEAD_MS = DAY;
 const RETRY_WINDOW_MS = 3 * DAY;
 /** One new charge attempt per subscription per day. */
 const RETRY_EVERY_MS = 20 * 60 * 60 * 1000;
+/** An attempt younger than this with no payment yet is still being made by another run. */
+const IN_FLIGHT_MS = 10 * 60 * 1000;
 /** YooKassa remembers an Idempotence-Key for 24 h; reuse ours only within that. */
 const IDEMPOTENCE_TTL_MS = 23 * 60 * 60 * 1000;
 /** Stop starting new charges before the cron function's time limit. */
@@ -124,8 +127,11 @@ export async function startYooKassaCheckout(user: SessionUser, origin: string): 
   if (hasLiveStripe(sub)) {
     throw new Error("У вас есть подписка Stripe — обновите карту или отмените её в «Управлять подпиской»");
   }
-  // A promo period can be topped up: the paid month starts when it ends.
-  if (isEntitled(sub) && sub?.provider !== "promo") throw new Error("У вас уже есть Pro");
+  // A promo period can be topped up, and so can a YooKassa period that won't
+  // renew by itself (declined or no saved card): the paid month starts when it ends.
+  if (isEntitled(sub) && sub?.provider !== "promo" && !needsYooKassaRepay(sub)) {
+    throw new Error("У вас уже есть Pro");
+  }
 
   const payment = await yk<YkPayment>("/payments", {
     method: "POST",
@@ -327,6 +333,12 @@ async function findRenewalPayment(userId: string, at: Date): Promise<YkPayment |
   }
 }
 
+/** Idempotence-Key of the renewal attempt for one period on one UTC day (YooKassa allows ≤ 64 chars). */
+function renewalKey(userId: string, periodEnd: Date, now: Date): string {
+  const day = now.toISOString().slice(0, 10);
+  return `renew-${createHash("sha256").update(`${userId}:${periodEnd.getTime()}:${day}`).digest("hex").slice(0, 40)}`;
+}
+
 /**
  * One renewal for one user. The attempt is written down before YooKassa is
  * called; if a previous attempt's outcome is unknown (the server died mid-
@@ -370,6 +382,9 @@ async function renewOne(userId: string, now: Date): Promise<RenewalOutcome> {
     .orderBy(desc(schema.renewalAttempt.createdAt))
     .limit(1);
 
+  // Overlapping runs (a repeated cron delivery, a manual run): leave it to the one already charging.
+  if (last && !last.paymentId && now.getTime() - last.createdAt.getTime() < IN_FLIGHT_MS) return "skipped";
+
   let key: string;
   if (last && !last.paymentId && now.getTime() - last.createdAt.getTime() <= IDEMPOTENCE_TTL_MS) {
     // Outcome unknown, but YooKassa still remembers the key: resending it is
@@ -397,8 +412,16 @@ async function renewOne(userId: string, now: Date): Promise<RenewalOutcome> {
       }
       if (now.getTime() - last.createdAt.getTime() < RETRY_EVERY_MS) return "skipped";
     }
-    key = `renew-${crypto.randomUUID()}`;
-    await db.insert(schema.renewalAttempt).values({ key, userId, periodEnd: sub.currentPeriodEnd });
+    // The key is the same for every run on the same day, so two overlapping
+    // runs (a repeated cron delivery, a manual run) claim one attempt: only
+    // the run whose insert lands goes on to charge.
+    key = renewalKey(userId, sub.currentPeriodEnd, now);
+    const [claimed] = await db
+      .insert(schema.renewalAttempt)
+      .values({ key, userId, periodEnd: sub.currentPeriodEnd })
+      .onConflictDoNothing()
+      .returning({ key: schema.renewalAttempt.key });
+    if (!claimed) return "skipped";
   }
 
   const payment = await yk<YkPayment>("/payments", {

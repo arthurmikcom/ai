@@ -57,6 +57,15 @@ export function addMonth(from: Date, anchorDay = from.getUTCDate()): Date {
   return next;
 }
 
+/**
+ * A YooKassa period that can't renew on its own (the renewal was declined, or
+ * there's no saved card): the user may pay again, and the new month starts
+ * when the current one ends.
+ */
+export function needsYooKassaRepay(sub: SubscriptionRow | undefined): boolean {
+  return sub?.provider === "yookassa" && (sub.status === "past_due" || !sub.yookassaPaymentMethodId);
+}
+
 /** Stripe statuses in which the subscription still exists and may bill the card. */
 const STRIPE_LIVE = new Set(["active", "trialing", "past_due", "unpaid", "paused"]);
 

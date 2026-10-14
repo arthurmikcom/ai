@@ -93,16 +93,27 @@ export function BillingSection() {
               Управлять подпиской
             </button>
           )}
+          {plan.id === "pro" && plan.repay && (
+            <Link
+              href="/pricing"
+              className="rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 px-4 py-2 text-sm font-medium text-white hover:brightness-110"
+            >
+              Оплатить заново
+            </Link>
+          )}
           {plan.id === "pro" && plan.provider === "yookassa" &&
             (plan.endsAtPeriodEnd ? (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => call("/api/billing/resume")}
-                className="rounded-xl border border-white/10 px-3 py-2 text-sm text-zinc-200 hover:bg-white/5 disabled:opacity-50"
-              >
-                Возобновить автопродление
-              </button>
+              // Without a saved card there's nothing to resume: paying again saves a new one.
+              plan.cardSaved && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => call("/api/billing/resume")}
+                  className="rounded-xl border border-white/10 px-3 py-2 text-sm text-zinc-200 hover:bg-white/5 disabled:opacity-50"
+                >
+                  Возобновить автопродление
+                </button>
+              )
             ) : (
               <button
                 type="button"
@@ -125,7 +136,9 @@ export function BillingSection() {
           <TriangleAlert className="mt-0.5 size-4 shrink-0" />
           {plan.provider === "stripe"
             ? "Не удалось списать оплату за продление. Обновите карту в «Управлять подпиской»."
-            : "Не удалось списать оплату за продление. Проверьте карту или оплатите заново на странице тарифов."}
+            : plan.cardSaved
+              ? "Не удалось списать оплату за продление. Мы попробуем ещё раз, или оплатите заново — новый месяц начнётся после текущего."
+              : "Не удалось списать оплату за продление, карта больше не принимается. Оплатите заново — новый месяц начнётся после текущего."}
         </div>
       )}
       {message && (
