@@ -22,6 +22,13 @@ const ERRORS: Record<string, string> = {
   INVALID_EMAIL: "Проверьте адрес почты.",
 };
 
+/** A crash on the server says nothing useful by itself; point the owner at the setup check. */
+function serverError(status: number | undefined): string | null {
+  return status !== undefined && status >= 500
+    ? "Ошибка на сервере. Если вы владелец сайта, откройте /api/health — там видно, что не настроено."
+    : null;
+}
+
 function GoogleIcon() {
   return (
     <svg viewBox="0 0 24 24" className="size-4" aria-hidden>
@@ -50,7 +57,7 @@ export function LoginView({ social }: Props) {
         ? await authClient.signUp.email({ name: name.trim() || email.split("@")[0], email, password })
         : await authClient.signIn.email({ email, password });
     if (result.error) {
-      setError(ERRORS[result.error.code ?? ""] ?? result.error.message ?? "Не удалось войти.");
+      setError(ERRORS[result.error.code ?? ""] ?? serverError(result.error.status) ?? result.error.message ?? "Не удалось войти.");
       setBusy(false);
       return;
     }
@@ -63,7 +70,7 @@ export function LoginView({ social }: Props) {
     setError(null);
     const result = await authClient.signIn.social({ provider, callbackURL: nextPath() });
     if (result.error) {
-      setError(result.error.message ?? "Не удалось войти.");
+      setError(serverError(result.error.status) ?? result.error.message ?? "Не удалось войти.");
       setBusy(false);
     }
   };

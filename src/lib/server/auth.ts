@@ -38,16 +38,20 @@ async function resolveSecret(): Promise<string> {
   }
 }
 
+/** Domains of this Vercel project: production plus the per-deployment preview domains. */
+export function vercelHosts(): string[] {
+  const env = process.env;
+  return [env.VERCEL_PROJECT_PRODUCTION_URL, env.VERCEL_BRANCH_URL, env.VERCEL_URL].filter((h): h is string =>
+    Boolean(h),
+  );
+}
+
 function baseURL(): BetterAuthOptions["baseURL"] {
   const env = process.env;
   if (env.BETTER_AUTH_URL) return env.BETTER_AUTH_URL;
   if (env.VERCEL) {
-    // Production domain plus the per-deployment preview domains.
-    const hosts = [env.VERCEL_PROJECT_PRODUCTION_URL, env.VERCEL_BRANCH_URL, env.VERCEL_URL].filter(
-      (h): h is string => Boolean(h),
-    );
     return {
-      allowedHosts: hosts,
+      allowedHosts: vercelHosts(),
       protocol: "https",
       fallback: env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${env.VERCEL_PROJECT_PRODUCTION_URL}` : undefined,
     };
