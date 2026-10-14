@@ -7,6 +7,7 @@ import { api } from "@/lib/client/api";
 import type { BillingOptions, PlanId, UsageKind } from "@/lib/types";
 import { useApp } from "./AppState";
 import { PromoForm } from "./PromoForm";
+import { PageHeading } from "./Design";
 
 const KIND_LABEL: Record<UsageKind, string> = {
   chat: "сообщений в день",
@@ -66,11 +67,8 @@ export function PricingView() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-4xl px-4 pb-16 pt-14 md:pt-8">
-        <h1 className="text-center text-3xl font-semibold text-zinc-100">Тарифы</h1>
-        <p className="mt-2 text-center text-sm text-zinc-400">
-          Все модели доступны на любом тарифе. Pro снимает ограничения на объём.
-        </p>
+      <div className="page-content !max-w-[1000px]">
+        <PageHeading number="05" eyebrow="Больше возможностей" title="Тарифы" description="Выберите свой масштаб. Все модели доступны на любом тарифе — Pro даёт больше пространства для работы и творчества." />
 
         {!options && !error && (
           <div className="mt-16 flex justify-center">
@@ -79,17 +77,18 @@ export function PricingView() {
         )}
 
         {options && (
-          <div className="mt-10 grid gap-4 md:grid-cols-2">
+          <div className="mt-8 grid gap-5 lg:grid-cols-2">
             {plans.map((plan) => {
               const isCurrent = plan.id === current;
               const pro = plan.id === "pro";
               return (
                 <div
                   key={plan.id}
-                  className={`flex flex-col rounded-3xl border p-6 ${
-                    pro ? "border-violet-400/40 bg-gradient-to-b from-violet-500/10 to-zinc-900" : "border-white/10 bg-zinc-900"
+                  className={`plan-card flex flex-col ${
+                    pro ? "plan-card-pro" : ""
                   }`}
                 >
+                  <div className="section-label mb-5">{pro ? "Для больших задач" : "Первый шаг к большему"}</div>
                   <div className="flex items-center gap-2">
                     {pro && <Sparkles className="size-5 text-violet-300" />}
                     <h2 className="text-xl font-semibold text-zinc-100">{plan.name}</h2>
@@ -98,12 +97,12 @@ export function PricingView() {
                     )}
                   </div>
                   <p className="mt-1 text-sm text-zinc-400">{plan.tagline}</p>
-                  <div className="mt-5 text-3xl font-semibold text-zinc-100">
+                  <div className="mt-7 border-b border-white/10 pb-6 text-5xl font-medium tracking-[-0.05em] text-zinc-100">
                     {plan.price}
                     {pro && plan.price !== "—" && <span className="text-base font-normal text-zinc-400"> / месяц</span>}
                   </div>
 
-                  <ul className="mt-6 flex-1 space-y-2 text-sm text-zinc-300">
+                  <ul className="mt-6 flex-1 space-y-3 text-[13px] text-zinc-300">
                     {(Object.keys(KIND_LABEL) as UsageKind[]).map((kind) => (
                       <li key={kind} className="flex items-center gap-2">
                         <Check className="size-4 shrink-0 text-emerald-400" />
@@ -157,7 +156,7 @@ export function PricingView() {
                               type="button"
                               disabled={busy !== null || !consent}
                               onClick={() => checkout("yookassa")}
-                              className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 py-2.5 text-sm font-medium text-white shadow-lg shadow-violet-500/20 hover:brightness-110 disabled:opacity-50"
+                              className="nexus-button flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm"
                             >
                               {busy === "yookassa" ? <LoaderCircle className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
                               Оплатить картой или СБП · {options.methods.yookassa.price}
@@ -171,7 +170,7 @@ export function PricingView() {
                               className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 py-2.5 text-sm font-medium text-zinc-100 hover:bg-white/10 disabled:opacity-50"
                             >
                               {busy === "stripe" ? <LoaderCircle className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
-                              International card · {stripeMethod.price}
+                              Международная карта · {stripeMethod.price}
                             </button>
                           )}
                           {!anyMethod && (
@@ -193,7 +192,7 @@ export function PricingView() {
 
         {error && <p className="mt-6 text-center text-sm text-red-300">{error}</p>}
 
-        <div className="mx-auto mt-10 max-w-md">
+        <div className="surface-card mx-auto mt-8 max-w-md rounded-2xl p-5">
           <h3 className="mb-2 text-center text-sm font-medium text-zinc-300">Есть промокод?</h3>
           <PromoForm />
         </div>

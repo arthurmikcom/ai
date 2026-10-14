@@ -39,7 +39,7 @@ export function MediaCard({ item, modelLabel, onReuse, onDelete }: Props) {
   const ext = file?.mime.split("/")[1]?.split(";")[0] ?? (isVideo ? "mp4" : "png");
 
   return (
-    <div className="group overflow-hidden rounded-2xl border border-white/10 bg-zinc-900">
+    <div className="surface-card group overflow-hidden rounded-2xl transition hover:border-violet-300/25">
       <div className={`relative ${ASPECT_CLASS[item.aspectRatio]} bg-black/40`}>
         {item.status === "pending" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-violet-500/10 to-fuchsia-500/10 text-zinc-300">
@@ -77,7 +77,7 @@ export function MediaCard({ item, modelLabel, onReuse, onDelete }: Props) {
           ))}
       </div>
 
-      <div className="space-y-2 p-3">
+      <div className="space-y-3 p-4">
         <p className="line-clamp-2 text-sm text-zinc-300" title={item.prompt}>
           {item.prompt}
         </p>

@@ -1,6 +1,6 @@
 "use client";
 
-import { KeyRound, LoaderCircle, Sparkles, X } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Clapperboard, Code2, Compass, FileText, Image as ImageIcon, KeyRound, Lightbulb, LoaderCircle, Plus, Sparkles, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useModels } from "@/lib/client/useModels";
@@ -8,12 +8,22 @@ import { useApp, type ModelChoice } from "../AppState";
 import { findModel, ModelPicker } from "../ModelPicker";
 import { Composer } from "./Composer";
 import { MessageView } from "./MessageView";
+import { NexusVisual } from "../Design";
 
 const SUGGESTIONS = [
-  { title: "Объясни просто", text: "Объясни, как работают нейросети, как будто мне 12 лет" },
-  { title: "Напиши код", text: "Напиши на Python скрипт, который переименовывает фото по дате съёмки" },
-  { title: "Составь план", text: "Составь план запуска своего онлайн-сервиса за 30 дней" },
-  { title: "Придумай идеи", text: "Придумай 10 идей для AI-стартапа с описанием и монетизацией" },
+  { title: "Объясни просто", icon: Sparkles, text: "Объясни, как работают нейросети, как будто мне 12 лет" },
+  { title: "Напиши код", icon: Code2, text: "Напиши на Python скрипт, который переименовывает фото по дате съёмки" },
+  { title: "Составь план", icon: Compass, text: "Составь план запуска своего онлайн-сервиса за 30 дней" },
+  { title: "Придумай идеи", icon: Lightbulb, text: "Придумай 10 идей для AI-стартапа с описанием и монетизацией" },
+];
+
+const ASSISTANT_LINKS = [
+  { name: "Программист", emoji: "💻", detail: "Код и сложные задачи" },
+  { name: "Переводчик", emoji: "🌐", detail: "Слова без границ" },
+  { name: "Копирайтер", emoji: "✍️", detail: "Тексты с характером" },
+  { name: "Репетитор", emoji: "🎓", detail: "Английский каждый день" },
+  { name: "Бизнес-аналитик", emoji: "📊", detail: "От идеи к стратегии" },
+  { name: "Шеф-повар", emoji: "👨‍🍳", detail: "Вдохновение на кухне" },
 ];
 
 export function ChatView() {
@@ -43,23 +53,26 @@ export function ChatView() {
   const lastMessage = chat?.messages[chat.messages.length - 1];
   useEffect(() => {
     const el = scroller.current;
-    if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
-  }, [lastMessage?.content, lastMessage?.reasoning, chat?.messages.length]);
+    if (el && chat?.id && stickToBottom.current) el.scrollTop = el.scrollHeight;
+  }, [chat?.id, lastMessage?.content, lastMessage?.reasoning, chat?.messages.length]);
 
   useEffect(() => {
     stickToBottom.current = true;
+    if (!chat?.id) scroller.current?.scrollTo({ top: 0 });
   }, [chat?.id]);
 
   const onPick = (c: ModelChoice) => (chat ? app.setChatModel(chat.id, c) : app.setModel(c));
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex h-14 shrink-0 items-center gap-2 px-3 pl-14 md:pl-3">
+      <header className="chat-header flex shrink-0 items-center gap-2 px-4 md:px-8">
         <ModelPicker models={models} value={choice} onChange={onPick} loading={loading} />
+        <span className="ml-auto hidden items-center gap-2 text-[11px] text-zinc-500 lg:flex">Ваш личный диалог</span>
+        <Link href="/settings" aria-label="Открыть профиль" className="profile-shortcut ml-auto lg:ml-3">{(app.me?.user.name || "N").slice(0, 1).toUpperCase()}</Link>
         {assistant && (
-          <span className="flex items-center gap-1.5 rounded-full bg-violet-500/15 px-3 py-1 text-xs text-violet-200">
+          <span className="flex min-w-0 max-w-[45%] items-center gap-1.5 rounded-full bg-violet-500/15 px-3 py-1 text-xs text-violet-200">
             <span>{assistant.emoji}</span>
-            {assistant.name}
+            <span className="min-w-0 truncate" title={assistant.name}>{assistant.name}</span>
             {!chat && (
               <button
                 type="button"
@@ -100,58 +113,86 @@ export function ChatView() {
             ))}
           </div>
         ) : (
-          <div className="mx-auto flex h-full max-w-3xl flex-col items-center justify-center px-4 py-10">
-            <div className="mb-4 flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-fuchsia-500 text-2xl shadow-lg shadow-violet-500/30">
-              {assistant?.emoji ?? <Sparkles className="size-7 text-white" />}
+          <div className="home-dashboard">
+            <div className="home-hero">
+              <div className="home-intro">
+                <div className="section-label mb-4">{assistant ? "Ваш персональный ассистент" : "Добро пожаловать в"}</div>
+                <h1>{assistant ? <>{assistant.emoji} {assistant.name}</> : <>Nexus <span>AI</span></>}</h1>
+                <p>{assistant?.description || <>Лучшие модели мира.<br />Безграничные возможности.</>}</p>
+                <div className="provider-pills" aria-label="Модели в Nexus AI">
+                  {["GPT", "Claude", "Gemini", "Llama", "DeepSeek"].map(name => <span key={name}>{name}</span>)}
+                </div>
+              </div>
+              <div className="home-art" aria-hidden="true">
+                <NexusVisual />
+                <span className="orb-label orb-label-text"><FileText className="size-4" />Тексты</span>
+                <span className="orb-label orb-label-image"><ImageIcon className="size-4" />Изображения</span>
+                <span className="orb-label orb-label-video"><Clapperboard className="size-4" />Видео</span>
+                <span className="orb-label orb-label-code"><Code2 className="size-4" />Код</span>
+              </div>
             </div>
-            <h1 className="mb-2 text-center text-2xl font-semibold text-zinc-100 md:text-3xl">
-              {assistant ? assistant.name : "Чем могу помочь?"}
-            </h1>
-            <p className="mb-8 text-center text-sm text-zinc-400">
-              {assistant?.description ||
-                "Чат с лучшими моделями мира — Claude, GPT, Gemini, Llama, DeepSeek и другими."}
-            </p>
 
-            {noProviders ? (
-              <div className="w-full max-w-lg rounded-2xl border border-amber-400/30 bg-amber-400/10 p-5 text-sm text-amber-100">
+            <div className="home-actions">
+              {SUGGESTIONS.slice(0, 2).map((s, index) => (
+                <button key={s.title} type="button" disabled={!current || noProviders} onClick={() => app.send(s.text, [], deepThinking, choice)} className={`home-action-card home-action-${index}`}>
+                  <div className="home-action-top"><span className="home-action-icon"><s.icon className="size-6" /></span><ArrowUpRight className="size-4" /></div>
+                  <h2>{s.title}</h2>
+                  <p>{index === 0 ? "Сложные темы — понятными словами." : "Скрипты, сайты и решения сложных задач."}</p>
+                </button>
+              ))}
+              <Link href="/images" className="home-action-card home-action-2">
+                <div className="home-action-top"><span className="home-action-icon"><ImageIcon className="size-6" /></span><ArrowUpRight className="size-4" /></div>
+                <h2>Создай изображение</h2><p>Из идеи в визуал — по вашему описанию.</p>
+              </Link>
+              <Link href="/video" className="home-action-card home-action-3">
+                <div className="home-action-top"><span className="home-action-icon"><Clapperboard className="size-6" /></span><ArrowUpRight className="size-4" /></div>
+                <h2>Сгенерируй видео</h2><p>Сцены и новые миры, которые оживают.</p>
+              </Link>
+            </div>
+
+            <div className="home-extra-prompts">
+              <span>Ещё идеи:</span>
+              {SUGGESTIONS.slice(2).map(s => (
+                <button key={s.title} type="button" disabled={!current || noProviders} onClick={() => app.send(s.text, [], deepThinking, choice)}><s.icon className="size-3.5" />{s.title}</button>
+              ))}
+            </div>
+
+            <section className="home-assistants">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <Link href="/assistants" className="flex items-center gap-2 text-base font-medium text-zinc-100">Мои ассистенты <ArrowRight className="size-4 text-zinc-500" /></Link>
+                <Link href="/assistants" className="flex items-center gap-2 text-xs text-zinc-400 hover:text-violet-200"><Plus className="size-4" />Создать ассистента</Link>
+              </div>
+              <div className="assistant-shortcuts">
+                {ASSISTANT_LINKS.map(a => <Link key={a.name} href="/assistants" className="assistant-shortcut"><span className="assistant-shortcut-icon" aria-hidden="true">{a.emoji}</span><span><strong>{a.name}</strong><small>{a.detail}</small></span></Link>)}
+              </div>
+              <p className="mt-2 text-[10px] text-zinc-500">Готовые шаблоны — настройте под себя в разделе ассистентов.</p>
+            </section>
+
+            {noProviders && (
+              <div className="empty-notice mt-5 w-full rounded-2xl border p-4 text-xs text-zinc-300">
                 <div className="mb-2 flex items-center gap-2 font-medium">
                   <KeyRound className="size-4" /> Модели ещё не подключены
                 </div>
                 {app.me?.admin ? (
                   <>
-                    <p className="mb-3 text-amber-100/80">
+                    <p className="mb-3 text-zinc-400">
                       Добавьте API-ключ (например, ANTHROPIC_API_KEY или OPENAI_API_KEY) в переменные
                       окружения сервера и перезапустите его.
                     </p>
-                    <Link href="/settings" className="font-medium text-amber-200 underline">
+                    <Link href="/settings" className="font-medium text-violet-200 underline">
                       Открыть настройки →
                     </Link>
                   </>
                 ) : (
-                  <p className="text-amber-100/80">Сервис настраивается. Загляните чуть позже.</p>
+                  <p className="text-zinc-400">Сервис настраивается. Загляните чуть позже.</p>
                 )}
-              </div>
-            ) : (
-              <div className="grid w-full gap-2 sm:grid-cols-2">
-                {SUGGESTIONS.map((s) => (
-                  <button
-                    key={s.title}
-                    type="button"
-                    disabled={!current}
-                    onClick={() => app.send(s.text, [], deepThinking, choice)}
-                    className="rounded-2xl border border-white/10 p-4 text-left transition hover:bg-white/5 disabled:opacity-50"
-                  >
-                    <div className="text-sm font-medium text-zinc-200">{s.title}</div>
-                    <div className="mt-1 line-clamp-2 text-xs text-zinc-500">{s.text}</div>
-                  </button>
-                ))}
               </div>
             )}
           </div>
         )}
       </div>
 
-      <div className="shrink-0 px-3 pb-3 pt-1 md:px-4">
+      <div className="shrink-0 px-4 pb-4 pt-2 md:px-8 md:pb-5">
         <Composer
           model={current}
           disabled={!choice || noProviders || !app.ready}

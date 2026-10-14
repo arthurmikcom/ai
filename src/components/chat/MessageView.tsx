@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 import type { ChatMessage, ModelInfo } from "@/lib/types";
 import { Markdown } from "./Markdown";
+import { BrandMark } from "../Design";
 
 interface Props {
   message: ChatMessage;
@@ -56,7 +57,7 @@ export function MessageView({ message, models, streaming, isLast, onRegenerate }
           </div>
         )}
         {message.content && (
-          <div className="max-w-[85%] whitespace-pre-wrap rounded-3xl bg-zinc-800 px-4 py-2.5 text-[15px] leading-relaxed text-zinc-100">
+          <div className="max-w-[90%] whitespace-pre-wrap rounded-2xl rounded-tr-sm border border-violet-300/10 bg-violet-300/[0.07] px-5 py-3.5 text-[15px] leading-relaxed text-zinc-100">
             {message.content}
           </div>
         )}
@@ -77,6 +78,7 @@ export function MessageView({ message, models, streaming, isLast, onRegenerate }
 
   return (
     <div className="group">
+      <div className="mb-4 flex items-center gap-2.5 text-xs font-medium text-zinc-300"><BrandMark className="!size-7 !rounded-lg [&_svg]:!size-5" />{modelLabel || "Nexus AI"}</div>
       {message.reasoning && (
         <Reasoning text={message.reasoning} active={streaming && !message.content} />
       )}

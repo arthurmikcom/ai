@@ -1,6 +1,6 @@
 "use client";
 
-import { Brain, Check, ChevronDown, Search } from "lucide-react";
+import { Brain, Check, ChevronDown, Search, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { providerName } from "@/lib/catalog";
@@ -55,20 +55,25 @@ export function ModelPicker({ models, value, onChange, loading, align = "left" }
   const label = current?.label ?? value?.model ?? (loading ? "Загрузка моделей…" : "Выберите модель");
 
   return (
-    <div ref={root} className="relative">
+    <div ref={root} className="relative min-w-0">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex max-w-[16rem] items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-zinc-100 transition hover:bg-white/5"
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        className="flex max-w-full items-center gap-2.5 rounded-xl border border-white/5 bg-white/[0.025] px-3.5 py-2.5 text-[13px] font-medium text-zinc-100 hover:border-violet-300/20 hover:bg-white/5 sm:max-w-[16rem]"
       >
+        <Sparkles className="size-4 shrink-0 text-violet-300" aria-hidden="true" />
         <span className="truncate">{label}</span>
         <ChevronDown className="size-4 shrink-0 text-zinc-400" />
       </button>
 
       {open && (
         <div
-          className={`absolute top-full z-40 mt-2 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-white/10 bg-zinc-900 shadow-2xl shadow-black/50 ${
-            align === "right" ? "right-0" : "left-0"
+          role="dialog"
+          aria-label="Выбор модели"
+          className={`model-popover fixed inset-x-4 top-20 z-40 overflow-hidden rounded-2xl border border-violet-300/20 sm:absolute sm:inset-x-auto sm:top-full sm:mt-2 sm:w-[min(24rem,calc(100vw-2rem))] ${
+            align === "right" ? "sm:right-0" : "sm:left-0"
           }`}
         >
           <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2.5">
@@ -78,6 +83,7 @@ export function ModelPicker({ models, value, onChange, loading, align = "left" }
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Поиск модели…"
+              aria-label="Поиск модели"
               className="w-full bg-transparent text-sm text-zinc-100 outline-none placeholder:text-zinc-500"
             />
           </div>

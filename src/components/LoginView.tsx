@@ -1,8 +1,9 @@
 "use client";
 
-import { LoaderCircle, Sparkles } from "lucide-react";
+import { ArrowUpRight, LoaderCircle, LockKeyhole, Sparkles } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { authClient } from "@/lib/client/auth";
+import { BrandMark, OrbitArt } from "./Design";
 
 interface Props {
   social: { google: boolean; vk: boolean };
@@ -76,20 +77,40 @@ export function LoginView({ social }: Props) {
   };
 
   const field =
-    "w-full rounded-xl border border-white/10 bg-black/30 px-3.5 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-violet-400/60";
+    "login-input w-full text-sm text-zinc-100 outline-none placeholder:text-zinc-600";
 
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-zinc-950 px-4 py-10">
-      <div className="w-full max-w-sm">
-        <div className="mb-8 flex flex-col items-center text-center">
-          <div className="mb-4 flex size-12 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-fuchsia-500 shadow-lg shadow-violet-500/30">
-            <Sparkles className="size-6 text-white" />
+    <div className="login-page">
+      <aside className="login-story">
+        <div className="flex items-center gap-3">
+          <BrandMark />
+          <span className="brand-wordmark">Nexus <span>AI</span></span>
+        </div>
+        <div className="my-6 md:my-10">
+          <div className="section-label mb-5 hidden md:block">Интеллект без границ</div>
+          <h2>Большие идеи.<br /><em>Новые возможности.</em></h2>
+          <p className="mt-5 hidden max-w-sm text-sm leading-7 text-zinc-400 md:block">
+            Лучшие модели мира, ваши мысли и пространство, где из них рождается что-то большее.
+          </p>
+        </div>
+        <OrbitArt className="login-orbit" />
+        <div className="hidden items-end justify-between gap-5 border-t border-white/10 pt-5 md:flex">
+          <div>
+            <p className="text-xs text-zinc-300">Одно пространство. Много возможностей.</p>
+            <p className="mt-2 text-[11px] text-zinc-500">Диалоги · Изображения · Видео · Ассистенты</p>
           </div>
-          <h1 className="text-2xl font-semibold text-zinc-100">
+          <Sparkles className="size-5 shrink-0 text-violet-300" aria-hidden="true" />
+        </div>
+      </aside>
+      <div className="login-form-side">
+      <div className="relative w-full max-w-[360px]">
+        <div className="mb-8">
+          <div className="page-eyebrow"><span>01</span>Ваше пространство</div>
+          <h1 className="text-[30px] font-medium tracking-[-0.04em] text-zinc-100">
             {mode === "signin" ? "Вход в Nexus AI" : "Регистрация"}
           </h1>
-          <p className="mt-1 text-sm text-zinc-400">
-            Claude, GPT, Gemini и другие модели в одном месте
+          <p className="mt-3 text-sm leading-6 text-zinc-400">
+            {mode === "signin" ? "Хорошие идеи начинаются с диалога. Продолжим?" : "Создайте аккаунт — и дайте идеям больше свободы."}
           </p>
         </div>
 
@@ -127,6 +148,7 @@ export function LoginView({ social }: Props) {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Как вас зовут"
+              aria-label="Как вас зовут"
               autoComplete="name"
               className={field}
             />
@@ -137,6 +159,7 @@ export function LoginView({ social }: Props) {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="Почта"
+            aria-label="Почта"
             autoComplete="email"
             className={field}
           />
@@ -147,17 +170,19 @@ export function LoginView({ social }: Props) {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder={mode === "signup" ? "Пароль (от 8 символов)" : "Пароль"}
+            aria-label="Пароль"
             autoComplete={mode === "signup" ? "new-password" : "current-password"}
             className={field}
           />
-          {error && <p className="text-sm text-red-300">{error}</p>}
+          {error && <p role="alert" className="rounded-xl border border-red-400/20 bg-red-400/5 p-3 text-sm text-red-300">{error}</p>}
           <button
             type="submit"
             disabled={busy}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-zinc-100 py-2.5 text-sm font-medium text-zinc-900 transition hover:bg-white disabled:opacity-50"
+            className="nexus-button mt-2 flex h-[52px] w-full items-center justify-center gap-3 rounded-xl text-sm"
           >
             {busy && <LoaderCircle className="size-4 animate-spin" />}
             {mode === "signin" ? "Войти" : "Создать аккаунт"}
+            {!busy && <ArrowUpRight className="size-4" aria-hidden="true" />}
           </button>
         </form>
 
@@ -174,6 +199,11 @@ export function LoginView({ social }: Props) {
             {mode === "signin" ? "Зарегистрироваться" : "Войти"}
           </button>
         </p>
+        <div className="mt-8 flex items-center justify-center gap-2 border-t border-white/5 pt-6 text-[11px] text-zinc-500">
+          <LockKeyhole className="size-3.5" aria-hidden="true" />
+          Ваши диалоги доступны только вам
+        </div>
+      </div>
       </div>
     </div>
   );

@@ -74,7 +74,7 @@ export function Composer({
 
   return (
     <div className="mx-auto w-full max-w-3xl">
-      <div className="rounded-3xl border border-white/10 bg-zinc-900 p-2 shadow-xl shadow-black/20 focus-within:border-white/20">
+      <div className="composer-panel rounded-3xl border p-3 transition-colors">
         {attachments.length > 0 && (
           <div className="flex flex-wrap gap-2 p-2">
             {attachments.map((a, i) => (
@@ -109,6 +109,7 @@ export function Composer({
           onKeyDown={onKeyDown}
           onPaste={onPaste}
           placeholder={disabled ? "Сначала подключите провайдера в настройках" : "Спросите что угодно…"}
+          aria-label="Сообщение"
           disabled={disabled}
           className="max-h-60 w-full resize-none bg-transparent px-3 py-2 text-[15px] text-zinc-100 outline-none placeholder:text-zinc-500"
         />
@@ -139,6 +140,7 @@ export function Composer({
             <button
               type="button"
               onClick={() => onDeepThinkingChange(!deepThinking)}
+              aria-pressed={deepThinking}
               title="Модель дольше размышляет над ответом"
               className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition ${
                 deepThinking
@@ -158,7 +160,7 @@ export function Composer({
               type="button"
               onClick={onStop}
               title="Остановить"
-              className="rounded-full bg-zinc-100 p-2 text-zinc-900 transition hover:bg-white"
+              className="nexus-button rounded-xl p-2.5"
             >
               <Square className="size-4 fill-current" />
             </button>
@@ -168,7 +170,7 @@ export function Composer({
               onClick={submit}
               disabled={!canSend}
               title="Отправить"
-              className="rounded-full bg-zinc-100 p-2 text-zinc-900 transition hover:bg-white disabled:bg-zinc-700 disabled:text-zinc-400"
+              className="nexus-button rounded-xl p-2.5 disabled:!bg-zinc-800 disabled:!text-zinc-500"
             >
               <ArrowUp className="size-4" />
             </button>

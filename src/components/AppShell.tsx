@@ -2,6 +2,7 @@
 
 import {
   Bot,
+  ArrowUpRight,
   Clapperboard,
   Gem,
   Image as ImageIcon,
@@ -16,9 +17,10 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { relativeTime } from "@/lib/client/util";
 import { useApp } from "./AppState";
+import { BrandMark } from "./Design";
 
 const NAV = [
   { href: "/", label: "Чат", icon: MessageSquare },
@@ -34,7 +36,7 @@ function UserMenu() {
   if (!me) return null;
   const { used, limit } = me.usage.chat;
   return (
-    <div className="border-t border-white/5 p-3">
+    <div className="border-t border-white/5 px-3 py-4">
       <div className="flex items-center gap-3 rounded-xl px-2 py-1.5">
         <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-violet-500/20 text-sm font-medium text-violet-200">
           {(me.user.name || me.user.email).slice(0, 1).toUpperCase()}
@@ -49,7 +51,7 @@ function UserMenu() {
             )}
           </div>
           <div className="truncate text-xs text-zinc-500">
-            {limit === null ? "Без лимитов" : `Сообщений сегодня: ${used} из ${limit}`}
+            {limit === null ? "Без лимитов" : `${used} / ${limit} сообщений сегодня`}
           </div>
         </div>
         <button
@@ -85,24 +87,23 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2 px-4 py-4">
-        <div className="flex size-8 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-500">
-          <Sparkles className="size-4 text-white" />
-        </div>
-        <span className="text-lg font-semibold tracking-tight text-zinc-100">Nexus AI</span>
+      <div className="flex items-center gap-3 px-6 pb-7 pt-8">
+        <BrandMark />
+        <span className="brand-wordmark">Nexus <span>AI</span></span>
       </div>
 
-      <div className="px-3">
+      <div className="px-5">
         <button
           type="button"
           onClick={() => goToChat(null)}
-          className="flex w-full items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-sm text-zinc-100 transition hover:bg-white/5"
+          className="nexus-button flex w-full items-center gap-3 rounded-xl px-4 py-3 text-[13px]"
         >
           <MessageSquarePlus className="size-4" /> Новый чат
         </button>
       </div>
 
-      <nav className="mt-3 space-y-0.5 px-3">
+      <div className="section-label mb-2 mt-7 px-6">Пространство</div>
+      <nav aria-label="Основная навигация" className="space-y-1 px-5">
         {NAV.map(({ href, label, icon: Icon }) => {
           const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
           return (
@@ -110,8 +111,9 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
               key={href}
               href={href}
               onClick={onNavigate}
-              className={`flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition ${
-                active ? "bg-white/10 text-zinc-100" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-100"
+              aria-current={active ? "page" : undefined}
+              className={`sidebar-nav flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] ${
+                active ? "is-active" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-100"
               }`}
             >
               <Icon className="size-4" /> {label}
@@ -120,7 +122,13 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
         })}
       </nav>
 
-      <div className="mt-4 min-h-0 flex-1 overflow-y-auto px-3 pb-4">
+      <div className="mt-6 min-h-0 flex-1 overflow-y-auto px-5 pb-4">
+        <div className="section-label px-1">Ваши диалоги</div>
+        {rows.length === 0 && (
+          <div className="mt-4 rounded-xl border border-dashed border-white/10 px-3 py-4 text-[11px] leading-5 text-zinc-500">
+            Здесь будет история ваших идей.<br />Начните с нового диалога.
+          </div>
+        )}
         {rows.map(({ chat, header }) => {
           const active = pathname === "/" && app.activeChat?.id === chat.id;
           return (
@@ -160,6 +168,15 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
           );
         })}
       </div>
+      {app.me?.plan.id === "free" && (
+        <Link href="/pricing" onClick={onNavigate} className="sidebar-upgrade mx-5 mb-5 rounded-2xl border border-violet-300/15 p-4 hover:border-violet-300/35">
+          <div className="flex items-center justify-between text-xs font-medium text-violet-200">
+            <span className="flex items-center gap-2"><Sparkles className="size-3.5" /> Nexus Pro</span>
+            <ArrowUpRight className="size-4" />
+          </div>
+          <p className="mt-2 text-[11px] leading-5 text-zinc-400">Больше места для больших идей. Откройте возможности Pro.</p>
+        </Link>
+      )}
       <UserMenu />
     </div>
   );
@@ -167,22 +184,53 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
+  const menu = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
+
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const focusable = () => Array.from(menu.current?.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), a[href], input:not(:disabled), [tabindex="0"]',
+    ) ?? []);
+    focusable()[0]?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+      if (event.key !== "Tab") return;
+      const controls = focusable();
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      previous?.focus();
+    };
+  }, [open]);
+
   if (pathname === "/login") return <>{children}</>;
 
   return (
     <div className="flex h-dvh overflow-hidden bg-zinc-950 text-zinc-100">
-      <aside className="hidden w-72 shrink-0 border-r border-white/5 bg-zinc-900/60 md:block">
+      <aside className="app-sidebar hidden shrink-0 border-r border-white/5 md:block">
         <Sidebar onNavigate={() => {}} />
       </aside>
 
       {open && (
-        <div className="fixed inset-0 z-50 md:hidden">
-          <div className="absolute inset-0 bg-black/60" onClick={() => setOpen(false)} />
-          <aside className="absolute inset-y-0 left-0 w-72 max-w-[85vw] border-r border-white/10 bg-zinc-900">
+        <div ref={menu} className="fixed inset-0 z-50 md:hidden">
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setOpen(false)} />
+          <aside role="dialog" aria-modal="true" aria-label="Навигация" className="absolute inset-y-0 left-0 w-72 max-w-[85vw] border-r border-white/10 bg-zinc-950">
             <button
               type="button"
               onClick={() => setOpen(false)}
+              aria-label="Закрыть меню"
               className="absolute right-3 top-4 rounded-lg p-1.5 text-zinc-400 hover:text-zinc-100"
             >
               <X className="size-5" />
@@ -192,15 +240,20 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       )}
 
-      <main className="relative min-w-0 flex-1">
+      <main className="app-main relative min-w-0 flex-1">
+        <header className="mobile-bar">
+          <div className="flex items-center gap-2.5"><BrandMark className="!size-7 !rounded-lg" /><span className="brand-wordmark !text-base">Nexus <span>AI</span></span></div>
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="absolute left-3 top-3 z-30 rounded-lg p-1.5 text-zinc-400 hover:bg-white/5 hover:text-zinc-100 md:hidden"
+          className="rounded-lg border border-white/10 p-2 text-zinc-300 hover:bg-white/5"
           title="Меню"
+          aria-label="Меню"
+          aria-expanded={open}
         >
           <Menu className="size-5" />
         </button>
+        </header>
         {children}
       </main>
     </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { MessageSquare, Pencil, Plus, Trash2, X } from "lucide-react";
+import { ArrowUpRight, MessageSquare, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { uid } from "@/lib/client/util";
@@ -8,6 +8,7 @@ import { useModels } from "@/lib/client/useModels";
 import type { Assistant } from "@/lib/types";
 import { useApp } from "./AppState";
 import { ModelPicker } from "./ModelPicker";
+import { PageHeading } from "./Design";
 
 type Draft = Omit<Assistant, "id" | "createdAt"> & { id?: string; createdAt?: number };
 
@@ -99,10 +100,10 @@ function Editor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 sm:items-center sm:p-4">
-      <div className="max-h-[95dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-white/10 bg-zinc-900 p-5 sm:rounded-3xl">
+      <div role="dialog" aria-modal="true" aria-label={form.id ? "Редактировать ассистента" : "Новый ассистент"} className="model-popover max-h-[95dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-violet-300/20 p-6 sm:rounded-3xl sm:p-8">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">{form.id ? "Редактировать" : "Новый ассистент"}</h2>
-          <button type="button" onClick={onClose} className="text-zinc-400 hover:text-zinc-100">
+          <button type="button" onClick={onClose} aria-label="Закрыть редактор" className="rounded-lg p-1 text-zinc-400 hover:bg-white/5 hover:text-zinc-100">
             <X className="size-5" />
           </button>
         </div>
@@ -141,7 +142,7 @@ function Editor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
 
           <label className="block">
             <span className="mb-1 block text-xs text-zinc-400">
-              Инструкция (system prompt) — кто он, как себя ведёт, что знает
+              Инструкция — кто он, как себя ведёт, что знает
             </span>
             <textarea
               value={form.systemPrompt}
@@ -189,7 +190,7 @@ function Editor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
             type="button"
             onClick={() => void save()}
             disabled={!valid || saving}
-            className="rounded-xl bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-white disabled:opacity-40"
+            className="nexus-button rounded-xl px-5 py-2.5 text-sm"
           >
             Сохранить
           </button>
@@ -211,27 +212,21 @@ export function AssistantsView() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-5xl px-4 pb-16 pt-14 md:pt-8">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold text-zinc-100">Мои ассистенты</h1>
-            <p className="mt-1 text-sm text-zinc-400">
-              Создайте своего ИИ: задайте ему характер, знания и любимую модель.
-            </p>
-          </div>
+      <div className="page-content">
+        <PageHeading number="04" eyebrow="Ваша персональная команда" title="Мои ассистенты" description="Для каждой задачи — свой подход. Задайте характер, знания и любимую модель вашему ИИ.">
           <button
             type="button"
             onClick={() => setEditing(EMPTY)}
-            className="flex items-center gap-2 rounded-xl bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-white"
+            className="nexus-button flex items-center gap-2 rounded-xl px-4 py-3 text-[13px]"
           >
             <Plus className="size-4" /> Создать ассистента
           </button>
-        </div>
+        </PageHeading>
 
         {app.assistants.length > 0 && (
           <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {app.assistants.map((a) => (
-              <div key={a.id} className="flex flex-col rounded-2xl border border-white/10 bg-zinc-900 p-4">
+              <div key={a.id} className="surface-card flex flex-col rounded-2xl p-5">
                 <div className="flex items-start gap-3">
                   <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/5 text-xl">
                     {a.emoji}
@@ -284,14 +279,15 @@ export function AssistantsView() {
               key={t.name}
               type="button"
               onClick={() => setEditing(t)}
-              className="flex items-start gap-3 rounded-2xl border border-dashed border-white/10 p-4 text-left transition hover:border-white/20 hover:bg-white/5"
+              className="suggestion-card flex items-start gap-4 rounded-2xl p-5 text-left"
             >
               <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/5 text-xl">
                 {t.emoji}
               </div>
               <div className="min-w-0">
                 <div className="font-medium text-zinc-200">{t.name}</div>
-                <div className="text-xs text-zinc-500">{t.description}</div>
+                <div className="mt-1 text-xs leading-5 text-zinc-500">{t.description}</div>
+                <div className="mt-4 flex items-center gap-1.5 text-[11px] text-violet-300">Настроить ассистента <ArrowUpRight className="size-3" aria-hidden="true" /></div>
               </div>
             </button>
           ))}

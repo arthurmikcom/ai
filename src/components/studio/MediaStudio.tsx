@@ -1,6 +1,6 @@
 "use client";
 
-import { KeyRound, WandSparkles } from "lucide-react";
+import { Clapperboard, Image as ImageIcon, KeyRound, WandSparkles } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
 import { generate, removeMedia, useMediaItems } from "@/lib/client/media";
@@ -10,6 +10,7 @@ import type { AspectRatio, MediaKind } from "@/lib/types";
 import { useApp, type ModelChoice } from "../AppState";
 import { findModel, ModelPicker } from "../ModelPicker";
 import { MediaCard } from "./MediaCard";
+import { OrbitArt, PageHeading } from "../Design";
 
 const COPY: Record<MediaKind, { title: string; subtitle: string; placeholder: string; ideas: string[] }> = {
   image: {
@@ -76,33 +77,46 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-6xl px-4 pb-16 pt-14 md:pt-8">
-        <h1 className="text-2xl font-semibold text-zinc-100">{copy.title}</h1>
-        <p className="mt-1 text-sm text-zinc-400">{copy.subtitle}</p>
+      <div className="page-content">
+        <PageHeading number={kind === "image" ? "02" : "03"} eyebrow="Творческая студия" title={copy.title} description={copy.subtitle} />
+        <div className={`studio-hero ${kind === "video" ? "studio-hero-video" : ""}`}>
+          <div>
+            <div className="mb-4 flex items-center gap-2 text-[11px] text-violet-200">
+              {kind === "image" ? <ImageIcon className="size-4" /> : <Clapperboard className="size-4" />}
+              {kind === "image" ? "Воображение становится видимым" : "У каждой идеи есть движение"}
+            </div>
+            <h2 className="text-[26px] font-medium leading-tight tracking-[-0.04em] text-zinc-100">
+              {kind === "image" ? <>От нескольких слов<br />до целого мира.</> : <>Ваш замысел.<br />Следующий кадр.</>}
+            </h2>
+            <p className="mt-3 text-xs leading-6 text-zinc-400">Опишите то, что представляете. Остальное — дело ИИ.</p>
+          </div>
+          <OrbitArt />
+        </div>
 
         {noProviders ? (
-          <div className="mt-6 rounded-2xl border border-amber-400/30 bg-amber-400/10 p-5 text-sm text-amber-100">
+          <div className="empty-notice mt-6 rounded-2xl border p-5 text-sm text-zinc-200">
             <div className="mb-2 flex items-center gap-2 font-medium">
               <KeyRound className="size-4" /> Нет подключённых провайдеров для{" "}
               {kind === "image" ? "изображений" : "видео"}
             </div>
             {me?.admin ? (
               <>
-                <p className="mb-3 text-amber-100/80">
+                <p className="mb-3 text-zinc-400">
                   {kind === "image"
                     ? "Добавьте OPENAI_API_KEY, GEMINI_API_KEY или REPLICATE_API_TOKEN в переменные окружения сервера."
                     : "Добавьте GEMINI_API_KEY (Veo) или REPLICATE_API_TOKEN в переменные окружения сервера."}
                 </p>
-                <Link href="/settings" className="font-medium text-amber-200 underline">
+                <Link href="/settings" className="font-medium text-violet-200 underline">
                   Открыть настройки →
                 </Link>
               </>
             ) : (
-              <p className="text-amber-100/80">Эта функция скоро появится.</p>
+              <p className="text-zinc-400">Эта функция скоро появится.</p>
             )}
           </div>
         ) : (
-          <div className="mt-6 rounded-3xl border border-white/10 bg-zinc-900 p-3">
+          <div className="composer-panel mt-6 rounded-3xl border p-4 md:p-5">
+            <div className="section-label mb-3 px-2">Опишите вашу идею</div>
             <textarea
               ref={promptRef}
               value={prompt}
@@ -112,6 +126,7 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
               }}
               rows={3}
               placeholder={copy.placeholder}
+              aria-label={copy.placeholder}
               className="w-full resize-none bg-transparent px-2 py-1 text-[15px] text-zinc-100 outline-none placeholder:text-zinc-500"
             />
             <div className="flex flex-wrap items-center gap-2 border-t border-white/5 pt-2">
@@ -148,7 +163,7 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
                 type="button"
                 onClick={submit}
                 disabled={!canGenerate}
-                className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-violet-500/20 transition hover:brightness-110 disabled:opacity-40"
+                className="nexus-button flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm"
               >
                 <WandSparkles className="size-4" />
                 Сгенерировать
@@ -193,9 +208,13 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
             ))}
           </div>
         ) : (
-          <p className="mt-16 text-center text-sm text-zinc-600">
-            Здесь появятся ваши {kind === "image" ? "изображения" : "видео"}. Всё хранится в вашем браузере.
-          </p>
+          <div className="studio-empty mt-8">
+            <div className="mb-5 flex size-12 items-center justify-center rounded-2xl border border-violet-300/15 bg-violet-300/5 text-violet-300">
+              {kind === "image" ? <ImageIcon className="size-5" /> : <Clapperboard className="size-5" />}
+            </div>
+            <h3 className="text-base font-medium text-zinc-200">Ваша коллекция начинается здесь</h3>
+            <p className="mt-2 max-w-xs text-xs leading-6 text-zinc-500">Здесь появятся ваши {kind === "image" ? "изображения" : "видео"}. Создайте что-то, что ещё никто не видел.</p>
+          </div>
         )}
       </div>
     </div>

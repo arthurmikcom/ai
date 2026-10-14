@@ -7,6 +7,7 @@ import { useModels } from "@/lib/client/useModels";
 import type { Capability, UsageKind } from "@/lib/types";
 import { useApp } from "./AppState";
 import { BillingSection, PromoAdmin } from "./BillingSection";
+import { PageHeading } from "./Design";
 
 const CAPABILITY_LABEL: Record<Capability, string> = {
   chat: "чат",
@@ -151,25 +152,28 @@ export function SettingsView() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-3xl px-4 pb-16 pt-14 md:pt-8">
-        <h1 className="text-2xl font-semibold text-zinc-100">Настройки</h1>
+      <div className="page-content !max-w-[1000px]">
+        <PageHeading number="06" eyebrow="Всё под вашим контролем" title="Настройки" description="Ваш профиль, подписка и возможности. Пространство, которое работает так, как удобно вам." />
 
         <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wider text-zinc-500">Аккаунт</h2>
-        <div className="rounded-2xl border border-white/10 bg-zinc-900 p-4">
+        <div className="surface-card rounded-2xl p-5 md:p-7">
           {me ? (
             <>
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="font-medium text-zinc-100">{me.user.name}</div>
-                  <div className="text-sm text-zinc-400">{me.user.email}</div>
+                <div className="flex min-w-0 items-center gap-4">
+                  <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-violet-300/20 bg-violet-300/10 text-lg font-medium text-violet-200" aria-hidden="true">{(me.user.name || me.user.email).slice(0, 1).toUpperCase()}</div>
+                  <div className="min-w-0">
+                  <div className="text-lg font-medium text-zinc-100">{me.user.name}</div>
+                  <div className="break-all text-sm text-zinc-400">{me.user.email}</div>
                   <button
                     type="button"
                     title="Скопировать ID аккаунта"
                     onClick={() => void navigator.clipboard.writeText(me.user.id)}
-                    className="mt-1 font-mono text-[11px] text-zinc-600 hover:text-zinc-400"
+                    className="mt-2 break-all text-left font-mono text-[10px] text-zinc-500 hover:text-zinc-300"
                   >
                     ID: {me.user.id}
                   </button>
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -188,7 +192,7 @@ export function SettingsView() {
                   const { used, limit } = me.usage[kind];
                   const share = limit ? Math.min(100, (used / limit) * 100) : 0;
                   return (
-                    <div key={kind} className="rounded-xl bg-black/30 p-3">
+                    <div key={kind} className="rounded-xl border border-white/5 bg-black/15 p-4">
                       <div className="text-xs text-zinc-500">{USAGE_LABEL[kind]}</div>
                       <div className="mt-1 text-sm text-zinc-200">
                         {limit === null ? `${used} · без лимита` : `${used} из ${limit}`}
