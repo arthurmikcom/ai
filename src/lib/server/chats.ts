@@ -30,6 +30,7 @@ function toMessage(row: MessageRow): ChatMessage {
     model: row.model ?? undefined,
     error: row.error ?? undefined,
     notice: row.notice ?? undefined,
+    sources: row.sources ?? undefined,
     createdAt: row.createdAt.getTime(),
   };
 }

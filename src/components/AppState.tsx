@@ -26,6 +26,7 @@ import type {
   MeResponse,
   ProviderId,
   SendOptions,
+  Source,
 } from "@/lib/types";
 
 const MODEL_KEY = "nexus:model";
@@ -168,7 +169,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
             content: "",
             provider: c.provider,
             model: c.model,
-            generating: options.image ? "image" : undefined,
+            generating: options.image ? "image" : options.webSearch ? "search" : undefined,
             createdAt: Date.now(),
           },
         ],
@@ -182,6 +183,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       let reasoning = "";
       let notice = "";
       const images: Attachment[] = [];
+      const sources: Source[] = [];
       // A picture is credited to the image model that drew it, not the chat model.
       let drawnBy: Pick<ChatMessage, "provider" | "model"> = {};
       let lastFlush = 0;
@@ -194,6 +196,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           reasoning: reasoning || undefined,
           notice: notice || undefined,
           attachments: images.length ? [...images] : undefined,
+          sources: sources.length ? [...sources] : undefined,
           ...drawnBy,
         });
       };
@@ -207,6 +210,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           model: chat.model,
           deepThinking: options.deepThinking,
           image: options.image,
+          webSearch: options.webSearch,
           message: message && {
             id: message.id,
             content: message.content,
@@ -225,6 +229,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           if (event.type === "text") text += event.text;
           else if (event.type === "reasoning") reasoning += event.text;
           else if (event.type === "notice") notice = notice ? `${notice}\n${event.text}` : event.text;
+          else if (event.type === "source") sources.push({ url: event.url, title: event.title });
           else if (event.type === "image") {
             images.push({ url: event.url, mime: event.mime });
             drawnBy = { provider: event.provider, model: event.model };

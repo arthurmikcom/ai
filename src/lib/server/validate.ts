@@ -20,7 +20,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 /** Returns the parsed request, or an error message for the client. */
 export function parseChatSendRequest(body: unknown): ChatSendRequest | string {
   if (!isObject(body)) return "Пустой запрос";
-  const { chatId, create, provider, model, deepThinking, image, message, answerId } = body;
+  const { chatId, create, provider, model, deepThinking, image, webSearch, message, answerId } = body;
   if (!isValidId(chatId) || !isValidId(answerId)) return "Неверный идентификатор";
   if (!isProvider(provider)) return "Неизвестный провайдер";
   if (typeof model !== "string" || !model || model.length > 200) return "Не выбрана модель";
@@ -63,6 +63,7 @@ export function parseChatSendRequest(body: unknown): ChatSendRequest | string {
     model,
     deepThinking: deepThinking === true,
     image: image === true,
+    webSearch: webSearch === true,
     message: parsedMessage,
     answerId,
   };

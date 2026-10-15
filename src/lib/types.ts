@@ -24,6 +24,8 @@ export interface ModelInfo {
   vision?: boolean;
   /** Supports the "think deeper" toggle. */
   reasoning?: boolean;
+  /** Can look things up on the web while answering. */
+  search?: boolean;
 }
 
 export interface ProviderStatus {
@@ -53,6 +55,12 @@ export interface Attachment {
   name?: string;
 }
 
+/** A web page the answer is based on (web search). */
+export interface Source {
+  url: string;
+  title?: string;
+}
+
 /** What the server sends to the model provider: always inline bytes. */
 export interface InlineImage {
   mime: string;
@@ -71,8 +79,10 @@ export interface ChatMessage {
   /** "limit" when the daily limit stopped this message (not stored). */
   errorCode?: string;
   notice?: string;
-  /** Browser only: this answer is a picture still being drawn. */
-  generating?: "image";
+  /** Pages found by web search for this answer. */
+  sources?: Source[];
+  /** Browser only: what the pending answer is busy with (drawing, searching). */
+  generating?: "image" | "search";
   createdAt: number;
 }
 
@@ -106,6 +116,8 @@ export interface SendOptions {
   deepThinking: boolean;
   /** Draw a picture instead of answering with text. */
   image?: boolean;
+  /** Let the model search the web. */
+  webSearch?: boolean;
 }
 
 /** Browser → /api/chat. The server loads the history itself. */
@@ -118,6 +130,8 @@ export interface ChatSendRequest {
   deepThinking?: boolean;
   /** Draw a picture from the message instead of answering with text. */
   image?: boolean;
+  /** Let the model search the web (models with `search`). */
+  webSearch?: boolean;
   /** The new user message; omitted when regenerating the last answer. */
   message?: { id: string; content: string; attachments?: InlineImage[] };
   /** Id for the assistant message the server will store. */
@@ -130,6 +144,7 @@ export interface ChatRequest {
   model: string;
   system?: string;
   deepThinking?: boolean;
+  webSearch?: boolean;
   messages: { role: "user" | "assistant"; content: string; attachments?: InlineImage[] }[];
 }
 
@@ -137,6 +152,7 @@ export type ChatStreamEvent =
   | { type: "text"; text: string }
   | { type: "reasoning"; text: string }
   | { type: "notice"; text: string }
+  | { type: "source"; url: string; title?: string }
   /** A picture drawn in the chat, and the image model that drew it. */
   | { type: "image"; url: string; mime: string; provider: ProviderId; model: string }
   | { type: "error"; message: string }

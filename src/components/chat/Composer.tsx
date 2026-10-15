@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, Brain, Palette, Paperclip, Square, X } from "lucide-react";
+import { ArrowUp, Brain, Globe, Palette, Paperclip, Square, X } from "lucide-react";
 import { useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
 import { imageToAttachment } from "@/lib/client/util";
 import type { Attachment, ModelInfo } from "@/lib/types";
@@ -11,6 +11,9 @@ interface Props {
   streaming: boolean;
   deepThinking: boolean;
   onDeepThinkingChange: (value: boolean) => void;
+  /** Search the web while answering (models with `search`). */
+  webSearch: boolean;
+  onWebSearchChange: (value: boolean) => void;
   /** An image model is available, so the "draw" toggle can be offered. */
   canDraw: boolean;
   /** The next message is a picture description, not a question. */
@@ -28,6 +31,8 @@ export function Composer({
   streaming,
   deepThinking,
   onDeepThinkingChange,
+  webSearch,
+  onWebSearchChange,
   canDraw,
   imageMode,
   onImageModeChange,
@@ -170,6 +175,23 @@ export function Composer({
             >
               <Palette className="size-4" />
               Картинка
+            </button>
+          )}
+
+          {model?.search && !imageMode && (
+            <button
+              type="button"
+              onClick={() => onWebSearchChange(!webSearch)}
+              aria-pressed={webSearch}
+              title="Искать свежую информацию в интернете и показывать источники"
+              className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition ${
+                webSearch
+                  ? "bg-violet-500/20 text-violet-200"
+                  : "text-zinc-400 hover:bg-white/5 hover:text-zinc-100"
+              }`}
+            >
+              <Globe className="size-4" />
+              Поиск
             </button>
           )}
 

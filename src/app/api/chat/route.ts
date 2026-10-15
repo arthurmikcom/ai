@@ -9,7 +9,7 @@ import { jsonError, requireUser } from "@/lib/server/http";
 import { fileUrl, newKey, putFile, readFileBase64 } from "@/lib/server/storage";
 import { consume, limitResponse, refund } from "@/lib/server/usage";
 import { parseChatSendRequest } from "@/lib/server/validate";
-import type { ChatRequest, ChatStreamEvent, InlineImage, UsageKind } from "@/lib/types";
+import type { ChatRequest, ChatStreamEvent, InlineImage, Source, UsageKind } from "@/lib/types";
 
 // Long answers from reasoning models can take several minutes.
 export const maxDuration = 300;
@@ -146,6 +146,7 @@ export async function POST(request: Request) {
     model: req.model,
     system: assistant?.systemPrompt || DEFAULT_SYSTEM,
     deepThinking: req.deepThinking,
+    webSearch: req.webSearch,
     messages: mergeTurns(history),
   };
   const chatId = chat.id;
@@ -164,6 +165,7 @@ export async function POST(request: Request) {
       let text = "";
       let reasoning = "";
       const notices: string[] = [];
+      const sources: Source[] = [];
       let error: string | undefined;
 
       try {
@@ -171,6 +173,7 @@ export async function POST(request: Request) {
           if (event.type === "text") text += event.text;
           else if (event.type === "reasoning") reasoning += event.text;
           else if (event.type === "notice") notices.push(event.text);
+          else if (event.type === "source") sources.push({ url: event.url, title: event.title });
           send(event);
         }
         send({ type: "done" });
@@ -193,6 +196,7 @@ export async function POST(request: Request) {
             content: text,
             reasoning: reasoning || null,
             notice: notices.length ? notices.join("\n") : null,
+            sources: sources.length ? sources.slice(0, 20) : null,
             error: error ?? null,
             provider: req.provider,
             model: req.model,

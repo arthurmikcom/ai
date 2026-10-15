@@ -33,6 +33,7 @@ export function ChatView() {
   const chat = app.activeChat;
   const [deepThinking, setDeepThinking] = useState(false);
   const [imageMode, setImageMode] = useState(false);
+  const [webSearch, setWebSearch] = useState(false);
   // Drawing in the chat needs at least one image model on the server.
   const images = useModels("image");
   const canDraw = Boolean(images.data?.models.length);
@@ -115,7 +116,11 @@ export function ChatView() {
                 isLast={i === chat.messages.length - 1}
                 streaming={streaming && i === chat.messages.length - 1}
                 onRegenerate={() =>
-                  app.regenerate(chat.id, { deepThinking, image: Boolean(m.attachments?.length) })
+                  app.regenerate(chat.id, {
+                    deepThinking,
+                    image: Boolean(m.attachments?.length),
+                    webSearch: webSearch && Boolean(current?.search),
+                  })
                 }
               />
             ))}
@@ -160,7 +165,7 @@ export function ChatView() {
                 )}
             <div className="home-actions">
               {SUGGESTIONS.slice(0, 2).map((s, index) => (
-                <button key={s.title} type="button" disabled={!current || noProviders} onClick={() => app.send(s.text, [], { deepThinking }, choice)} className={`home-action-card home-action-${index}`}>
+                <button key={s.title} type="button" disabled={!current || noProviders} onClick={() => app.send(s.text, [], { deepThinking, webSearch: webSearch && Boolean(current?.search) }, choice)} className={`home-action-card home-action-${index}`}>
                   <div className="home-action-top"><span className="home-action-icon"><s.icon className="size-6" /></span><ArrowUpRight className="size-4" /></div>
                   <h2>{s.title}</h2>
                   <p className="line-clamp-3">{s.text}</p>
@@ -179,7 +184,7 @@ export function ChatView() {
             <div className="home-extra-prompts">
               <span>Ещё идеи:</span>
               {SUGGESTIONS.slice(2).map(s => (
-                <button key={s.title} type="button" title={s.text} disabled={!current || noProviders} onClick={() => app.send(s.text, [], { deepThinking }, choice)}><s.icon className="size-3.5" />{s.title}</button>
+                <button key={s.title} type="button" title={s.text} disabled={!current || noProviders} onClick={() => app.send(s.text, [], { deepThinking, webSearch: webSearch && Boolean(current?.search) }, choice)}><s.icon className="size-3.5" />{s.title}</button>
               ))}
             </div>
 
@@ -207,12 +212,19 @@ export function ChatView() {
           streaming={streaming}
           deepThinking={deepThinking}
           onDeepThinkingChange={setDeepThinking}
+          webSearch={webSearch && Boolean(current?.search)}
+          onWebSearchChange={setWebSearch}
           canDraw={canDraw}
           imageMode={imageMode && canDraw}
           onImageModeChange={setImageMode}
           onSend={(text, attachments) => {
             stickToBottom.current = true;
-            app.send(text, attachments, { deepThinking, image: imageMode && canDraw }, choice);
+            app.send(
+              text,
+              attachments,
+              { deepThinking, image: imageMode && canDraw, webSearch: webSearch && Boolean(current?.search) },
+              choice,
+            );
           }}
           onStop={() => chat && app.stop(chat.id)}
         />

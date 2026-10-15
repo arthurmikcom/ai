@@ -155,9 +155,15 @@ function classify(provider: ProviderId, m: LiveModel): Capability | null {
   }
 }
 
+/** Web search is offered through OpenRouter's server tool. */
+function canSearch(provider: ProviderId, capability: Capability): boolean | undefined {
+  return provider === "openrouter" && capability === "chat" ? true : undefined;
+}
+
 function liveModelInfo(provider: ProviderId, capability: Capability, m: LiveModel): ModelInfo {
   const id = m.id;
   return {
+    search: canSearch(provider, capability),
     id,
     provider,
     label: m.name || id,
@@ -178,7 +184,7 @@ async function modelsFor(provider: ProviderId, capability: Capability): Promise<
   const featured = picks
     .filter((m) => !(m.upstream && isConfigured(m.upstream)))
     .map((m): ModelInfo => {
-      const info: ModelInfo & { upstream?: ProviderId } = { ...m, featured: true };
+      const info: ModelInfo & { upstream?: ProviderId } = { ...m, featured: true, search: canSearch(provider, capability) };
       delete info.upstream;
       return info;
     });

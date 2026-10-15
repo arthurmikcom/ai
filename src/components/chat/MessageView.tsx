@@ -1,6 +1,6 @@
 "use client";
 
-import { Brain, Check, ChevronDown, Copy, Download, Info, LoaderCircle, RefreshCw, TriangleAlert } from "lucide-react";
+import { Brain, Check, ChevronDown, Copy, Download, Globe, Info, LoaderCircle, RefreshCw, TriangleAlert } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import type { ChatMessage, ModelInfo } from "@/lib/types";
@@ -84,7 +84,14 @@ export function MessageView({ message, models, streaming, isLast, onRegenerate }
         <Reasoning text={message.reasoning} active={streaming && !message.content} />
       )}
 
-      {waiting && (
+      {waiting && message.generating === "search" && (
+        <div className="flex items-center gap-2 py-2 text-sm text-zinc-400">
+          <Globe className="size-4 animate-pulse text-violet-300" />
+          Ищу в интернете…
+        </div>
+      )}
+
+      {waiting && message.generating !== "search" && (
         <div className="flex items-center gap-1.5 py-2">
           <span className="size-2 animate-bounce rounded-full bg-zinc-400 [animation-delay:-0.3s]" />
           <span className="size-2 animate-bounce rounded-full bg-zinc-400 [animation-delay:-0.15s]" />
@@ -128,6 +135,38 @@ export function MessageView({ message, models, streaming, isLast, onRegenerate }
       )}
 
       {message.content && <Markdown text={message.content} />}
+
+      {message.sources && message.sources.length > 0 && (
+        <div className="mt-4">
+          <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-zinc-400">
+            <Globe className="size-3.5" /> Источники
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {message.sources.map((s, i) => {
+              let host = s.url;
+              try {
+                host = new URL(s.url).hostname.replace(/^www\./, "");
+              } catch {
+                // keep the raw URL
+              }
+              return (
+                <a
+                  key={s.url}
+                  href={s.url}
+                  target="_blank"
+                  rel="noopener noreferrer nofollow"
+                  title={s.title || s.url}
+                  className="flex max-w-xs items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-zinc-300 hover:border-violet-300/30 hover:text-zinc-100"
+                >
+                  <span className="text-zinc-500">{i + 1}</span>
+                  <span className="truncate">{s.title || host}</span>
+                  <span className="shrink-0 text-zinc-500">{host}</span>
+                </a>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {message.notice && (
         <div className="mt-2 flex items-start gap-2 rounded-xl bg-zinc-800/60 px-3 py-2 text-xs text-zinc-400">
