@@ -1,7 +1,8 @@
 import type { GenerateRequest, GenerateResult, MediaKind, MediaOutput, ProviderId } from "@/lib/types";
-import { apiKey } from "../config";
+import { apiKey, openRouterBase } from "../config";
 import { checkGoogleVideo, generateGoogleImage, startGoogleVideo } from "./google";
 import { generateOpenAIImage } from "./openai";
+import { checkOpenRouterVideo, generateOpenRouterImage, startOpenRouterVideo } from "./openrouter";
 import { checkReplicate, startReplicate } from "./replicate";
 
 export async function startGeneration(req: GenerateRequest): Promise<GenerateResult> {
@@ -10,6 +11,9 @@ export async function startGeneration(req: GenerateRequest): Promise<GenerateRes
     return req.kind === "image" ? generateGoogleImage(req) : startGoogleVideo(req);
   }
   if (req.provider === "openai" && req.kind === "image") return generateOpenAIImage(req);
+  if (req.provider === "openrouter") {
+    return req.kind === "image" ? generateOpenRouterImage(req) : startOpenRouterVideo(req);
+  }
   return {
     status: "failed",
     error: `Провайдер ${req.provider} не умеет генерировать ${req.kind === "image" ? "изображения" : "видео"}.`,
@@ -23,6 +27,7 @@ export async function checkGeneration(
 ): Promise<GenerateResult> {
   if (provider === "replicate") return checkReplicate(jobId);
   if (provider === "google" && kind === "video") return checkGoogleVideo(jobId);
+  if (provider === "openrouter" && kind === "video") return checkOpenRouterVideo(jobId);
   return { status: "failed", error: "Для этого провайдера нет фоновых задач." };
 }
 
@@ -39,6 +44,18 @@ function mediaSource(
     url = new URL(rawUrl);
   } catch {
     return null;
+  }
+
+  // OpenRouter videos are downloaded from its own API with our key. The URL
+  // is built by us from the job id, and is checked against the API root
+  // (which may be a local mock over http in tests).
+  if (provider === "openrouter") {
+    const base = new URL(openRouterBase());
+    const key = apiKey("openrouter");
+    const videos = `${base.pathname.replace(/\/+$/, "")}/videos/`;
+    return key && url.origin === base.origin && url.pathname.startsWith(videos)
+      ? { url, headers: { Authorization: `Bearer ${key}` } }
+      : null;
   }
   if (url.protocol !== "https:") return null;
 

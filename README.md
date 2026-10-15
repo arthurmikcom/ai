@@ -85,11 +85,15 @@ npm run dev
 | `ANTHROPIC_API_KEY` | Claude Opus 5.5, Sonnet 5.5, Haiku 5.5, Fable 5.1 | [console.anthropic.com](https://console.anthropic.com/settings/keys) |
 | `OPENAI_API_KEY` | GPT-6 Astra, GPT-6.1 Sol и др. + GPT Image | [platform.openai.com](https://platform.openai.com/api-keys) |
 | `GEMINI_API_KEY` | Gemini 3.x, Imagen, Nano Banana, видео Veo | [aistudio.google.com](https://aistudio.google.com/apikey) |
-| `OPENROUTER_API_KEY` | Сотни открытых и коммерческих моделей | [openrouter.ai](https://openrouter.ai/keys) |
+| `OPENROUTER_API_KEY` | **Один ключ на всё:** Claude, GPT, Gemini, Grok, DeepSeek и сотни других, картинки (Nano Banana, GPT Image, FLUX) и видео (Veo, Seedance, Kling) | [openrouter.ai](https://openrouter.ai/keys) |
 | `DEEPSEEK_API_KEY` | DeepSeek Chat / Reasoner | [platform.deepseek.com](https://platform.deepseek.com/api_keys) |
 | `XAI_API_KEY` | Grok | [console.x.ai](https://console.x.ai) |
 | `OLLAMA_BASE_URL` | Ваши локальные модели | [ollama.com](https://ollama.com/download) |
 | `REPLICATE_API_TOKEN` | FLUX, Ideogram, Recraft, Kling, Veo, Seedance… | [replicate.com](https://replicate.com/account/api-tokens) |
+
+Если задан только ключ OpenRouter, флагманы Claude, GPT и Gemini показываются через него. Когда есть и «родной» ключ провайдера (например `ANTHROPIC_API_KEY`), модель берётся напрямую, без дубля в списке.
+
+Картинки можно рисовать прямо в чате: кнопка **«Картинка»** в поле ввода. Такая картинка расходует дневной лимит изображений, а не сообщений.
 
 Список моделей не зашит намертво: сервер сверяет подобранные модели с живыми списками провайдеров. Устаревшие модели пропадают сами, а новые появляются в разделе «Показать ещё». На странице изображений и видео можно вписать **любую** модель Replicate в формате `owner/name`.
 
@@ -142,7 +146,7 @@ drizzle/                  миграции базы данных
 - [ ] Подтверждение почты и восстановление пароля (нужен почтовый сервис)
 - [ ] Чат с документами: PDF, таблицы, база знаний (RAG)
 - [ ] Веб-поиск в ответах
-- [ ] Генерация картинок прямо из чата
+- [x] Генерация картинок прямо из чата
 - [ ] Голосовой режим
 - [ ] Публичное API для разработчиков
 - [ ] Дообучение своих моделей (LoRA)

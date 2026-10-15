@@ -71,6 +71,8 @@ export interface ChatMessage {
   /** "limit" when the daily limit stopped this message (not stored). */
   errorCode?: string;
   notice?: string;
+  /** Browser only: this answer is a picture still being drawn. */
+  generating?: "image";
   createdAt: number;
 }
 
@@ -99,6 +101,13 @@ export interface Assistant {
   createdAt: number;
 }
 
+/** How the browser asks for the next answer. */
+export interface SendOptions {
+  deepThinking: boolean;
+  /** Draw a picture instead of answering with text. */
+  image?: boolean;
+}
+
 /** Browser → /api/chat. The server loads the history itself. */
 export interface ChatSendRequest {
   chatId: string;
@@ -107,6 +116,8 @@ export interface ChatSendRequest {
   provider: ProviderId;
   model: string;
   deepThinking?: boolean;
+  /** Draw a picture from the message instead of answering with text. */
+  image?: boolean;
   /** The new user message; omitted when regenerating the last answer. */
   message?: { id: string; content: string; attachments?: InlineImage[] };
   /** Id for the assistant message the server will store. */
@@ -126,6 +137,8 @@ export type ChatStreamEvent =
   | { type: "text"; text: string }
   | { type: "reasoning"; text: string }
   | { type: "notice"; text: string }
+  /** A picture drawn in the chat, and the image model that drew it. */
+  | { type: "image"; url: string; mime: string; provider: ProviderId; model: string }
   | { type: "error"; message: string }
   | { type: "done" };
 

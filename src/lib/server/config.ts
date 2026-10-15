@@ -57,8 +57,12 @@ export function googleClient(): GoogleGenAI {
   return new GoogleGenAI({ apiKey: requireKey("google") });
 }
 
+/** OpenRouter API root; OPENROUTER_BASE_URL points it at a local mock for testing. */
+export function openRouterBase(): string {
+  return (env("OPENROUTER_BASE_URL") ?? "https://openrouter.ai/api/v1").replace(/\/+$/, "");
+}
+
 const OPENAI_COMPATIBLE_BASE_URLS: Partial<Record<ProviderId, string>> = {
-  openrouter: "https://openrouter.ai/api/v1",
   deepseek: "https://api.deepseek.com",
   xai: "https://api.x.ai/v1",
 };
@@ -67,6 +71,7 @@ export function isOpenAICompatible(provider: ProviderId): boolean {
   return (
     provider === "openai" ||
     provider === "ollama" ||
+    provider === "openrouter" ||
     provider in OPENAI_COMPATIBLE_BASE_URLS
   );
 }
@@ -85,7 +90,7 @@ export function openAIClient(provider: ProviderId): OpenAI {
   }
   return new OpenAI({
     apiKey: requireKey(provider),
-    baseURL: OPENAI_COMPATIBLE_BASE_URLS[provider],
+    baseURL: provider === "openrouter" ? openRouterBase() : OPENAI_COMPATIBLE_BASE_URLS[provider],
     defaultHeaders:
       provider === "openrouter"
         ? { "X-Title": "Nexus AI" }

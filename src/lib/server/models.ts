@@ -10,6 +10,7 @@ import {
   isConfigured,
   isOpenAICompatible,
   openAIClient,
+  openRouterBase,
 } from "./config";
 
 interface LiveModel {
@@ -17,11 +18,23 @@ interface LiveModel {
   name?: string;
   /** Google only: which API methods the model supports. */
   actions?: string[];
+  /** OpenRouter lists each kind separately, so it knows. */
+  capability?: Capability;
+  vision?: boolean;
+  reasoning?: boolean;
+}
+
+/** One entry of OpenRouter's model lists (/models, /images/models, /videos/models). */
+interface OpenRouterModel {
+  id: string;
+  name?: string;
+  architecture?: { input_modalities?: string[] };
+  supported_parameters?: string[] | Record<string, unknown>;
 }
 
 const TTL_MS = 10 * 60 * 1000;
 const LIVE_TIMEOUT_MS = 8000;
-const cache = new Map<ProviderId, { at: number; models: Promise<LiveModel[] | null> }>();
+const cache = new Map<string, { at: number; models: Promise<LiveModel[] | null> }>();
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([
@@ -39,7 +52,27 @@ async function collect<T>(iterable: AsyncIterable<T>, limit = 2000): Promise<T[]
   return out;
 }
 
-async function fetchLive(provider: ProviderId): Promise<LiveModel[] | null> {
+async function openRouterList(capability: Capability): Promise<LiveModel[]> {
+  const path = capability === "chat" ? "/models" : `/${capability === "image" ? "images" : "videos"}/models`;
+  const res = await fetch(`${openRouterBase()}${path}`, {
+    headers: { Authorization: `Bearer ${apiKey("openrouter")}` },
+  });
+  if (!res.ok) throw new Error(`OpenRouter ${path}: HTTP ${res.status}`);
+  const { data } = (await res.json()) as { data?: OpenRouterModel[] };
+  return (data ?? [])
+    // "~…-latest" aliases duplicate real models; ":batch" ids are for the Batch API.
+    .filter((m) => typeof m.id === "string" && !m.id.startsWith("~") && !m.id.endsWith(":batch"))
+    .map((m) => ({
+      id: m.id,
+      name: m.name,
+      capability,
+      vision: m.architecture?.input_modalities?.includes("image"),
+      reasoning: Array.isArray(m.supported_parameters) && m.supported_parameters.includes("reasoning"),
+    }));
+}
+
+async function fetchLive(provider: ProviderId, capability: Capability): Promise<LiveModel[] | null> {
+  if (provider === "openrouter") return openRouterList(capability);
   if (provider === "anthropic") {
     const models = await collect(anthropicClient().models.list({ limit: 100 }));
     return models.map((m) => ({ id: m.id, name: m.display_name }));
@@ -78,11 +111,13 @@ async function fetchLive(provider: ProviderId): Promise<LiveModel[] | null> {
 }
 
 /** Live model list for a provider, or null when it can't be fetched. */
-function liveModels(provider: ProviderId): Promise<LiveModel[] | null> {
-  const hit = cache.get(provider);
+function liveModels(provider: ProviderId, capability: Capability): Promise<LiveModel[] | null> {
+  // Only OpenRouter has a separate list per capability; others list everything at once.
+  const key = provider === "openrouter" ? `${provider}:${capability}` : provider;
+  const hit = cache.get(key);
   if (hit && Date.now() - hit.at < TTL_MS) return hit.models;
-  const models = withTimeout(fetchLive(provider), LIVE_TIMEOUT_MS).catch(() => null);
-  cache.set(provider, { at: Date.now(), models });
+  const models = withTimeout(fetchLive(provider, capability), LIVE_TIMEOUT_MS).catch(() => null);
+  cache.set(key, { at: Date.now(), models });
   return models;
 }
 
@@ -111,6 +146,7 @@ function classify(provider: ProviderId, m: LiveModel): Capability | null {
     case "xai":
       return /(image|imagine|video)/.test(id) ? null : "chat";
     case "openrouter":
+      return m.capability ?? "chat";
     case "deepseek":
     case "ollama":
       return "chat";
@@ -127,8 +163,9 @@ function liveModelInfo(provider: ProviderId, capability: Capability, m: LiveMode
     label: m.name || id,
     capability,
     featured: false,
-    vision: provider === "anthropic" || provider === "google" ? true : undefined,
+    vision: provider === "anthropic" || provider === "google" ? true : m.vision,
     reasoning:
+      m.reasoning ||
       (provider === "anthropic" && ADAPTIVE_THINKING.test(id)) ||
       (provider === "openai" && OPENAI_REASONING.test(id)) ||
       (provider === "google" && THINKING_LEVEL_MODELS.test(id)),
@@ -136,18 +173,22 @@ function liveModelInfo(provider: ProviderId, capability: Capability, m: LiveMode
 }
 
 async function modelsFor(provider: ProviderId, capability: Capability): Promise<ModelInfo[]> {
-  const featured = FEATURED_MODELS.filter(
-    (m) => m.provider === provider && m.capability === capability,
-  );
-  const live = await liveModels(provider);
+  const picks = FEATURED_MODELS.filter((m) => m.provider === provider && m.capability === capability);
+  // A flagship offered through OpenRouter only stays on top when its own provider isn't set up.
+  const featured = picks
+    .filter((m) => !(m.upstream && isConfigured(m.upstream)))
+    .map((m): ModelInfo => {
+      const info: ModelInfo & { upstream?: ProviderId } = { ...m, featured: true };
+      delete info.upstream;
+      return info;
+    });
+  const live = await liveModels(provider, capability);
 
   // Provider unreachable: trust the curated list.
-  if (live === null) return featured.map((m) => ({ ...m, featured: true }));
+  if (live === null) return featured;
 
   const liveIds = new Set(live.map((m) => m.id));
-  const result: ModelInfo[] = featured
-    .filter((m) => liveIds.has(m.id))
-    .map((m) => ({ ...m, featured: true }));
+  const result = featured.filter((m) => liveIds.has(m.id));
   const featuredIds = new Set(featured.map((m) => m.id));
 
   const others = live

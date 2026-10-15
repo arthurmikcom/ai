@@ -44,8 +44,8 @@ export const PROVIDERS: ProviderDef[] = [
     name: "OpenRouter",
     envVar: "OPENROUTER_API_KEY",
     signupUrl: "https://openrouter.ai/keys",
-    capabilities: ["chat"],
-    note: "Сотни моделей через один ключ: Llama, Mistral, Qwen, DeepSeek и др.",
+    capabilities: ["chat", "image", "video"],
+    note: "Один ключ на всё: Claude, GPT, Gemini, Grok, DeepSeek, картинки и видео",
   },
   {
     id: "deepseek",
@@ -85,7 +85,57 @@ export function providerName(id: ProviderId): string {
   return PROVIDERS.find((p) => p.id === id)?.name ?? id;
 }
 
-type Featured = Omit<ModelInfo, "featured">;
+export type Featured = Omit<ModelInfo, "featured"> & {
+  /**
+   * The same model is offered directly by this provider. The OpenRouter copy
+   * is shown only when that provider's own key isn't set, so one OpenRouter
+   * key is enough to get every flagship without listing them twice.
+   */
+  upstream?: ProviderId;
+};
+
+type Entry = Omit<Featured, "provider" | "capability">;
+
+function viaOpenRouter(capability: Capability, entries: Entry[]): Featured[] {
+  return entries.map((m) => ({ ...m, provider: "openrouter", capability }));
+}
+
+/** OpenRouter copies of the flagships (slugs from openrouter.ai/models). */
+const OPENROUTER_CHAT = viaOpenRouter("chat", [
+  { id: "anthropic/claude-sonnet-5.5", label: "Claude Sonnet 5.5", description: "Быстрая и умная — для повседневной работы", upstream: "anthropic", vision: true, reasoning: true },
+  { id: "anthropic/claude-opus-5.5", label: "Claude Opus 5.5", description: "Флагман Anthropic: сложные задачи, код, анализ", upstream: "anthropic", vision: true, reasoning: true },
+  { id: "anthropic/claude-haiku-5.5", label: "Claude Haiku 5.5", description: "Самая быстрая и дешёвая Claude", upstream: "anthropic", vision: true, reasoning: true },
+  { id: "anthropic/claude-fable-5.1", label: "Claude Fable 5.1", description: "Самая мощная модель Anthropic (дороже остальных)", upstream: "anthropic", vision: true, reasoning: true },
+  { id: "openai/gpt-6-astra", label: "GPT-6 Astra", description: "Флагман OpenAI", upstream: "openai", vision: true, reasoning: true },
+  { id: "openai/gpt-6.1-sol", label: "GPT-6.1 Sol", description: "Почти как Astra, но дешевле", upstream: "openai", vision: true, reasoning: true },
+  { id: "openai/gpt-6-luna", label: "GPT-6 Luna", description: "Лёгкая и быстрая", upstream: "openai", vision: true, reasoning: true },
+  { id: "google/gemini-4-argon", label: "Gemini 4 Argon", description: "Новейшая модель Google", upstream: "google", vision: true, reasoning: true },
+  { id: "google/gemini-3.1-pro-preview", label: "Gemini 3.1 Pro", description: "Умная модель Google с огромной памятью", upstream: "google", vision: true, reasoning: true },
+  { id: "google/gemini-3.8-flash", label: "Gemini 3.8 Flash", description: "Быстрая и сильная модель Google", upstream: "google", vision: true, reasoning: true },
+  { id: "x-ai/grok-4.7", label: "Grok 4.7", description: "Флагман xAI", upstream: "xai", vision: true, reasoning: true },
+  { id: "deepseek/deepseek-v4-pro", label: "DeepSeek V4 Pro", description: "Сильная и недорогая", upstream: "deepseek", reasoning: true },
+  { id: "deepseek/deepseek-v4.1-flash", label: "DeepSeek V4.1 Flash", description: "Очень быстрая и дешёвая", upstream: "deepseek", vision: true, reasoning: true },
+  { id: "qwen/qwen3.8-max-0902", label: "Qwen 3.8 Max", description: "Флагман Alibaba", vision: true, reasoning: true },
+  { id: "meta-llama/llama-4-maverick", label: "Llama 4 Maverick", description: "Открытая модель Meta", vision: true },
+  { id: "mistralai/mistral-large-4-0", label: "Mistral Large 4", description: "Европейская модель от Mistral", vision: true },
+]);
+
+const OPENROUTER_IMAGE = viaOpenRouter("image", [
+  { id: "google/gemini-3.1-flash-image", label: "Nano Banana 2", description: "Gemini 3.1 Flash Image — быстро и красиво", upstream: "google" },
+  { id: "google/gemini-3-pro-image", label: "Nano Banana Pro", description: "Gemini 3 Pro Image — лучше всех с текстом и деталями", upstream: "google" },
+  { id: "openai/gpt-image-2", label: "GPT Image 2", description: "OpenAI: качественно и очень дёшево", upstream: "openai" },
+  { id: "black-forest-labs/flux.2-pro", label: "FLUX.2 Pro", description: "Фотореализм от Black Forest Labs" },
+  { id: "bytedance-seed/seedream-4.5", label: "Seedream 4.5", description: "Яркие детализированные картинки от ByteDance" },
+]);
+
+const OPENROUTER_VIDEO = viaOpenRouter("video", [
+  { id: "bytedance/seedance-2.0-fast", label: "Seedance 2.0 Fast", description: "Быстро и недорого" },
+  { id: "google/veo-3.1-fast", label: "Veo 3.1 Fast", description: "Кинематографичное видео со звуком, быстрее", upstream: "google" },
+  { id: "google/veo-3.1", label: "Veo 3.1", description: "Лучшее качество от Google, со звуком", upstream: "google" },
+  { id: "kwaivgi/kling-v3.0-std", label: "Kling 3.0", description: "Реалистичное движение" },
+  { id: "minimax/hailuo-3", label: "Hailuo 3", description: "Хорошая физика движения" },
+  { id: "alibaba/wan-2.7", label: "Wan 2.7", description: "Открытая модель Alibaba" },
+]);
 
 export const FEATURED_MODELS: Featured[] = [
   // ----- Chat -----
@@ -188,27 +238,6 @@ export const FEATURED_MODELS: Featured[] = [
     vision: true,
   },
   {
-    provider: "openrouter",
-    id: "meta-llama/llama-4-maverick",
-    label: "Llama 4 Maverick",
-    description: "Открытая модель Meta",
-    capability: "chat",
-  },
-  {
-    provider: "openrouter",
-    id: "qwen/qwen3-max",
-    label: "Qwen3 Max",
-    description: "Флагман Alibaba",
-    capability: "chat",
-  },
-  {
-    provider: "openrouter",
-    id: "mistralai/mistral-large",
-    label: "Mistral Large",
-    description: "Европейская модель от Mistral",
-    capability: "chat",
-  },
-  {
     provider: "deepseek",
     id: "deepseek-chat",
     label: "DeepSeek Chat",
@@ -229,6 +258,8 @@ export const FEATURED_MODELS: Featured[] = [
     description: "Флагман xAI",
     capability: "chat",
   },
+
+  ...OPENROUTER_CHAT,
 
   // ----- Images -----
   {
@@ -302,6 +333,8 @@ export const FEATURED_MODELS: Featured[] = [
     capability: "image",
   },
 
+  ...OPENROUTER_IMAGE,
+
   // ----- Video -----
   {
     provider: "google",
@@ -352,4 +385,5 @@ export const FEATURED_MODELS: Featured[] = [
     description: "Открытая модель, быстро и дёшево",
     capability: "video",
   },
+  ...OPENROUTER_VIDEO,
 ];

@@ -16,7 +16,9 @@ const KIND_LABEL: Record<UsageKind, string> = {
 };
 
 function limitText(limit: number | null, kind: UsageKind): string {
-  return limit === null ? `Без лимита: ${KIND_LABEL[kind].replace(" в день", "")}` : `${limit} ${KIND_LABEL[kind]}`;
+  if (limit === null) return `Без лимита: ${KIND_LABEL[kind].replace(" в день", "")}`;
+  if (limit === 0) return kind === "video" ? "Видео — только в Pro" : `${KIND_LABEL[kind]}: нет`;
+  return `${limit} ${KIND_LABEL[kind]}`;
 }
 
 export function PricingView() {

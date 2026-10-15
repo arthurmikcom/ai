@@ -25,6 +25,7 @@ import type {
   ChatSummary,
   MeResponse,
   ProviderId,
+  SendOptions,
 } from "@/lib/types";
 
 const MODEL_KEY = "nexus:model";
@@ -59,8 +60,8 @@ interface AppState {
   startChatWith: (assistantId: string | null) => void;
 
   /** Sends to the open chat, or starts a new one on `model`. */
-  send: (text: string, attachments: Attachment[], deepThinking: boolean, model: ModelChoice | null) => void;
-  regenerate: (chatId: string, deepThinking: boolean) => void;
+  send: (text: string, attachments: Attachment[], options: SendOptions, model: ModelChoice | null) => void;
+  regenerate: (chatId: string, options: SendOptions) => void;
   stop: (chatId: string) => void;
   isStreaming: (chatId: string) => boolean;
 
@@ -150,7 +151,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const run = useCallback(
     async (
       chatId: string,
-      options: { deepThinking: boolean; message?: ChatMessage; create?: { assistantId?: string } },
+      options: SendOptions & { message?: ChatMessage; create?: { assistantId?: string } },
     ) => {
       const chat = chatsRef.current.get(chatId);
       if (!chat || controllers.current.has(chatId)) return;
@@ -161,7 +162,15 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         updatedAt: Date.now(),
         messages: [
           ...c.messages,
-          { id: answerId, role: "assistant", content: "", provider: c.provider, model: c.model, createdAt: Date.now() },
+          {
+            id: answerId,
+            role: "assistant",
+            content: "",
+            provider: c.provider,
+            model: c.model,
+            generating: options.image ? "image" : undefined,
+            createdAt: Date.now(),
+          },
         ],
       }));
 
@@ -172,6 +181,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       let text = "";
       let reasoning = "";
       let notice = "";
+      const images: Attachment[] = [];
+      // A picture is credited to the image model that drew it, not the chat model.
+      let drawnBy: Pick<ChatMessage, "provider" | "model"> = {};
       let lastFlush = 0;
       const flush = (force = false) => {
         const now = performance.now();
@@ -181,6 +193,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           content: text,
           reasoning: reasoning || undefined,
           notice: notice || undefined,
+          attachments: images.length ? [...images] : undefined,
+          ...drawnBy,
         });
       };
 
@@ -192,6 +206,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           provider: chat.provider,
           model: chat.model,
           deepThinking: options.deepThinking,
+          image: options.image,
           message: message && {
             id: message.id,
             content: message.content,
@@ -210,6 +225,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           if (event.type === "text") text += event.text;
           else if (event.type === "reasoning") reasoning += event.text;
           else if (event.type === "notice") notice = notice ? `${notice}\n${event.text}` : event.text;
+          else if (event.type === "image") {
+            images.push({ url: event.url, mime: event.mime });
+            drawnBy = { provider: event.provider, model: event.model };
+          }
           else if (event.type === "error") throw new Error(event.message);
           flush();
         }
@@ -239,7 +258,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   );
 
   const send = useCallback(
-    (text: string, attachments: Attachment[], deepThinking: boolean, choice: ModelChoice | null) => {
+    (text: string, attachments: Attachment[], options: SendOptions, choice: ModelChoice | null) => {
       const message: ChatMessage = {
         id: uid(),
         role: "user",
@@ -251,7 +270,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       const existing = activeId ? chatsRef.current.get(activeId) : undefined;
       if (existing) {
         update(existing.id, (c) => ({ ...c, messages: [...c.messages, message] }));
-        void run(existing.id, { deepThinking, message });
+        void run(existing.id, { ...options, message });
         return;
       }
 
@@ -271,19 +290,19 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       chatsRef.current.set(chat.id, chat);
       syncChats();
       setActiveId(chat.id);
-      void run(chat.id, { deepThinking, message, create: { assistantId } });
+      void run(chat.id, { ...options, message, create: { assistantId } });
     },
     [activeId, draftAssistantId, run, syncChats, update],
   );
 
   const regenerate = useCallback(
-    (chatId: string, deepThinking: boolean) => {
+    (chatId: string, options: SendOptions) => {
       const chat = chatsRef.current.get(chatId);
       if (!chat || controllers.current.has(chatId)) return;
       if (chat.messages[chat.messages.length - 1]?.role === "assistant") {
         update(chatId, (c) => ({ ...c, messages: c.messages.slice(0, -1) }));
       }
-      void run(chatId, { deepThinking });
+      void run(chatId, options);
     },
     [run, update],
   );

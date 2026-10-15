@@ -39,6 +39,9 @@ export async function* streamOpenAICompatible(
 ): AsyncGenerator<ChatStreamEvent> {
   const client = openAIClient(req.provider);
   const deep = req.deepThinking && req.provider === "openai" && OPENAI_REASONING.test(req.model);
+  // OpenRouter takes one reasoning setting for every model and maps it to
+  // each provider's own (models without reasoning ignore it).
+  const openRouterDeep = req.deepThinking && req.provider === "openrouter";
 
   const stream = await client.chat.completions.create(
     {
@@ -46,12 +49,21 @@ export async function* streamOpenAICompatible(
       messages: toMessages(req),
       stream: true,
       ...(deep ? { reasoning_effort: "high" as const } : {}),
+      ...(openRouterDeep ? ({ reasoning: { effort: "high" } } as object) : {}),
     },
     { signal },
   );
 
   for await (const chunk of stream) {
-    const choice = chunk.choices[0];
+    // OpenRouter reports a provider failure mid-stream as a chunk with an
+    // `error` field (the HTTP status is already 200).
+    const failure = (chunk as { error?: { message?: string; code?: number | string } }).error;
+    if (failure) {
+      throw Object.assign(new Error(failure.message || "Провайдер прервал ответ"), {
+        status: typeof failure.code === "number" ? failure.code : undefined,
+      });
+    }
+    const choice = chunk.choices?.[0];
     if (!choice) continue;
     // DeepSeek streams its chain of thought as `reasoning_content`, OpenRouter
     // as `reasoning`; neither field is in the OpenAI types.

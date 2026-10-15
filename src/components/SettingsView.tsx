@@ -195,7 +195,7 @@ export function SettingsView() {
                     <div key={kind} className="rounded-xl border border-white/5 bg-black/15 p-4">
                       <div className="text-xs text-zinc-500">{USAGE_LABEL[kind]}</div>
                       <div className="mt-1 text-sm text-zinc-200">
-                        {limit === null ? `${used} · без лимита` : `${used} из ${limit}`}
+                        {limit === null ? `${used} · без лимита` : limit === 0 ? "в тарифе Pro" : `${used} из ${limit}`}
                       </div>
                       {limit !== null && (
                         <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">

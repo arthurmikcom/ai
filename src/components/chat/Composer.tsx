@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, Brain, Paperclip, Square, X } from "lucide-react";
+import { ArrowUp, Brain, Palette, Paperclip, Square, X } from "lucide-react";
 import { useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
 import { imageToAttachment } from "@/lib/client/util";
 import type { Attachment, ModelInfo } from "@/lib/types";
@@ -11,6 +11,11 @@ interface Props {
   streaming: boolean;
   deepThinking: boolean;
   onDeepThinkingChange: (value: boolean) => void;
+  /** An image model is available, so the "draw" toggle can be offered. */
+  canDraw: boolean;
+  /** The next message is a picture description, not a question. */
+  imageMode: boolean;
+  onImageModeChange: (value: boolean) => void;
   onSend: (text: string, attachments: Attachment[]) => void;
   onStop: () => void;
 }
@@ -23,6 +28,9 @@ export function Composer({
   streaming,
   deepThinking,
   onDeepThinkingChange,
+  canDraw,
+  imageMode,
+  onImageModeChange,
   onSend,
   onStop,
 }: Props) {
@@ -32,8 +40,8 @@ export function Composer({
   const fileInput = useRef<HTMLInputElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
 
-  const canAttach = model?.vision !== false;
-  const canSend = !disabled && !streaming && (text.trim() !== "" || attachments.length > 0);
+  const canAttach = model?.vision !== false && !imageMode;
+  const canSend = !disabled && !streaming && (imageMode ? text.trim() !== "" : text.trim() !== "" || attachments.length > 0);
 
   const addFiles = async (files: File[]) => {
     setError(null);
@@ -50,7 +58,7 @@ export function Composer({
 
   const submit = () => {
     if (!canSend) return;
-    onSend(text.trim(), attachments);
+    onSend(text.trim(), imageMode ? [] : attachments);
     setText("");
     setAttachments([]);
     setError(null);
@@ -108,7 +116,13 @@ export function Composer({
           }}
           onKeyDown={onKeyDown}
           onPaste={onPaste}
-          placeholder={disabled ? "Сначала подключите провайдера в настройках" : "Спросите что угодно…"}
+          placeholder={
+            disabled
+              ? "Сначала подключите провайдера в настройках"
+              : imageMode
+                ? "Опишите картинку: что на ней, стиль, настроение…"
+                : "Спросите что угодно…"
+          }
           aria-label="Сообщение"
           disabled={disabled}
           className="max-h-60 w-full resize-none bg-transparent px-3 py-2 text-[15px] text-zinc-100 outline-none placeholder:text-zinc-500"
@@ -128,7 +142,13 @@ export function Composer({
           />
           <button
             type="button"
-            title={canAttach ? "Прикрепить изображение" : "Модель не принимает изображения"}
+            title={
+              imageMode
+                ? "В режиме рисования вложения не нужны"
+                : canAttach
+                  ? "Прикрепить изображение"
+                  : "Модель не принимает изображения"
+            }
             disabled={!canAttach || disabled || attachments.length >= MAX_ATTACHMENTS}
             onClick={() => fileInput.current?.click()}
             className="rounded-full p-2 text-zinc-400 transition hover:bg-white/5 hover:text-zinc-100 disabled:opacity-40"
@@ -136,7 +156,24 @@ export function Composer({
             <Paperclip className="size-5" />
           </button>
 
-          {model?.reasoning && (
+          {canDraw && (
+            <button
+              type="button"
+              onClick={() => onImageModeChange(!imageMode)}
+              aria-pressed={imageMode}
+              title="Нарисовать картинку по описанию"
+              className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition ${
+                imageMode
+                  ? "bg-violet-500/20 text-violet-200"
+                  : "text-zinc-400 hover:bg-white/5 hover:text-zinc-100"
+              }`}
+            >
+              <Palette className="size-4" />
+              Картинка
+            </button>
+          )}
+
+          {model?.reasoning && !imageMode && (
             <button
               type="button"
               onClick={() => onDeepThinkingChange(!deepThinking)}

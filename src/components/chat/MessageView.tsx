@@ -1,6 +1,6 @@
 "use client";
 
-import { Brain, Check, ChevronDown, Copy, Info, RefreshCw, TriangleAlert } from "lucide-react";
+import { Brain, Check, ChevronDown, Copy, Download, Info, LoaderCircle, RefreshCw, TriangleAlert } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import type { ChatMessage, ModelInfo } from "@/lib/types";
@@ -68,7 +68,8 @@ export function MessageView({ message, models, streaming, isLast, onRegenerate }
   const modelLabel =
     models.find((m) => m.provider === message.provider && m.id === message.model)?.label ??
     message.model;
-  const waiting = streaming && !message.content && !message.reasoning;
+  const drawing = streaming && message.generating === "image" && !message.attachments?.length;
+  const waiting = streaming && !drawing && !message.content && !message.reasoning;
 
   const copy = async () => {
     await navigator.clipboard.writeText(message.content);
@@ -88,6 +89,41 @@ export function MessageView({ message, models, streaming, isLast, onRegenerate }
           <span className="size-2 animate-bounce rounded-full bg-zinc-400 [animation-delay:-0.3s]" />
           <span className="size-2 animate-bounce rounded-full bg-zinc-400 [animation-delay:-0.15s]" />
           <span className="size-2 animate-bounce rounded-full bg-zinc-400" />
+        </div>
+      )}
+
+      {drawing && (
+        <div className="flex aspect-square w-full max-w-sm flex-col items-center justify-center gap-3 rounded-2xl border border-violet-300/15 bg-violet-300/[0.04] text-sm text-zinc-400">
+          <LoaderCircle className="size-6 animate-spin text-violet-300" />
+          Рисую изображение…
+        </div>
+      )}
+
+      {message.attachments && (
+        <div className="mb-3 flex flex-wrap gap-3">
+          {message.attachments.map((a, i) => {
+            const src = a.url ?? `data:${a.mime};base64,${a.data}`;
+            return (
+              <div key={i} className="group/image relative">
+                <a href={src} target="_blank" rel="noreferrer" title="Открыть в полном размере">
+                  {/* eslint-disable-next-line @next/next/no-img-element -- our own stored file */}
+                  <img
+                    src={src}
+                    alt="Сгенерированное изображение"
+                    className="max-h-[28rem] max-w-full rounded-2xl border border-white/10 object-contain"
+                  />
+                </a>
+                <a
+                  href={src}
+                  download
+                  title="Скачать"
+                  className="absolute right-2 top-2 rounded-lg bg-black/60 p-1.5 text-zinc-200 opacity-100 backdrop-blur hover:text-white md:opacity-0 md:group-hover/image:opacity-100"
+                >
+                  <Download className="size-4" />
+                </a>
+              </div>
+            );
+          })}
         </div>
       )}
 
