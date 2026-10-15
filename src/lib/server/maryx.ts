@@ -164,7 +164,13 @@ async function quickText(system: string, user: string, timeoutMs: number): Promi
     if (!model) break;
     try {
       let out = "";
-      const request: ChatRequest = { provider: model.provider, model: model.id, system, messages: [{ role: "user", content: user }] };
+      const request: ChatRequest = {
+        provider: model.provider,
+        model: model.id,
+        system,
+        light: true,
+        messages: [{ role: "user", content: user }],
+      };
       for await (const event of streamChat(request, signal)) {
         if (event.type === "text") out += event.text;
       }

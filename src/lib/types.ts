@@ -163,6 +163,8 @@ export interface ChatRequest {
   model: string;
   system?: string;
   deepThinking?: boolean;
+  /** A small background job (title, suggestions, memory): think as little as possible. */
+  light?: boolean;
   webSearch?: boolean;
   messages: { role: "user" | "assistant"; content: string; attachments?: InlineImage[] }[];
 }

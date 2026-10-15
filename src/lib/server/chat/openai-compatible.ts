@@ -1,7 +1,7 @@
 import type OpenAI from "openai";
 import type { ChatRequest, ChatStreamEvent } from "@/lib/types";
 import { openAIClient } from "../config";
-import { openRouterEffort, qwenThinking } from "./reasoning";
+import { openRouterEffort, qwenThinking, type Effort } from "./reasoning";
 
 // OpenAI models that accept `reasoning_effort`.
 export const OPENAI_REASONING = /^(gpt-5|gpt-6|o\d)/;
@@ -42,7 +42,8 @@ export async function* streamOpenAICompatible(
   const deep = req.deepThinking && req.provider === "openai" && OPENAI_REASONING.test(req.model);
   // OpenRouter takes one reasoning setting for every model and maps it to
   // each provider's own (models without reasoning ignore it).
-  const effort = req.provider === "openrouter" ? openRouterEffort(req.model, Boolean(req.deepThinking)) : undefined;
+  const mode: Effort = req.deepThinking ? "deep" : req.light ? "light" : "normal";
+  const effort = req.provider === "openrouter" ? openRouterEffort(req.model, mode) : undefined;
   // OpenRouter's web search server tool: the model decides when to search.
   // The Exa engine has a fixed price (~$0.007 per search) and returns page
   // excerpts; max_uses caps how many searches one answer may run.
@@ -61,7 +62,7 @@ export async function* streamOpenAICompatible(
       stream: true,
       ...(deep ? { reasoning_effort: "high" as const } : {}),
       ...(effort ? ({ reasoning: { effort } } as object) : {}),
-      ...(req.provider === "qwen" ? qwenThinking(req.model, Boolean(req.deepThinking)) : {}),
+      ...(req.provider === "qwen" ? qwenThinking(req.model, mode) : {}),
       ...(search as object),
     },
     { signal },

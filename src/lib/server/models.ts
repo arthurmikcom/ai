@@ -2,7 +2,7 @@ import { FEATURED_MODELS, MARYX_MODEL, PROVIDERS } from "@/lib/catalog";
 import type { Capability, ModelInfo, ModelsResponse, ProviderId } from "@/lib/types";
 import { ADAPTIVE_THINKING } from "./chat/anthropic";
 import { THINKING_LEVEL_MODELS } from "./chat/google";
-import { rememberReasoning } from "./chat/reasoning";
+import { reasoningListLoaded, rememberReasoning } from "./chat/reasoning";
 import { OPENAI_REASONING } from "./chat/openai-compatible";
 import {
   anthropicClient,
@@ -31,12 +31,17 @@ interface OpenRouterModel {
   name?: string;
   architecture?: { input_modalities?: string[] };
   supported_parameters?: string[] | Record<string, unknown>;
-  reasoning?: { mandatory?: boolean; default_effort?: string | null; supported_efforts?: string[] | null } | null;
+  reasoning?: {
+    mandatory?: boolean;
+    default_enabled?: boolean;
+    default_effort?: string | null;
+    supported_efforts?: string[] | null;
+  } | null;
 }
 
 const TTL_MS = 10 * 60 * 1000;
 const LIVE_TIMEOUT_MS = 8000;
-const cache = new Map<string, { at: number; models: Promise<LiveModel[] | null> }>();
+const cache = new Map<string, { at: number; models: Promise<LiveModel[] | null>; last?: LiveModel[] }>();
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([
@@ -66,6 +71,7 @@ async function openRouterList(capability: Capability): Promise<LiveModel[]> {
       if (typeof m.id !== "string" || !m.reasoning) continue;
       rememberReasoning(m.id, {
         mandatory: m.reasoning.mandatory === true,
+        defaultEnabled: m.reasoning.default_enabled === true,
         defaultEffort: m.reasoning.default_effort ?? undefined,
         efforts: Array.isArray(m.reasoning.supported_efforts) ? m.reasoning.supported_efforts : null,
       });
@@ -128,9 +134,20 @@ function liveModels(provider: ProviderId, capability: Capability): Promise<LiveM
   const key = provider === "openrouter" ? `${provider}:${capability}` : provider;
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < TTL_MS) return hit.models;
-  const models = withTimeout(fetchLive(provider, capability), LIVE_TIMEOUT_MS).catch(() => null);
-  cache.set(key, { at: Date.now(), models });
-  return models;
+  const entry: { at: number; models: Promise<LiveModel[] | null>; last?: LiveModel[] } = {
+    at: Date.now(),
+    models: withTimeout(fetchLive(provider, capability), LIVE_TIMEOUT_MS)
+      .catch(() => null)
+      .then((list) => {
+        // A failed refresh keeps serving the last good list.
+        if (list) entry.last = list;
+        return list ?? entry.last ?? null;
+      }),
+    last: hit?.last,
+  };
+  cache.set(key, entry);
+  // While a stale list is refreshed, callers get the old one right away.
+  return entry.last ? Promise.resolve(entry.last) : entry.models;
 }
 
 const OPENAI_NOT_CHAT =
@@ -231,7 +248,10 @@ async function modelsFor(provider: ProviderId, capability: Capability): Promise<
  * each model's reasoning settings, before a chat with a model picked by hand.
  */
 export async function loadOpenRouterChatModels(): Promise<void> {
-  if (isConfigured("openrouter")) await liveModels("openrouter", "chat");
+  if (!isConfigured("openrouter")) return;
+  const load = liveModels("openrouter", "chat");
+  // Wait only on a cold start, and briefly: the featured models are known anyway.
+  if (!reasoningListLoaded()) await Promise.race([load, new Promise((r) => setTimeout(r, 1500))]);
 }
 
 export async function listModels(capability: Capability | null): Promise<ModelsResponse> {
