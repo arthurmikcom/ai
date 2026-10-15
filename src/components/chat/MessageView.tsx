@@ -65,16 +65,27 @@ export function MessageView({ message, models, streaming, isLast, onRegenerate }
           <div className="flex flex-wrap justify-end gap-2">
             {message.attachments.map((a, i) =>
               isDocumentAttachment(a) ? (
-                <a
-                  key={i}
-                  href={a.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex max-w-64 items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-sm text-zinc-200 hover:border-violet-300/30"
-                >
-                  <FileText className="size-5 shrink-0 text-violet-300" />
-                  <span className="truncate">{a.name ?? "Документ"}</span>
-                </a>
+                a.url ? (
+                  <a
+                    key={i}
+                    href={a.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex max-w-64 items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-sm text-zinc-200 hover:border-violet-300/30"
+                  >
+                    <FileText className="size-5 shrink-0 text-violet-300" />
+                    <span className="truncate">{a.name ?? "Документ"}</span>
+                  </a>
+                ) : (
+                  // Just sent: it gets a link once the chat is reloaded from the server.
+                  <div
+                    key={i}
+                    className="flex max-w-64 items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-sm text-zinc-200"
+                  >
+                    <FileText className="size-5 shrink-0 text-violet-300" />
+                    <span className="truncate">{a.name ?? "Документ"}</span>
+                  </div>
+                )
               ) : (
                 // eslint-disable-next-line @next/next/no-img-element -- local data URL
                 <img

@@ -4,7 +4,7 @@ import { ArrowRight, ArrowUpRight, Clapperboard, Code2, Compass, FileText, Image
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useModels } from "@/lib/client/useModels";
-import { speak, useVoiceSupport } from "@/lib/client/voice";
+import { speak, stopSpeaking, useVoiceSupport } from "@/lib/client/voice";
 import { useApp, type ModelChoice } from "../AppState";
 import { findModel, ModelPicker } from "../ModelPicker";
 import { Composer } from "./Composer";
@@ -40,8 +40,8 @@ export function ChatView() {
   // Dictation runs on our server when it can (works in every browser); else the browser's own.
   const voiceInput =
     voice?.record && app.me?.voice.transcribe ? "server" : voice?.recognize ? "browser" : null;
-  // A message sent by voice in talk mode gets its answer read aloud.
-  const speakNext = useRef(false);
+  // A message sent by voice in talk mode gets its answer read aloud (in that chat only).
+  const speakNext = useRef<string | null>(null);
   // Drawing in the chat needs at least one image model on the server.
   const images = useModels("image");
   const canDraw = Boolean(images.data?.models.length);
@@ -76,14 +76,24 @@ export function ChatView() {
     if (!chat?.id) scroller.current?.scrollTo({ top: 0 });
   }, [chat?.id]);
 
-  // Talk mode: read the answer aloud once it has finished streaming.
+  // Switching chats (or leaving the page) stops reading aloud.
+  useEffect(() => () => stopSpeaking(), [chat?.id]);
+
+  // Talk mode: read the answer aloud once it has finished streaming — in the chat it
+  // was asked in (a brand-new chat gets its id only after sending), unless stopped.
   useEffect(() => {
-    if (streaming || !speakNext.current || !lastMessage) return;
-    speakNext.current = false;
-    if (lastMessage.role === "assistant" && lastMessage.content && !lastMessage.error) {
+    const target = speakNext.current;
+    if (!target || streaming || !lastMessage || !chat) return;
+    if (target !== chat.id && target !== "new") {
+      speakNext.current = null;
+      return;
+    }
+    if (lastMessage.role !== "assistant") return;
+    speakNext.current = null;
+    if (lastMessage.content && !lastMessage.error && !lastMessage.notice?.includes("остановлена")) {
       speak(lastMessage.id, lastMessage.content);
     }
-  }, [streaming, lastMessage]);
+  }, [streaming, lastMessage, chat]);
 
   const onPick = (c: ModelChoice) => (chat ? app.setChatModel(chat.id, c) : app.setModel(c));
 
@@ -135,7 +145,11 @@ export function ChatView() {
                 onRegenerate={() =>
                   app.regenerate(chat.id, {
                     deepThinking,
-                    image: Boolean(m.attachments?.length),
+                    // Redraw a picture — also one that failed or was stopped (its model is an image model).
+                    image:
+                      m.generating === "image" ||
+                      Boolean(m.attachments?.length) ||
+                      Boolean(images.data?.models.some((x) => x.provider === m.provider && x.id === m.model)),
                     webSearch: webSearch && Boolean(current?.search),
                   })
                 }
@@ -239,7 +253,8 @@ export function ChatView() {
           onVoiceModeChange={voice?.speak ? setVoiceMode : null}
           onSend={(text, attachments, viaVoice) => {
             stickToBottom.current = true;
-            speakNext.current = Boolean(viaVoice && voiceMode && voice?.speak);
+            stopSpeaking();
+            speakNext.current = viaVoice && voiceMode && voice?.speak ? (chat?.id ?? "new") : null;
             app.send(
               text,
               attachments,
@@ -247,7 +262,10 @@ export function ChatView() {
               choice,
             );
           }}
-          onStop={() => chat && app.stop(chat.id)}
+          onStop={() => {
+            speakNext.current = null;
+            if (chat) app.stop(chat.id);
+          }}
         />
         <p className="mt-2 text-center text-[11px] text-zinc-600">
           ИИ может ошибаться. Проверяйте важную информацию.

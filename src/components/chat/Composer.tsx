@@ -21,8 +21,16 @@ import {
   documentToAttachment,
   imageToAttachment,
   isDocumentAttachment,
+  MAX_TOTAL_BASE64,
 } from "@/lib/client/util";
-import { recognizeOnce, startRecording, transcribe, type Recording } from "@/lib/client/voice";
+import {
+  primeSpeech,
+  recognizeOnce,
+  startRecording,
+  stopSpeaking,
+  transcribe,
+  type Recording,
+} from "@/lib/client/voice";
 import type { Attachment, ModelInfo } from "@/lib/types";
 
 interface Props {
@@ -72,6 +80,9 @@ export function Composer({
   const [seconds, setSeconds] = useState(0);
   const recording = useRef<Recording | null>(null);
   const recognizer = useRef<{ stop: () => void } | null>(null);
+  // Set before the microphone permission prompt, so a second tap can't open another recorder.
+  const starting = useRef(false);
+  const alive = useRef(true);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -87,6 +98,7 @@ export function Composer({
     const room = MAX_ATTACHMENTS - attachments.length;
     const problems: string[] = [];
     const added: Attachment[] = [];
+    let total = attachments.reduce((sum, a) => sum + (a.data?.length ?? 0), 0);
     for (const file of files.slice(0, room)) {
       try {
         if (file.type.startsWith("image/")) {
@@ -94,11 +106,22 @@ export function Composer({
             problems.push("Эта модель не видит изображения — выберите другую модель.");
             continue;
           }
-          added.push(await imageToAttachment(file));
+          const image = await imageToAttachment(file);
+          if (total + (image.data?.length ?? 0) > MAX_TOTAL_BASE64) {
+            problems.push("Вложения слишком большие: всего до 3 МБ за сообщение.");
+            continue;
+          }
+          total += image.data?.length ?? 0;
+          added.push(image);
         } else if (documentMime(file)) {
           const doc = await documentToAttachment(file);
-          if (doc) added.push(doc);
-          else problems.push(`«${file.name}» больше 3 МБ.`);
+          if (!doc) problems.push(`«${file.name}» больше 3 МБ.`);
+          else if (total + (doc.data?.length ?? 0) > MAX_TOTAL_BASE64) {
+            problems.push("Вложения слишком большие: всего до 3 МБ за сообщение.");
+          } else {
+            total += doc.data?.length ?? 0;
+            added.push(doc);
+          }
         } else {
           problems.push(`«${file.name}»: такой тип файла пока не поддерживается.`);
         }
@@ -115,13 +138,21 @@ export function Composer({
     if (!canSend) return;
     onSend(text.trim(), imageMode ? [] : attachments);
     setText("");
-    setAttachments([]);
+    // A picture prompt doesn't take the files along; they stay for the next message.
+    if (!imageMode) setAttachments([]);
     setError(null);
     if (textarea.current) textarea.current.style.height = "auto";
   };
 
   // Stop the microphone if the composer goes away mid-recording.
-  useEffect(() => () => recording.current?.cancel(), []);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+      recording.current?.cancel();
+      recognizer.current?.stop();
+    };
+  }, []);
 
   useEffect(() => {
     if (listening !== "recording") return;
@@ -137,7 +168,7 @@ export function Composer({
     }
     if (voiceMode && !disabled && !streaming) {
       onSend(spoken, imageMode ? [] : attachments, true);
-      setAttachments([]);
+      if (!imageMode) setAttachments([]);
       return;
     }
     setText((t) => (t.trim() ? `${t.trimEnd()} ${spoken}` : spoken));
@@ -159,12 +190,15 @@ export function Composer({
 
   const toggleMic = async () => {
     setError(null);
+    // Don't read an answer aloud over the user, and let iOS speak later.
+    stopSpeaking();
+    primeSpeech();
     if (listening === "recording") {
       if (recognizer.current) recognizer.current.stop();
       else await finishRecording();
       return;
     }
-    if (listening !== "idle" || !voiceInput) return;
+    if (listening !== "idle" || !voiceInput || starting.current) return;
     setSeconds(0);
     if (voiceInput === "browser") {
       const session = recognizeOnce();
@@ -179,13 +213,20 @@ export function Composer({
       setListening("idle");
       return;
     }
+    starting.current = true;
     try {
-      recording.current = await startRecording(() => void finishRecording());
-      setListening("recording");
+      const rec = await startRecording(() => void finishRecording());
+      // The composer went away (or another recording began) while permission was asked.
+      if (!alive.current || recording.current) rec.cancel();
+      else {
+        recording.current = rec;
+        setListening("recording");
+      }
     } catch (e) {
       const denied = e instanceof DOMException && (e.name === "NotAllowedError" || e.name === "SecurityError");
       setError(denied ? "Разрешите доступ к микрофону в настройках браузера." : "Микрофон недоступен.");
     }
+    starting.current = false;
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -206,8 +247,11 @@ export function Composer({
   return (
     <div className="mx-auto w-full max-w-3xl">
       <div className="composer-panel rounded-3xl border p-3 transition-colors">
+        {attachments.length > 0 && imageMode && (
+          <p className="px-2 pt-1 text-xs text-zinc-500">В режиме «Картинка» файлы не отправляются — они останутся для следующего сообщения.</p>
+        )}
         {attachments.length > 0 && (
-          <div className="flex flex-wrap gap-2 p-2">
+          <div className={`flex flex-wrap gap-2 p-2 ${imageMode ? "opacity-40" : ""}`}>
             {attachments.map((a, i) => (
               <div key={i} className="relative">
                 {isDocumentAttachment(a) ? (
@@ -258,7 +302,7 @@ export function Composer({
           className="max-h-60 w-full resize-none bg-transparent px-3 py-2 text-[15px] text-zinc-100 outline-none placeholder:text-zinc-500"
         />
 
-        <div className="flex items-center gap-1 px-1">
+        <div className="flex flex-wrap items-center gap-1 px-1">
           <input
             ref={fileInput}
             type="file"
@@ -317,7 +361,10 @@ export function Composer({
           {voiceInput && onVoiceModeChange && (
             <button
               type="button"
-              onClick={() => onVoiceModeChange(!voiceMode)}
+              onClick={() => {
+                primeSpeech();
+                onVoiceModeChange(!voiceMode);
+              }}
               aria-pressed={voiceMode}
               title="Голосовой режим: сказанное отправляется сразу, а ответ читается вслух"
               aria-label="Голосовой режим"

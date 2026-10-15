@@ -209,6 +209,20 @@ function voiceFor(text: string): SpeechSynthesisVoice | undefined {
   return russian.find((v) => /natural|online|google/i.test(v.name)) ?? russian[0];
 }
 
+let primed = false;
+
+/**
+ * iOS only lets a page speak after speech was started from a tap. Called from
+ * the mic and talk-mode buttons, so the answer can be read out later on its own.
+ */
+export function primeSpeech(): void {
+  if (primed || !canSpeak()) return;
+  primed = true;
+  const u = new SpeechSynthesisUtterance(" ");
+  u.volume = 0;
+  window.speechSynthesis.speak(u);
+}
+
 export function stopSpeaking(): void {
   if (!canSpeak()) return;
   window.speechSynthesis.cancel();

@@ -19,6 +19,11 @@ function toSummary(row: ChatRow): ChatSummary {
   };
 }
 
+/** Every storage key behind attachments: the files and documents' extracted text. */
+export function storedKeys(files: { key: string; textKey?: string }[]): string[] {
+  return files.flatMap((f) => (f.textKey ? [f.key, f.textKey] : [f.key]));
+}
+
 function toMessage(row: MessageRow): ChatMessage {
   return {
     id: row.id,
@@ -111,7 +116,7 @@ export async function deleteChat(userId: string, chatId: string): Promise<boolea
     .where(and(eq(schema.chat.id, chatId), eq(schema.chat.userId, userId)))
     .returning({ id: schema.chat.id });
   if (rows.length === 0) return false;
-  await deleteFiles(messages.flatMap((m) => m.attachments ?? []).map((f) => f.key)).catch((e) =>
+  await deleteFiles(storedKeys(messages.flatMap((m) => m.attachments ?? []))).catch((e) =>
     console.error("[chats] failed to delete attachments", e),
   );
   return true;

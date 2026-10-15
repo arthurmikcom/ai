@@ -15,6 +15,17 @@ function formatOf(mime: string): "webm" | "m4a" | "ogg" | "mp3" | "wav" {
   return "wav";
 }
 
+/** Clip length in seconds, read from the container (null if it can't be told). */
+export async function clipSeconds(audio: Buffer, mime: string): Promise<number | null> {
+  try {
+    const { parseBuffer } = await import("music-metadata");
+    const { format } = await parseBuffer(audio, { mimeType: mime }, { duration: true });
+    return typeof format.duration === "number" && Number.isFinite(format.duration) ? format.duration : null;
+  } catch {
+    return null;
+  }
+}
+
 export function transcriptionAvailable(): boolean {
   return isConfigured("openrouter") || isConfigured("openai");
 }
@@ -39,9 +50,12 @@ async function viaOpenRouter(audio: Buffer, mime: string): Promise<string> {
     });
     if (res.ok) return ((await res.json()) as { text?: string }).text ?? "";
     const detail = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
-    lastError = new HttpError(res.status, detail?.error?.message ?? res.statusText);
-    // Try the next model only when this one isn't available; other errors are final.
-    if (res.status !== 404 && res.status !== 400) break;
+    const message = detail?.error?.message ?? res.statusText;
+    lastError = new HttpError(res.status, message);
+    // Try the next model only when this one isn't offered; other errors (e.g. the clip
+    // itself was refused) are final, so the same audio isn't billed twice.
+    const unknownModel = res.status === 404 || (res.status === 400 && /model/i.test(message));
+    if (!unknownModel) break;
   }
   throw lastError;
 }

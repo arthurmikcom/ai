@@ -45,6 +45,18 @@ export const Markdown = memo(function Markdown({ text }: { text: string }) {
               {children}
             </a>
           ),
+          // Answers can repeat text planted in web pages or documents. A remote
+          // image would load by itself and could carry chat details to a third
+          // party in its URL, so only our own files show inline; others become links.
+          img: ({ src, alt }) =>
+            typeof src === "string" && (src.startsWith("/api/files/") || src.startsWith("data:image/")) ? (
+              // eslint-disable-next-line @next/next/no-img-element -- our own stored file
+              <img src={src} alt={alt ?? ""} className="max-h-96 rounded-xl" />
+            ) : (
+              <a href={typeof src === "string" ? src : undefined} target="_blank" rel="noopener noreferrer nofollow">
+                {alt || "изображение"}
+              </a>
+            ),
         }}
       >
         {text}

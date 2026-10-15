@@ -45,20 +45,29 @@ const TIERS: Record<Tier, [ProviderId, string][]> = {
 };
 
 // Note: \b doesn't work next to Cyrillic letters in JS, so word edges are spelled out.
-const IMAGE_WORDS = /(картин|изображени|рисун|иллюстрац|логотип|постер|обложк|аватар|арт(?![а-яё])|фото|обои)/i;
+const DRAW_VERB = "(нарисуй|изобрази|сгенерируй|создай|сделай)(те)?";
+const IMAGE_NOUN =
+  "(картинк|изображени|рисун|иллюстрац|логотип|постер|обложк|аватар|арт(?![а-яё])|фото(?![а-яё]|граф|син|сесс)|обои(?![а-яё]))";
 
-/** "Нарисуй…", "сгенерируй картинку…", "draw a…". */
+const DRAW_REQUEST = new RegExp(`^${DRAW_VERB}\\s+((мне|пожалуйста|новую|новый|красивую|красивый)\\s+)*${IMAGE_NOUN}`);
+
+/**
+ * A request to draw: "нарисуй…", or a creation verb right before an image
+ * noun at the start ("сделай логотип…", "сгенерируй картинку…"). Questions
+ * ("как сделать фото…?") and anything else are left to the text models.
+ */
 export function wantsImage(text: string): boolean {
-  const t = text.trim();
-  if (/^(нарисуй|нарисуйте|изобрази|изобразите)(?![а-яё])/i.test(t)) return true;
-  if (/^(draw|paint|generate an? (image|picture|illustration))\b/i.test(t)) return true;
-  return /(сгенерируй|сгенерировать|создай|создать|сделай|сделать|нарисуй)/i.test(t.slice(0, 80)) && IMAGE_WORDS.test(t.slice(0, 120));
+  const t = text.trim().toLowerCase();
+  if (/^(как|что|зачем|почему|где|можно ли)(?![а-яё])/.test(t)) return false;
+  if (/^(нарисуй|нарисуйте|изобрази|изобразите)(?![а-яё])/.test(t)) return true;
+  if (/^(draw|paint|generate an? (image|picture|illustration))\b/.test(t)) return true;
+  return DRAW_REQUEST.test(t);
 }
 
-/** Questions about today's world, which a model can't know without searching. */
+/** Questions about the world right now, which a model can't know without searching. */
 function wantsSearch(text: string): boolean {
-  return /(новост|сегодня|вчера|прямо сейчас|на данный момент|последн(ие|яя|ий|их) (новост|верси|событи)|свеж|актуальн|курс (доллар|евро|рубл|валют|биткоин|акци)|погод|сколько стоит сейчас|что нового|кто выиграл|результат(ы)? матч|в этом году|202[6-9]|latest news|today|right now|current price|weather)/i.test(
-    text,
+  return /(новост|что нового|что (произошло|случилось)|курс (доллар|евро|рубл|юан|валют|биткоин|акци)|погод[аеуы]|кто выиграл|результат(ы)? (матча|игры|выборов)|latest news|current price|weather)/i.test(
+    text.slice(0, 300),
   );
 }
 

@@ -2,12 +2,18 @@ import { and, eq } from "drizzle-orm";
 import { after } from "next/server";
 import { streamChat } from "@/lib/server/chat";
 import { canDrawInChat, chatImageModel, generateChatImage } from "@/lib/server/chat/image";
-import { chatMessages, findAssistant, findChat } from "@/lib/server/chats";
+import { chatMessages, findAssistant, findChat, storedKeys } from "@/lib/server/chats";
 import { getDb, schema } from "@/lib/server/db";
 import type { StoredFile } from "@/lib/server/db/schema";
 import { describeError } from "@/lib/server/errors";
 import { jsonError, requireUser } from "@/lib/server/http";
-import { DocumentError, extractDocumentText, isDocumentMime, withDocuments } from "@/lib/server/documents";
+import {
+  DocumentError,
+  DocumentLimitError,
+  extractDocumentText,
+  isDocumentMime,
+  withDocuments,
+} from "@/lib/server/documents";
 import { deleteFiles, fileUrl, newKey, putFile, readFileBase64 } from "@/lib/server/storage";
 import {
   listFacts,
@@ -64,14 +70,26 @@ export async function POST(request: Request) {
   let chat = await findChat(user.id, req.chatId);
   if (!chat && (!req.create || !req.message)) return jsonError("Чат не найден", 404);
 
-  // Nexus draws by itself when asked to ("нарисуй…") and an image model is set up.
+  // Nexus draws by itself when asked to ("нарисуй…", no files attached) and an image model is set up.
   const nexus = req.provider === "nexus";
-  const draw =
-    req.image || (nexus && req.message !== undefined && wantsImage(req.message.content) && (await canDrawInChat()));
+  const autoDraw =
+    nexus &&
+    !req.image &&
+    req.message !== undefined &&
+    !req.message.attachments?.length &&
+    wantsImage(req.message.content) &&
+    (await canDrawInChat());
+  let draw = req.image || autoDraw;
   // A picture drawn in the chat counts toward the image limit, not messages.
-  const kind: UsageKind = draw ? "image" : "chat";
-  if (!(await consume(user, kind))) return limitResponse(user, kind);
+  let kind: UsageKind = draw ? "image" : "chat";
+  if (!(await consume(user, kind))) {
+    // Nexus chose to draw on its own: with no pictures left today, answer in words.
+    if (!autoDraw || !(await consume(user, "chat"))) return limitResponse(user, autoDraw ? "chat" : kind);
+    draw = false;
+    kind = "chat";
+  }
 
+  const created = !chat;
   if (!chat) {
     if (!req.create || !req.message) return jsonError("Чат не найден", 404); // checked above; narrows types
     const assistant = req.create.assistantId
@@ -117,7 +135,7 @@ export async function POST(request: Request) {
           await putFile(key, bytes, file.mime);
           stored.push({ key, mime: file.mime, name });
           await putFile(textKey, Buffer.from(text, "utf8"), "text/plain");
-          stored[stored.length - 1].textKey = textKey;
+          Object.assign(stored[stored.length - 1], { textKey, chars: text.length });
           documentTexts.set(textKey, text);
         } else {
           await putFile(key, bytes, file.mime);
@@ -125,8 +143,11 @@ export async function POST(request: Request) {
         }
       }
     } catch (err) {
-      await deleteFiles(stored.flatMap((f) => (f.textKey ? [f.key, f.textKey] : [f.key]))).catch(() => {});
-      await refund(user.id, kind);
+      await deleteFiles(storedKeys(stored)).catch(() => {});
+      // A file that trips the safety limits keeps its charge, so it can't be retried for free.
+      if (!(err instanceof DocumentLimitError)) await refund(user.id, kind);
+      // Don't leave an empty chat behind when its first message was refused.
+      if (created) await db.delete(schema.chat).where(and(eq(schema.chat.id, chat.id), eq(schema.chat.userId, user.id)));
       if (err instanceof DocumentError) return jsonError(err.message, 400);
       throw err;
     }
@@ -146,11 +167,20 @@ export async function POST(request: Request) {
   } else {
     // Regenerate: replace the last answer.
     const existing = await chatMessages(chat.id);
+    // The browser names the message it wants answered; if that one never reached the
+    // server (e.g. it was refused), don't throw away the previous answer instead.
+    const lastUser = existing.findLast((m) => m.role === "user");
+    if (req.replyTo && lastUser?.id !== req.replyTo) {
+      await refund(user.id, kind);
+      return jsonError("Это сообщение не сохранилось — отправьте его ещё раз.", 409);
+    }
     const last = existing[existing.length - 1];
     if (last?.role === "assistant") {
       await db
         .delete(schema.message)
         .where(and(eq(schema.message.id, last.id), eq(schema.message.chatId, chat.id)));
+      // A replaced drawing takes its picture with it.
+      await deleteFiles(storedKeys(last.attachments ?? [])).catch(() => {});
     }
   }
 
@@ -170,6 +200,20 @@ export async function POST(request: Request) {
     fresh.set(req.message.id, req.message.attachments.filter((a) => a.mime.startsWith("image/")));
   }
   const kept = rows.filter((m) => m.role === "user" || (m.content && !m.error));
+  // Document text budget goes to the newest documents first; older ones past it are
+  // left out (not even read), so a chat full of long files stays cheap per turn.
+  const allowance = new Map<string, number>();
+  let budgetLeft = DOCUMENT_BUDGET;
+  for (const m of [...kept].reverse()) {
+    if (m.role !== "user") continue;
+    for (const f of m.attachments ?? []) {
+      if (!f.textKey) continue;
+      const size = f.chars ?? documentTexts.get(f.textKey)?.length ?? DOCUMENT_BUDGET;
+      const share = Math.min(size, budgetLeft);
+      allowance.set(f.textKey, share);
+      budgetLeft -= share;
+    }
+  }
   const loaded = await Promise.all(
     kept.map(async (m) => {
       // Pictures drawn by the assistant stay out: models only read the user's files.
@@ -190,27 +234,22 @@ export async function POST(request: Request) {
         files
           .filter((f) => f.textKey)
           .map(async (f) => {
-            const known = documentTexts.get(f.textKey!);
-            const text = known ?? Buffer.from((await readFileBase64(f.textKey!)) ?? "", "base64").toString("utf8");
-            return { name: f.name || "документ", text };
+            const max = allowance.get(f.textKey!) ?? 0;
+            // Only documents that fit the budget are read at all.
+            const text =
+              max > 0
+                ? (documentTexts.get(f.textKey!) ??
+                  Buffer.from((await readFileBase64(f.textKey!)) ?? "", "base64").toString("utf8"))
+                : "";
+            return { name: f.name || "документ", text, max };
           }),
       );
-      return { m, images, docs: docs.filter((d) => d.text) };
+      return { m, images, docs };
     }),
   );
-  // Document text budget goes to the newest messages first.
-  let budgetLeft = DOCUMENT_BUDGET;
-  const budgets = new Map<string, number>();
-  for (const { m, docs } of [...loaded].reverse()) {
-    if (!docs.length) continue;
-    const size = docs.reduce((sum, d) => sum + d.text.length, 0);
-    const share = Math.min(size, Math.max(budgetLeft, 2000 * docs.length));
-    budgets.set(m.id, share);
-    budgetLeft = Math.max(0, budgetLeft - share);
-  }
   const history: ChatRequest["messages"] = loaded.map(({ m, images, docs }) => ({
     role: m.role,
-    content: docs.length ? withDocuments(m.content, docs, budgets.get(m.id) ?? 0) : m.content,
+    content: docs.length ? withDocuments(m.content, docs) : m.content,
     attachments: images.length ? images : undefined,
   }));
 
@@ -220,7 +259,8 @@ export async function POST(request: Request) {
   let route: NexusPlan | undefined;
   let system = assistant?.systemPrompt || DEFAULT_SYSTEM;
   let messages = mergeTurns(history);
-  const remember = nexus && req.message !== undefined && (await memoryEnabled(user.id));
+  // Stored facts go into every Nexus answer (regenerations too); new ones are learned from new messages.
+  const memoryOn = nexus && (await memoryEnabled(user.id));
   if (nexus) {
     const last = loaded[loaded.length - 1];
     try {
@@ -235,7 +275,7 @@ export async function POST(request: Request) {
       await refund(user.id, kind);
       return jsonError(describeError(err), 503);
     }
-    const facts = remember ? (await listFacts(user.id)).map((f) => f.text) : [];
+    const facts = memoryOn ? (await listFacts(user.id)).map((f) => f.text) : [];
     system = nexusSystem(route.model, facts, assistant?.systemPrompt);
     // Older pictures can't go to a model that doesn't see images.
     if (!route.model.vision) {
@@ -256,10 +296,14 @@ export async function POST(request: Request) {
   };
   const chatId = chat.id;
 
-  // After the answer is sent: let Nexus note lasting facts from this message.
+  // After the answer is sent: let Nexus note lasting facts from this message —
+  // only when the answer actually came through (a failed one is refunded).
   const userText = req.message?.content ?? "";
-  if (remember && mightHaveFacts(userText)) {
-    after(() => rememberFrom(user.id, userText).catch((err) => console.error("[nexus] memory update failed", err)));
+  let answered = false;
+  if (memoryOn && req.message && mightHaveFacts(userText)) {
+    after(() =>
+      answered ? rememberFrom(user.id, userText).catch((err) => console.error("[nexus] memory update failed", err)) : undefined,
+    );
   }
 
   const encoder = new TextEncoder();
@@ -301,6 +345,7 @@ export async function POST(request: Request) {
         try {
           // A provider failure that produced nothing doesn't count toward the limit.
           if (error && !text) await refund(user.id, kind);
+          answered = !error && text.length > 0;
           await db.insert(schema.message).values({
             id: req.answerId,
             chatId,

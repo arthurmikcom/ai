@@ -90,6 +90,8 @@ export interface ChatMessage {
   sources?: Source[];
   /** "nexus" when Nexus chose the model (provider/model then name the real one). */
   via?: "nexus";
+  /** Browser only: the server refused this message, so it was never saved. */
+  unsent?: boolean;
   /** Browser only: what the pending answer is busy with (drawing, searching). */
   generating?: "image" | "search";
   createdAt: number;
@@ -145,6 +147,8 @@ export interface ChatSendRequest {
   message?: { id: string; content: string; attachments?: InlineFile[] };
   /** Id for the assistant message the server will store. */
   answerId: string;
+  /** Regenerate: the user message being answered, so a lost one isn't answered by mistake. */
+  replyTo?: string;
 }
 
 /** Server → model provider adapters. */

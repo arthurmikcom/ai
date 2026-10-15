@@ -39,6 +39,8 @@ export interface ModelChoice {
 /** A chat in memory; messages arrive when it's first opened. */
 export interface LocalChat extends Chat {
   loaded: boolean;
+  /** The server has this chat (false for a new one until its first message is accepted). */
+  saved: boolean;
 }
 
 interface AppState {
@@ -120,7 +122,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       .then(([profile, list, saved]) => {
         setMe(profile);
         for (const c of list) {
-          if (!chatsRef.current.has(c.id)) chatsRef.current.set(c.id, { ...c, messages: [], loaded: false });
+          if (!chatsRef.current.has(c.id)) chatsRef.current.set(c.id, { ...c, messages: [], loaded: false, saved: true });
         }
         syncChats();
         assistantsRef.current = saved;
@@ -152,7 +154,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const run = useCallback(
     async (
       chatId: string,
-      options: SendOptions & { message?: ChatMessage; create?: { assistantId?: string } },
+      options: SendOptions & { message?: ChatMessage },
     ) => {
       const chat = chatsRef.current.get(chatId);
       if (!chat || controllers.current.has(chatId)) return;
@@ -205,7 +207,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         const { message } = options;
         const body: ChatSendRequest = {
           chatId,
-          create: options.create,
+          // A chat the server doesn't have yet is created with its (first accepted) message.
+          create: message && !chat.saved ? { assistantId: chat.assistantId } : undefined,
+          // Regenerate names the message it answers, so a refused one isn't mixed up.
+          replyTo: message ? undefined : chat.messages.findLast((m) => m.role === "user")?.id,
           provider: chat.provider,
           model: chat.model,
           deepThinking: options.deepThinking,
@@ -226,7 +231,18 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           body: JSON.stringify(body),
           signal: controller.signal,
         });
-        if (!res.ok) throw await errorOf(res);
+        if (!res.ok) {
+          // Refused before anything was saved: remember that, so "regenerate" re-sends it.
+          if (message) patchMessage(chatId, message.id, { unsent: true });
+          throw await errorOf(res);
+        }
+        if (message) {
+          update(chatId, (c) => ({
+            ...c,
+            saved: true,
+            messages: c.messages.map((m) => (m.id === message.id ? { ...m, unsent: undefined } : m)),
+          }));
+        }
         for await (const event of readNdjson<ChatStreamEvent>(res)) {
           if (event.type === "text") text += event.text;
           else if (event.type === "reasoning") reasoning += event.text;
@@ -302,11 +318,12 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         createdAt: Date.now(),
         updatedAt: Date.now(),
         loaded: true,
+        saved: false,
       };
       chatsRef.current.set(chat.id, chat);
       syncChats();
       setActiveId(chat.id);
-      void run(chat.id, { ...options, message, create: { assistantId } });
+      void run(chat.id, { ...options, message });
     },
     [activeId, draftAssistantId, run, syncChats, update],
   );
@@ -318,7 +335,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       if (chat.messages[chat.messages.length - 1]?.role === "assistant") {
         update(chatId, (c) => ({ ...c, messages: c.messages.slice(0, -1) }));
       }
-      void run(chatId, options);
+      // The question itself never reached the server: send it again instead.
+      const lastUser = chat.messages.findLast((m) => m.role === "user");
+      void run(chatId, lastUser?.unsent ? { ...options, message: lastUser } : options);
     },
     [run, update],
   );

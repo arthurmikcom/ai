@@ -72,8 +72,9 @@ const DOCUMENT_MIME: Record<string, string> = {
 /** For <input accept>: images plus every document type. */
 export const ATTACH_ACCEPT = `image/*,${Object.keys(DOCUMENT_MIME).map((e) => `.${e}`).join(",")}`;
 
-/** Largest document we upload (the server and Vercel cap requests at a few MB). */
-export const MAX_DOCUMENT_BYTES = 3 * 1024 * 1024;
+/** Upload limits, matching the server: base64 characters per file and per message. */
+export const MAX_FILE_BASE64 = 4_000_000;
+export const MAX_TOTAL_BASE64 = 4_300_000;
 
 export function documentMime(file: File): string | null {
   const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
@@ -87,7 +88,7 @@ export function isDocumentAttachment(a: Pick<Attachment, "mime">): boolean {
 /** Reads a document as base64 for upload; null when it's too big. */
 export async function documentToAttachment(file: File): Promise<Attachment | null> {
   const mime = documentMime(file);
-  if (!mime || file.size > MAX_DOCUMENT_BYTES) return null;
+  if (!mime || Math.ceil(file.size / 3) * 4 > MAX_FILE_BASE64) return null;
   const bytes = new Uint8Array(await file.arrayBuffer());
   let binary = "";
   for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
