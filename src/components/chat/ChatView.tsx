@@ -4,6 +4,7 @@ import { ArrowRight, ArrowUpRight, Clapperboard, Code2, Compass, FileText, Image
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useModels } from "@/lib/client/useModels";
+import { speak, useVoiceSupport } from "@/lib/client/voice";
 import { useApp, type ModelChoice } from "../AppState";
 import { findModel, ModelPicker } from "../ModelPicker";
 import { Composer } from "./Composer";
@@ -34,6 +35,13 @@ export function ChatView() {
   const [deepThinking, setDeepThinking] = useState(false);
   const [imageMode, setImageMode] = useState(false);
   const [webSearch, setWebSearch] = useState(false);
+  const [voiceMode, setVoiceMode] = useState(false);
+  const voice = useVoiceSupport();
+  // Dictation runs on our server when it can (works in every browser); else the browser's own.
+  const voiceInput =
+    voice?.record && app.me?.voice.transcribe ? "server" : voice?.recognize ? "browser" : null;
+  // A message sent by voice in talk mode gets its answer read aloud.
+  const speakNext = useRef(false);
   // Drawing in the chat needs at least one image model on the server.
   const images = useModels("image");
   const canDraw = Boolean(images.data?.models.length);
@@ -67,6 +75,15 @@ export function ChatView() {
     stickToBottom.current = true;
     if (!chat?.id) scroller.current?.scrollTo({ top: 0 });
   }, [chat?.id]);
+
+  // Talk mode: read the answer aloud once it has finished streaming.
+  useEffect(() => {
+    if (streaming || !speakNext.current || !lastMessage) return;
+    speakNext.current = false;
+    if (lastMessage.role === "assistant" && lastMessage.content && !lastMessage.error) {
+      speak(lastMessage.id, lastMessage.content);
+    }
+  }, [streaming, lastMessage]);
 
   const onPick = (c: ModelChoice) => (chat ? app.setChatModel(chat.id, c) : app.setModel(c));
 
@@ -217,8 +234,12 @@ export function ChatView() {
           canDraw={canDraw}
           imageMode={imageMode && canDraw}
           onImageModeChange={setImageMode}
-          onSend={(text, attachments) => {
+          voiceInput={voiceInput}
+          voiceMode={voiceMode && Boolean(voice?.speak)}
+          onVoiceModeChange={voice?.speak ? setVoiceMode : null}
+          onSend={(text, attachments, viaVoice) => {
             stickToBottom.current = true;
+            speakNext.current = Boolean(viaVoice && voiceMode && voice?.speak);
             app.send(
               text,
               attachments,

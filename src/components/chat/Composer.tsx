@@ -1,7 +1,20 @@
 "use client";
 
-import { ArrowUp, Brain, FileText, Globe, Palette, Paperclip, Square, X } from "lucide-react";
-import { useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
+import {
+  ArrowUp,
+  AudioLines,
+  Brain,
+  FileText,
+  Globe,
+  LoaderCircle,
+  Mic,
+  Palette,
+  Paperclip,
+  Square,
+  X,
+} from "lucide-react";
+import { useEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
+import { ApiError } from "@/lib/client/api";
 import {
   ATTACH_ACCEPT,
   documentMime,
@@ -9,6 +22,7 @@ import {
   imageToAttachment,
   isDocumentAttachment,
 } from "@/lib/client/util";
+import { recognizeOnce, startRecording, transcribe, type Recording } from "@/lib/client/voice";
 import type { Attachment, ModelInfo } from "@/lib/types";
 
 interface Props {
@@ -25,7 +39,12 @@ interface Props {
   /** The next message is a picture description, not a question. */
   imageMode: boolean;
   onImageModeChange: (value: boolean) => void;
-  onSend: (text: string, attachments: Attachment[]) => void;
+  /** How dictation is recognized: on our server, by the browser, or not at all. */
+  voiceInput: "server" | "browser" | null;
+  /** Talk mode: dictated messages are sent right away and answers are read aloud. */
+  voiceMode: boolean;
+  onVoiceModeChange: ((value: boolean) => void) | null;
+  onSend: (text: string, attachments: Attachment[], viaVoice?: boolean) => void;
   onStop: () => void;
 }
 
@@ -42,10 +61,17 @@ export function Composer({
   canDraw,
   imageMode,
   onImageModeChange,
+  voiceInput,
+  voiceMode,
+  onVoiceModeChange,
   onSend,
   onStop,
 }: Props) {
   const [text, setText] = useState("");
+  const [listening, setListening] = useState<"idle" | "recording" | "transcribing">("idle");
+  const [seconds, setSeconds] = useState(0);
+  const recording = useRef<Recording | null>(null);
+  const recognizer = useRef<{ stop: () => void } | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -92,6 +118,74 @@ export function Composer({
     setAttachments([]);
     setError(null);
     if (textarea.current) textarea.current.style.height = "auto";
+  };
+
+  // Stop the microphone if the composer goes away mid-recording.
+  useEffect(() => () => recording.current?.cancel(), []);
+
+  useEffect(() => {
+    if (listening !== "recording") return;
+    const started = Date.now();
+    const timer = setInterval(() => setSeconds(Math.floor((Date.now() - started) / 1000)), 250);
+    return () => clearInterval(timer);
+  }, [listening]);
+
+  const applyDictation = (spoken: string) => {
+    if (!spoken) {
+      setError("Не удалось разобрать речь. Попробуйте ещё раз.");
+      return;
+    }
+    if (voiceMode && !disabled && !streaming) {
+      onSend(spoken, imageMode ? [] : attachments, true);
+      setAttachments([]);
+      return;
+    }
+    setText((t) => (t.trim() ? `${t.trimEnd()} ${spoken}` : spoken));
+    textarea.current?.focus();
+  };
+
+  const finishRecording = async () => {
+    const current = recording.current;
+    if (!current) return;
+    recording.current = null;
+    setListening("transcribing");
+    try {
+      applyDictation(await transcribe(await current.stop()));
+    } catch (e) {
+      setError(e instanceof ApiError || e instanceof Error ? e.message : String(e));
+    }
+    setListening("idle");
+  };
+
+  const toggleMic = async () => {
+    setError(null);
+    if (listening === "recording") {
+      if (recognizer.current) recognizer.current.stop();
+      else await finishRecording();
+      return;
+    }
+    if (listening !== "idle" || !voiceInput) return;
+    setSeconds(0);
+    if (voiceInput === "browser") {
+      const session = recognizeOnce();
+      recognizer.current = session;
+      setListening("recording");
+      try {
+        applyDictation(await session.result);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+      recognizer.current = null;
+      setListening("idle");
+      return;
+    }
+    try {
+      recording.current = await startRecording(() => void finishRecording());
+      setListening("recording");
+    } catch (e) {
+      const denied = e instanceof DOMException && (e.name === "NotAllowedError" || e.name === "SecurityError");
+      setError(denied ? "Разрешите доступ к микрофону в настройках браузера." : "Микрофон недоступен.");
+    }
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -192,12 +286,59 @@ export function Composer({
             <Paperclip className="size-5" />
           </button>
 
+          {voiceInput && (
+            <button
+              type="button"
+              onClick={() => void toggleMic()}
+              disabled={disabled || listening === "transcribing"}
+              aria-pressed={listening === "recording"}
+              title={listening === "recording" ? "Остановить запись" : "Сказать голосом"}
+              aria-label={listening === "recording" ? "Остановить запись" : "Сказать голосом"}
+              className={`flex items-center gap-1.5 rounded-full p-2 text-sm transition disabled:opacity-40 ${
+                listening === "recording"
+                  ? "bg-red-500/20 px-3 text-red-200"
+                  : "text-zinc-400 hover:bg-white/5 hover:text-zinc-100"
+              }`}
+            >
+              {listening === "transcribing" ? (
+                <LoaderCircle className="size-5 animate-spin" />
+              ) : listening === "recording" ? (
+                <>
+                  <span className="size-2 animate-pulse rounded-full bg-red-400" />
+                  {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")}
+                  <Square className="size-3.5 fill-current" />
+                </>
+              ) : (
+                <Mic className="size-5" />
+              )}
+            </button>
+          )}
+
+          {voiceInput && onVoiceModeChange && (
+            <button
+              type="button"
+              onClick={() => onVoiceModeChange(!voiceMode)}
+              aria-pressed={voiceMode}
+              title="Голосовой режим: сказанное отправляется сразу, а ответ читается вслух"
+              aria-label="Голосовой режим"
+              className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition ${
+                voiceMode
+                  ? "bg-violet-500/20 text-violet-200"
+                  : "text-zinc-400 hover:bg-white/5 hover:text-zinc-100"
+              }`}
+            >
+              <AudioLines className="size-4" />
+              <span className="hidden sm:inline">Голосом</span>
+            </button>
+          )}
+
           {canDraw && (
             <button
               type="button"
               onClick={() => onImageModeChange(!imageMode)}
               aria-pressed={imageMode}
               title="Нарисовать картинку по описанию"
+              aria-label="Картинка"
               className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition ${
                 imageMode
                   ? "bg-violet-500/20 text-violet-200"
@@ -205,7 +346,7 @@ export function Composer({
               }`}
             >
               <Palette className="size-4" />
-              Картинка
+              <span className="hidden sm:inline">Картинка</span>
             </button>
           )}
 
@@ -215,6 +356,7 @@ export function Composer({
               onClick={() => onWebSearchChange(!webSearch)}
               aria-pressed={webSearch}
               title="Искать свежую информацию в интернете и показывать источники"
+              aria-label="Поиск в интернете"
               className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition ${
                 webSearch
                   ? "bg-violet-500/20 text-violet-200"
@@ -222,7 +364,7 @@ export function Composer({
               }`}
             >
               <Globe className="size-4" />
-              Поиск
+              <span className="hidden sm:inline">Поиск</span>
             </button>
           )}
 
@@ -232,6 +374,7 @@ export function Composer({
               onClick={() => onDeepThinkingChange(!deepThinking)}
               aria-pressed={deepThinking}
               title="Модель дольше размышляет над ответом"
+              aria-label="Думать глубже"
               className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition ${
                 deepThinking
                   ? "bg-violet-500/20 text-violet-200"
@@ -239,7 +382,7 @@ export function Composer({
               }`}
             >
               <Brain className="size-4" />
-              Думать глубже
+              <span className="hidden sm:inline">Думать глубже</span>
             </button>
           )}
 

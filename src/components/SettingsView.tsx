@@ -19,6 +19,7 @@ const USAGE_LABEL: Record<UsageKind, string> = {
   chat: "Сообщения",
   image: "Изображения",
   video: "Видео",
+  voice: "Голосовой ввод",
 };
 
 function Providers() {

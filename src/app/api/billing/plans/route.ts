@@ -2,16 +2,15 @@ import { planLimit } from "@/lib/server/billing/plans";
 import { stripeConfigured, stripePriceLabel } from "@/lib/server/billing/stripe";
 import { yookassaConfigured, yookassaPriceLabel } from "@/lib/server/billing/yookassa";
 import { requireUser } from "@/lib/server/http";
-import type { BillingOptions, PlanId, UsageKind } from "@/lib/types";
+import { USAGE_KINDS, type BillingOptions, type PlanId, type UsageKind } from "@/lib/types";
 
 /** Plans, their limits and the payment methods this server accepts. */
 export async function GET(request: Request) {
   const user = await requireUser(request);
   if (user instanceof Response) return user;
 
-  const kinds: UsageKind[] = ["chat", "image", "video"];
   const limits = (plan: PlanId) =>
-    Object.fromEntries(kinds.map((k) => [k, planLimit(plan, k)])) as Record<UsageKind, number | null>;
+    Object.fromEntries(USAGE_KINDS.map((k) => [k, planLimit(plan, k)])) as Record<UsageKind, number | null>;
 
   let stripe: BillingOptions["methods"]["stripe"] = null;
   if (stripeConfigured()) {

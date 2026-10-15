@@ -6,8 +6,8 @@ export type SubscriptionRow = typeof schema.subscription.$inferSelect;
 
 const DEFAULT_LIMITS: Record<PlanId, Record<UsageKind, number>> = {
   // Video costs dollars per clip, so by default it's a Pro feature.
-  free: { chat: 50, image: 10, video: 0 },
-  pro: { chat: 500, image: 100, video: 10 },
+  free: { chat: 50, image: 10, video: 0, voice: 30 },
+  pro: { chat: 500, image: 100, video: 10, voice: 300 },
 };
 
 const ENV_PREFIX: Record<PlanId, string> = { free: "FREE_DAILY_", pro: "PRO_DAILY_" };

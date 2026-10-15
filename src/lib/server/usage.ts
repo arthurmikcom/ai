@@ -1,5 +1,5 @@
 import { and, eq, sql } from "drizzle-orm";
-import type { UsageKind, UsageSummary } from "@/lib/types";
+import { USAGE_KINDS, type UsageKind, type UsageSummary } from "@/lib/types";
 import { isAdmin, type SessionUser } from "./auth";
 import { currentPlan, planLimit } from "./billing/plans";
 import { getDb, schema } from "./db";
@@ -19,6 +19,7 @@ const LIMIT_NAMES: Record<UsageKind, string> = {
   chat: "сообщения",
   image: "изображения",
   video: "видео",
+  voice: "голосовой ввод",
 };
 
 /** Error body for a reached limit; `code` lets the UI offer an upgrade. */
@@ -81,7 +82,6 @@ export async function usageSummary(user: SessionUser): Promise<UsageSummary> {
   const { plan } = await currentPlan(user.id);
   const used = (kind: UsageKind) => rows.find((r) => r.kind === kind)?.count ?? 0;
   const limit = (kind: UsageKind) => (admin ? null : planLimit(plan, kind));
-  const kinds: UsageKind[] = ["chat", "image", "video"];
-  return Object.fromEntries(kinds.map((k) => [k, { used: used(k), limit: limit(k) }])) as UsageSummary;
+  return Object.fromEntries(USAGE_KINDS.map((k) => [k, { used: used(k), limit: limit(k) }])) as UsageSummary;
 }
 

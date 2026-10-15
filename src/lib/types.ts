@@ -212,7 +212,9 @@ export interface MediaItem {
 
 // ---------- Account ----------
 
-export type UsageKind = "chat" | "image" | "video";
+export type UsageKind = "chat" | "image" | "video" | "voice";
+
+export const USAGE_KINDS: UsageKind[] = ["chat", "image", "video", "voice"];
 
 /** Today's usage; `limit: null` means unlimited. */
 export type UsageSummary = Record<UsageKind, { used: number; limit: number | null }>;
@@ -246,6 +248,8 @@ export interface MeResponse {
   usage: UsageSummary;
   /** Social sign-in methods configured on this server. */
   social: { google: boolean; vk: boolean };
+  /** Speech-to-text on the server is available (otherwise the browser's own, if any). */
+  voice: { transcribe: boolean };
 }
 
 /** What /api/billing/plans tells the pricing page. */

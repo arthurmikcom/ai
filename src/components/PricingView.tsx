@@ -13,6 +13,7 @@ const KIND_LABEL: Record<UsageKind, string> = {
   chat: "сообщений в день",
   image: "изображений в день",
   video: "видео в день",
+  voice: "голосовых сообщений в день",
 };
 
 function limitText(limit: number | null, kind: UsageKind): string {

@@ -11,8 +11,11 @@ import {
   Info,
   LoaderCircle,
   RefreshCw,
+  Square,
   TriangleAlert,
+  Volume2,
 } from "lucide-react";
+import { speak, stopSpeaking, useSpeaking, useVoiceSupport } from "@/lib/client/voice";
 import { isDocumentAttachment } from "@/lib/client/util";
 import Link from "next/link";
 import { useState } from "react";
@@ -52,6 +55,8 @@ function Reasoning({ text, active }: { text: string; active: boolean }) {
 
 export function MessageView({ message, models, streaming, isLast, onRegenerate }: Props) {
   const [copied, setCopied] = useState(false);
+  const speaking = useSpeaking() === message.id;
+  const canSpeak = useVoiceSupport()?.speak ?? false;
 
   if (message.role === "user") {
     return (
@@ -216,7 +221,22 @@ export function MessageView({ message, models, streaming, isLast, onRegenerate }
       )}
 
       {!streaming && (
-        <div className="mt-2 flex items-center gap-1 text-zinc-500 opacity-100 transition md:opacity-0 md:group-hover:opacity-100">
+        <div
+          className={`mt-2 flex items-center gap-1 text-zinc-500 transition ${
+            speaking ? "opacity-100" : "opacity-100 md:opacity-0 md:group-hover:opacity-100"
+          }`}
+        >
+          {message.content && canSpeak && (
+            <button
+              type="button"
+              onClick={() => (speaking ? stopSpeaking() : speak(message.id, message.content))}
+              title={speaking ? "Остановить" : "Прочитать вслух"}
+              aria-label={speaking ? "Остановить" : "Прочитать вслух"}
+              className={`rounded-lg p-1.5 hover:bg-white/5 hover:text-zinc-200 ${speaking ? "text-violet-300" : ""}`}
+            >
+              {speaking ? <Square className="size-4 fill-current" /> : <Volume2 className="size-4" />}
+            </button>
+          )}
           {message.content && (
             <button
               type="button"
