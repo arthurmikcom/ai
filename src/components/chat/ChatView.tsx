@@ -29,7 +29,7 @@ const ASSISTANT_LINKS = [
 
 export function ChatView() {
   const app = useApp();
-  const { data, loading } = useModels("chat");
+  const { data, loading, error: modelsError } = useModels("chat");
   const models = useMemo(() => data?.models ?? [], [data]);
   const chat = app.activeChat;
   const [deepThinking, setDeepThinking] = useState(false);
@@ -63,6 +63,16 @@ export function ChatView() {
     (a) => a.id === (chat ? chat.assistantId : app.draftAssistantId),
   );
   const noProviders = data !== null && models.length === 0;
+  const disabledText =
+    !app.ready || loading
+      ? "Загружаю модели…"
+      : modelsError
+        ? "Не удалось загрузить список моделей — обновите страницу"
+        : noProviders
+          ? app.me?.admin
+            ? "Нейросети не подключены: нужен ключ OPENROUTER_API_KEY на сервере"
+            : "Нейросети пока не подключены — загляните чуть позже"
+          : "Выберите модель вверху";
 
   // Follow the answer while it streams, unless the user scrolled up to read.
   const lastMessage = chat?.messages[chat.messages.length - 1];
@@ -193,12 +203,12 @@ export function ChatView() {
                 {app.me?.admin ? (
                   <>
                     <p className="mb-3 text-zinc-400">
-                      Добавьте API-ключ (например, ANTHROPIC_API_KEY или OPENAI_API_KEY) в переменные
-                      окружения сервера и перезапустите его.
+                      На сервере не задан ни один ключ нейросетей. В Vercel откройте Settings → Environment
+                      Variables, добавьте OPENROUTER_API_KEY (для Production) и сделайте Redeploy.
                     </p>
-                    <Link href="/settings" className="font-medium text-violet-200 underline">
-                      Открыть настройки →
-                    </Link>
+                    <a href="/api/health" target="_blank" rel="noreferrer" className="font-medium text-violet-200 underline">
+                      Проверить настройку сервера →
+                    </a>
                   </>
                 ) : (
                   <p className="text-zinc-400">Сервис настраивается. Загляните чуть позже.</p>
@@ -249,6 +259,7 @@ export function ChatView() {
         <Composer
           model={current}
           disabled={!choice || noProviders || !app.ready}
+          disabledText={disabledText}
           streaming={streaming}
           deepThinking={deepThinking}
           onDeepThinkingChange={setDeepThinking}

@@ -36,6 +36,8 @@ import type { Attachment, ModelInfo } from "@/lib/types";
 interface Props {
   model: ModelInfo | undefined;
   disabled: boolean;
+  /** Why the field is disabled, shown in place of the hint. */
+  disabledText?: string;
   streaming: boolean;
   deepThinking: boolean;
   onDeepThinkingChange: (value: boolean) => void;
@@ -61,6 +63,7 @@ const MAX_ATTACHMENTS = 4;
 export function Composer({
   model,
   disabled,
+  disabledText,
   streaming,
   deepThinking,
   onDeepThinkingChange,
@@ -292,7 +295,7 @@ export function Composer({
           onPaste={onPaste}
           placeholder={
             disabled
-              ? "Сначала подключите провайдера в настройках"
+              ? (disabledText ?? "Загрузка…")
               : imageMode
                 ? "Опишите картинку: что на ней, стиль, настроение…"
                 : "Спросите что угодно…"

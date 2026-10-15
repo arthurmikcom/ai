@@ -26,12 +26,25 @@ export function useModels(capability: Capability | "all") {
 
   useEffect(() => {
     let alive = true;
-    load(capability).then(
-      (d) => alive && setData(d),
-      (e: Error) => alive && setError(e.message),
-    );
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // A cold server or a blip in the network: try again a few times before giving up.
+    const attempt = (n: number) =>
+      load(capability).then(
+        (d) => {
+          if (!alive) return;
+          setData(d);
+          setError(null);
+        },
+        (e: Error) => {
+          if (!alive) return;
+          if (n < 3) timer = setTimeout(() => attempt(n + 1), 1500 * 2 ** n);
+          else setError(e.message);
+        },
+      );
+    void attempt(0);
     return () => {
       alive = false;
+      clearTimeout(timer);
     };
   }, [capability]);
 
