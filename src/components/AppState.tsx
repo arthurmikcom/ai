@@ -232,6 +232,15 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           else if (event.type === "reasoning") reasoning += event.text;
           else if (event.type === "notice") notice = notice ? `${notice}\n${event.text}` : event.text;
           else if (event.type === "source") sources.push({ url: event.url, title: event.title });
+          else if (event.type === "route") {
+            // Nexus picked the real model (and maybe search or drawing) for this answer.
+            drawnBy = { provider: event.provider, model: event.model };
+            patchMessage(chatId, answerId, {
+              via: "nexus",
+              ...drawnBy,
+              generating: event.image ? "image" : event.search ? "search" : undefined,
+            });
+          }
           else if (event.type === "image") {
             images.push({ url: event.url, mime: event.mime });
             drawnBy = { provider: event.provider, model: event.model };

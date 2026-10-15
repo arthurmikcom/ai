@@ -1,4 +1,4 @@
-import { FEATURED_MODELS, PROVIDERS } from "@/lib/catalog";
+import { FEATURED_MODELS, NEXUS_MODEL, PROVIDERS } from "@/lib/catalog";
 import type { Capability, ModelInfo, ModelsResponse, ProviderId } from "@/lib/types";
 import { ADAPTIVE_THINKING } from "./chat/anthropic";
 import { THINKING_LEVEL_MODELS } from "./chat/google";
@@ -151,6 +151,7 @@ function classify(provider: ProviderId, m: LiveModel): Capability | null {
     case "ollama":
       return "chat";
     case "replicate":
+    case "nexus":
       return null;
   }
 }
@@ -220,5 +221,9 @@ export async function listModels(capability: Capability | null): Promise<ModelsR
         .map((c) => modelsFor(p.id, c)),
     );
   const models = (await Promise.all(jobs)).flat();
+  // Nexus is available whenever there's at least one real chat model to route to.
+  if (capabilities.includes("chat") && models.some((m) => m.capability === "chat")) {
+    models.unshift({ ...NEXUS_MODEL, search: isConfigured("openrouter") || undefined });
+  }
   return { providers, models };
 }

@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
+import { after } from "next/server";
 import { streamChat } from "@/lib/server/chat";
-import { chatImageModel, generateChatImage } from "@/lib/server/chat/image";
+import { canDrawInChat, chatImageModel, generateChatImage } from "@/lib/server/chat/image";
 import { chatMessages, findAssistant, findChat } from "@/lib/server/chats";
 import { getDb, schema } from "@/lib/server/db";
 import type { StoredFile } from "@/lib/server/db/schema";
@@ -8,6 +9,16 @@ import { describeError } from "@/lib/server/errors";
 import { jsonError, requireUser } from "@/lib/server/http";
 import { DocumentError, extractDocumentText, isDocumentMime, withDocuments } from "@/lib/server/documents";
 import { deleteFiles, fileUrl, newKey, putFile, readFileBase64 } from "@/lib/server/storage";
+import {
+  listFacts,
+  memoryEnabled,
+  mightHaveFacts,
+  nexusSystem,
+  planRoute,
+  rememberFrom,
+  wantsImage,
+  type NexusPlan,
+} from "@/lib/server/nexus";
 import { consume, limitResponse, refund } from "@/lib/server/usage";
 import { parseChatSendRequest } from "@/lib/server/validate";
 import type { ChatRequest, ChatStreamEvent, InlineFile, InlineImage, Source, UsageKind } from "@/lib/types";
@@ -53,8 +64,12 @@ export async function POST(request: Request) {
   let chat = await findChat(user.id, req.chatId);
   if (!chat && (!req.create || !req.message)) return jsonError("Чат не найден", 404);
 
+  // Nexus draws by itself when asked to ("нарисуй…") and an image model is set up.
+  const nexus = req.provider === "nexus";
+  const draw =
+    req.image || (nexus && req.message !== undefined && wantsImage(req.message.content) && (await canDrawInChat()));
   // A picture drawn in the chat counts toward the image limit, not messages.
-  const kind: UsageKind = req.image ? "image" : "chat";
+  const kind: UsageKind = draw ? "image" : "chat";
   if (!(await consume(user, kind))) return limitResponse(user, kind);
 
   if (!chat) {
@@ -145,7 +160,9 @@ export async function POST(request: Request) {
     return jsonError("Нечего отправлять: последнее сообщение не от пользователя", 400);
   }
 
-  if (req.image) return drawInChat(request, user.id, chat.id, req.answerId, rows[rows.length - 1].content);
+  if (draw) {
+    return drawInChat(request, user.id, chat.id, req.answerId, rows[rows.length - 1].content, nexus ? "nexus" : undefined);
+  }
 
   // Images of the new message are already in memory; older ones are re-read.
   const fresh = new Map<string, InlineImage[]>();
@@ -198,15 +215,52 @@ export async function POST(request: Request) {
   }));
 
   const assistant = chat.assistantId ? await findAssistant(user.id, chat.assistantId) : undefined;
+
+  // Nexus: pick the real model for this message, then speak as Nexus with its memory.
+  let route: NexusPlan | undefined;
+  let system = assistant?.systemPrompt || DEFAULT_SYSTEM;
+  let messages = mergeTurns(history);
+  const remember = nexus && req.message !== undefined && (await memoryEnabled(user.id));
+  if (nexus) {
+    const last = loaded[loaded.length - 1];
+    try {
+      route = await planRoute({
+        text: last.m.content,
+        hasImages: last.images.length > 0,
+        hasDocuments: last.docs.length > 0,
+        deepThinking: req.deepThinking ?? false,
+        webSearch: req.webSearch ?? false,
+      });
+    } catch (err) {
+      await refund(user.id, kind);
+      return jsonError(describeError(err), 503);
+    }
+    const facts = remember ? (await listFacts(user.id)).map((f) => f.text) : [];
+    system = nexusSystem(route.model, facts, assistant?.systemPrompt);
+    // Older pictures can't go to a model that doesn't see images.
+    if (!route.model.vision) {
+      messages = messages.map((m) =>
+        m.attachments ? { ...m, attachments: undefined, content: `${m.content}\n[К сообщению было приложено изображение]` } : m,
+      );
+    }
+  }
+  const provider = route?.model.provider ?? req.provider;
+  const model = route?.model.id ?? req.model;
   const chatRequest: ChatRequest = {
-    provider: req.provider,
-    model: req.model,
-    system: assistant?.systemPrompt || DEFAULT_SYSTEM,
+    provider,
+    model,
+    system,
     deepThinking: req.deepThinking,
-    webSearch: req.webSearch,
-    messages: mergeTurns(history),
+    webSearch: route ? route.webSearch : req.webSearch,
+    messages,
   };
   const chatId = chat.id;
+
+  // After the answer is sent: let Nexus note lasting facts from this message.
+  const userText = req.message?.content ?? "";
+  if (remember && mightHaveFacts(userText)) {
+    after(() => rememberFrom(user.id, userText).catch((err) => console.error("[nexus] memory update failed", err)));
+  }
 
   const encoder = new TextEncoder();
   const body = new ReadableStream<Uint8Array>({
@@ -226,6 +280,7 @@ export async function POST(request: Request) {
       let error: string | undefined;
 
       try {
+        if (route) send({ type: "route", provider, model, search: route.webSearch || undefined });
         for await (const event of streamChat(chatRequest, request.signal)) {
           if (event.type === "text") text += event.text;
           else if (event.type === "reasoning") reasoning += event.text;
@@ -238,7 +293,7 @@ export async function POST(request: Request) {
         if (request.signal.aborted) {
           notices.push("Генерация остановлена.");
         } else {
-          console.error("[chat]", req.provider, req.model, err);
+          console.error("[chat]", provider, model, err);
           error = describeError(err);
           send({ type: "error", message: error });
         }
@@ -255,8 +310,9 @@ export async function POST(request: Request) {
             notice: notices.length ? notices.join("\n") : null,
             sources: sources.length ? sources.slice(0, 20) : null,
             error: error ?? null,
-            provider: req.provider,
-            model: req.model,
+            provider,
+            model,
+            via: route ? "nexus" : null,
           });
           await db.update(schema.chat).set({ updatedAt: new Date() }).where(eq(schema.chat.id, chatId));
         } catch (err) {
@@ -306,7 +362,14 @@ function ndjson(body: ReadableStream<Uint8Array>): Response {
  * Image mode: draws a picture from the last user message and stores it as the
  * answer. Streams the same NDJSON events as a text answer, plus "image".
  */
-function drawInChat(request: Request, userId: string, chatId: string, answerId: string, prompt: string): Response {
+function drawInChat(
+  request: Request,
+  userId: string,
+  chatId: string,
+  answerId: string,
+  prompt: string,
+  via?: "nexus",
+): Response {
   const encoder = new TextEncoder();
   const body = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -326,6 +389,7 @@ function drawInChat(request: Request, userId: string, chatId: string, answerId: 
       try {
         const picked = await chatImageModel();
         model = picked;
+        if (via) send({ type: "route", provider: picked.provider, model: picked.id, image: true });
         files = await generateChatImage(userId, prompt, picked, request.signal);
         for (const f of files) {
           send({ type: "image", url: fileUrl(f.key), mime: f.mime, provider: picked.provider, model: picked.id });
@@ -354,6 +418,7 @@ function drawInChat(request: Request, userId: string, chatId: string, answerId: 
             error: error ?? null,
             provider: model?.provider ?? null,
             model: model?.id ?? null,
+            via: via ?? null,
           });
           await db.update(schema.chat).set({ updatedAt: new Date() }).where(eq(schema.chat.id, chatId));
         } catch (err) {

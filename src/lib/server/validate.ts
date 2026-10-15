@@ -3,7 +3,7 @@ import type { AspectRatio, ChatSendRequest, GenerateRequest, InlineFile, Provide
 import { isDocumentMime } from "./documents";
 import { isValidId } from "./http";
 
-const PROVIDER_IDS = new Set<string>(PROVIDERS.map((p) => p.id));
+const PROVIDER_IDS = new Set<string>([...PROVIDERS.map((p) => p.id), "nexus"]);
 const ASPECT_RATIOS = new Set<string>(["1:1", "16:9", "9:16", "4:3", "3:4"]);
 const IMAGE_MIME = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 const MAX_ATTACHMENTS = 4;

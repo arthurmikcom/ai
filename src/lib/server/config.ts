@@ -29,6 +29,7 @@ export function apiKey(provider: ProviderId): string | undefined {
     case "replicate":
       return env("REPLICATE_API_TOKEN");
     case "ollama":
+    case "nexus":
       return undefined;
   }
 }

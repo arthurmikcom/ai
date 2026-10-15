@@ -29,6 +29,13 @@
       "when": 1792025004647,
       "tag": "0003_message_sources",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792025946710,
+      "tag": "0004_nexus_memory",
+      "breakpoints": true
     }
   ]
 }

@@ -140,6 +140,8 @@ export const message = pgTable(
     notice: text("notice"),
     /** Web pages the answer cites (web search). */
     sources: jsonb("sources").$type<Source[]>(),
+    /** "nexus" when Nexus picked the model that wrote this answer. */
+    via: text("via").$type<"nexus">(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (t) => [index("message_chat_seq_idx").on(t.chatId, t.seq)],
@@ -185,6 +187,29 @@ export const media = pgTable(
   },
   (t) => [index("media_user_kind_idx").on(t.userId, t.kind, t.createdAt)],
 );
+
+/** Facts Nexus remembers about a user, shown and editable in settings. */
+export const memory = pgTable(
+  "memory",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    text: text("text").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [index("memory_user_idx").on(t.userId, t.createdAt)],
+);
+
+/** Per-user preferences. */
+export const userPref = pgTable("user_pref", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  /** Let Nexus remember facts about the user. */
+  memory: boolean("memory").default(true).notNull(),
+});
 
 /** Daily counters for the free-tier limits. */
 export const usage = pgTable(

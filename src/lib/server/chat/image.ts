@@ -11,6 +11,11 @@ import { deleteFiles, newKey, putFile } from "../storage";
 const POLL_EVERY_MS = 2500;
 const GIVE_UP_AFTER_MS = 150_000;
 
+/** Whether any image model is set up, so the chat can draw. */
+export async function canDrawInChat(): Promise<boolean> {
+  return (await listModels("image")).models.length > 0;
+}
+
 /** The image model a chat uses: the first featured one among configured providers. */
 export async function chatImageModel(): Promise<ModelInfo> {
   const { models } = await listModels("image");

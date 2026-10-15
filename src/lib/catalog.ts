@@ -81,7 +81,20 @@ export const PROVIDERS: ProviderDef[] = [
   },
 ];
 
+/** Our own AI, shown first in the chat model picker (see server/nexus.ts). */
+export const NEXUS_MODEL: ModelInfo = {
+  provider: "nexus",
+  id: "nexus",
+  label: "Nexus",
+  description: "Наш ИИ: сам выбирает лучшую модель под каждую задачу",
+  capability: "chat",
+  featured: true,
+  vision: true,
+  reasoning: true,
+};
+
 export function providerName(id: ProviderId): string {
+  if (id === "nexus") return "Nexus AI";
   return PROVIDERS.find((p) => p.id === id)?.name ?? id;
 }
 

@@ -8,7 +8,9 @@ export type ProviderId =
   | "deepseek"
   | "xai"
   | "ollama"
-  | "replicate";
+  | "replicate"
+  /** Our own AI: picks the best real model for each message. */
+  | "nexus";
 
 export type Capability = "chat" | "image" | "video";
 
@@ -86,6 +88,8 @@ export interface ChatMessage {
   notice?: string;
   /** Pages found by web search for this answer. */
   sources?: Source[];
+  /** "nexus" when Nexus chose the model (provider/model then name the real one). */
+  via?: "nexus";
   /** Browser only: what the pending answer is busy with (drawing, searching). */
   generating?: "image" | "search";
   createdAt: number;
@@ -158,6 +162,8 @@ export type ChatStreamEvent =
   | { type: "reasoning"; text: string }
   | { type: "notice"; text: string }
   | { type: "source"; url: string; title?: string }
+  /** Nexus picked a model (and maybe search or drawing) for this answer. */
+  | { type: "route"; provider: ProviderId; model: string; search?: boolean; image?: boolean }
   /** A picture drawn in the chat, and the image model that drew it. */
   | { type: "image"; url: string; mime: string; provider: ProviderId; model: string }
   | { type: "error"; message: string }
@@ -260,6 +266,12 @@ export interface BillingOptions {
     yookassa: { price: string } | null;
     stripe: { price: string } | null;
   };
+}
+
+/** What Nexus remembers about the user (settings page). */
+export interface MemoryResponse {
+  enabled: boolean;
+  facts: { id: string; text: string; createdAt: number }[];
 }
 
 export interface PromoCode {

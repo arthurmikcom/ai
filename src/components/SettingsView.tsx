@@ -7,6 +7,7 @@ import { useModels } from "@/lib/client/useModels";
 import type { Capability, UsageKind } from "@/lib/types";
 import { useApp } from "./AppState";
 import { BillingSection, PromoAdmin } from "./BillingSection";
+import { MemorySection } from "./MemorySection";
 import { PageHeading } from "./Design";
 
 const CAPABILITY_LABEL: Record<Capability, string> = {
@@ -222,6 +223,9 @@ export function SettingsView() {
 
         <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wider text-zinc-500">Подписка</h2>
         <BillingSection />
+
+        <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wider text-zinc-500">Nexus</h2>
+        <MemorySection />
 
         {me?.admin && (
           <>
