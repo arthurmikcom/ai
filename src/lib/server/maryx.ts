@@ -78,8 +78,12 @@ function needsSmart(text: string, hasDocuments: boolean): boolean {
   );
 }
 
-/** Short thanks and greetings need no strong model, whatever came before. */
-const SMALL_TALK = /^(спасибо|благодарю|спс|ок|окей|ok|понятно|ясно|супер|класс|отлично|круто|привет|здравствуй|пока|до свидания|thanks|thank you|hi|hello)(?![а-яёa-z])/;
+/**
+ * A message that is only thanks or a greeting needs no strong model, whatever
+ * came before ("Спасибо большое!" — yes; "Ок, а теперь перепиши на Go" — no).
+ */
+const SMALL_TALK =
+  /^(спасибо|благодарю|спс|ок|окей|ok|понятно|ясно|супер|класс|отлично|круто|привет|здравствуй(те)?|пока|до свидания|thanks|thank you|hi|hello)(?:[\s!.,)?:]+|большое|огромное|тебе|вам|друг|бро)*$/;
 
 function tierOf(provider: ProviderId, id: string): Tier | undefined {
   // The strongest tier that lists the model (Gemini Pro is in both smart and deep).

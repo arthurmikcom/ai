@@ -34,14 +34,16 @@ export function InstructionsSection() {
   const save = async () => {
     setBusy(true);
     setError(null);
+    const sent = { about, style };
     try {
       const r = await api<InstructionsResponse>("/api/instructions", {
         method: "PUT",
-        body: JSON.stringify({ about, style }),
+        body: JSON.stringify(sent),
       });
       setSaved(r);
-      setAbout(r.about);
-      setStyle(r.style);
+      // Text typed while saving stays (and stays unsaved).
+      setAbout((cur) => (cur === sent.about ? r.about : cur));
+      setStyle((cur) => (cur === sent.style ? r.style : cur));
       setDone(true);
       setTimeout(() => setDone(false), 2000);
     } catch (e) {

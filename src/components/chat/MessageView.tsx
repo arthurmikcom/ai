@@ -285,7 +285,7 @@ export function MessageView({ message, models, streaming, isLast, onRegenerate, 
       )}
 
       {isLast && !streaming && onSuggest && message.suggestions && message.suggestions.length > 0 && (
-        <div className="mt-3 flex flex-col items-start gap-2" aria-label="Что спросить дальше">
+        <div role="group" className="mt-3 flex flex-col items-start gap-2" aria-label="Что спросить дальше">
           {message.suggestions.map((s) => (
             <button
               key={s}

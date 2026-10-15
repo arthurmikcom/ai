@@ -298,7 +298,13 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
             images.push({ url: event.url, mime: event.mime });
             drawnBy = { provider: event.provider, model: event.model };
           }
-          else if (event.type === "error") throw new Error(event.message);
+          else if (event.type === "error") {
+            // The answer failed, but a chat title may still follow.
+            flush(true);
+            patchMessage(chatId, answerId, { error: event.message });
+            finish();
+            continue;
+          }
           flush();
         }
         flush(true);

@@ -160,7 +160,7 @@ export async function extractDocumentText(buf: Buffer, mime: string, name: strin
 }
 
 /** Keeps the start and the end of a long text (the middle is usually least needed). */
-function shorten(text: string, max: number): string {
+export function shorten(text: string, max: number): string {
   if (text.length <= max) return text;
   const head = Math.floor(max * 0.7);
   const tail = max - head;

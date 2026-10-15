@@ -69,7 +69,7 @@ export function ChatView() {
   useEffect(() => {
     const el = scroller.current;
     if (el && chat?.id && stickToBottom.current) el.scrollTop = el.scrollHeight;
-  }, [chat?.id, lastMessage?.content, lastMessage?.reasoning, chat?.messages.length]);
+  }, [chat?.id, lastMessage?.content, lastMessage?.reasoning, lastMessage?.suggestions, streaming, chat?.messages.length]);
 
   useEffect(() => {
     stickToBottom.current = true;

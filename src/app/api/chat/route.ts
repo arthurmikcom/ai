@@ -12,6 +12,7 @@ import {
   DocumentLimitError,
   extractDocumentText,
   isDocumentMime,
+  shorten,
   withDocuments,
 } from "@/lib/server/documents";
 import { deleteFiles, fileUrl, newKey, putFile, readFileBase64 } from "@/lib/server/storage";
@@ -50,6 +51,9 @@ const HISTORY_BUDGET = 60_000;
 
 /** Pictures sent again from earlier turns; older ones are mentioned in words. */
 const HISTORY_IMAGES = 4;
+
+/** MARYX tries a fallback model only this soon after starting (maxDuration is 300 s). */
+const FALLBACK_WINDOW_MS = 90_000;
 
 const DEFAULT_SYSTEM = `Ты — MARYX Ai, умный и дружелюбный ассистент.\n${ANSWER_STYLE}`;
 
@@ -213,9 +217,20 @@ export async function POST(request: Request) {
   const kept = rows.filter((m) => m.role === "user" || (m.content && !m.error));
 
   // A long chat sends only its newest turns that fit the budget, opening with the user.
+  // The latest exchange (the question before the last answer, and that answer) always
+  // goes: a turn of it that doesn't fit is shortened, so a follow-up keeps its context.
+  const lastAnswer = kept.findLastIndex((m) => m.role === "assistant");
+  let floor = lastAnswer < 0 ? kept.length - 1 : lastAnswer;
+  while (floor > 0 && kept[floor].role !== "user") floor--;
   let first = kept.length - 1;
   let used = kept[first].content.length;
-  while (first > 0 && used + kept[first - 1].content.length <= HISTORY_BUDGET) {
+  while (first > 0) {
+    const turn = kept[first - 1];
+    if (used + turn.content.length > HISTORY_BUDGET) {
+      if (first - 1 < floor) break;
+      const room = Math.max(4000, HISTORY_BUDGET - used);
+      kept[first - 1] = { ...turn, content: shorten(turn.content, room) };
+    }
     first--;
     used += kept[first].content.length;
   }
@@ -375,16 +390,18 @@ export async function POST(request: Request) {
     );
   }
 
-  // A new chat with a long first message gets a short name from a fast model,
-  // written while the answer streams (unless the chat was renamed meanwhile).
+  // A new MARYX chat with a long first message gets a short name from a fast model.
+  // It starts once the answer is actually coming (a failed, refunded answer costs
+  // nothing), runs alongside it, and leaves a chat renamed meanwhile alone.
   let titleJob: Promise<string | null> | undefined;
   const firstText = userText.trim();
-  if (created && req.message && (firstText.length > 40 || firstText.includes("\n"))) {
+  const wantTitle = maryx && created && req.message !== undefined && (firstText.length > 40 || firstText.includes("\n"));
+  const startTitle = () => {
     const initial = chat.title;
-    const names = (req.message.attachments ?? []).flatMap((f) => (f.name ? [f.name] : []));
+    const names = (req.message?.attachments ?? []).flatMap((f) => (f.name ? [f.name] : []));
     titleJob = suggestTitle(firstText, names)
       .then(async (title) => {
-        if (!title || title === initial) return null;
+        if (!title || title === initial || request.signal.aborted) return null;
         const renamed = await db
           .update(schema.chat)
           .set({ title })
@@ -396,9 +413,8 @@ export async function POST(request: Request) {
         console.error("[chat] title failed", err);
         return null;
       });
-    const job = titleJob;
-    after(() => job);
-  }
+  };
+  if (wantTitle) after(() => titleJob);
 
   const encoder = new TextEncoder();
   const body = new ReadableStream<Uint8Array>({
@@ -417,6 +433,9 @@ export async function POST(request: Request) {
       const sources: Source[] = [];
       let error: string | undefined;
 
+      // Models MARYX tried that failed, and when it started (a fallback must still fit maxDuration).
+      const failed: string[] = [];
+      const started = Date.now();
       try {
         for (let attempt = 0; ; ) {
           const current = candidates[attempt];
@@ -425,16 +444,24 @@ export async function POST(request: Request) {
           if (attempt > 0) send({ type: "notice", text: notices[0] });
           try {
             for await (const event of streamChat(requestFor(current), request.signal)) {
-              if (event.type === "text") text += event.text;
-              else if (event.type === "reasoning") reasoning += event.text;
+              if (event.type === "text") {
+                text += event.text;
+                if (wantTitle && !titleJob) startTitle();
+              } else if (event.type === "reasoning") reasoning += event.text;
               else if (event.type === "notice") notices.push(event.text);
               else if (event.type === "source") sources.push({ url: event.url, title: event.title });
               send(event);
             }
             break;
           } catch (err) {
-            // MARYX: a model that fails before writing anything is replaced by the next best one.
-            const next = current && !text && !request.signal.aborted ? nextCandidate(candidates, attempt, err) : -1;
+            if (current) failed.push(current.label);
+            // MARYX: a model that fails before writing anything is replaced by the next best
+            // one — unless so much time went by (e.g. long thinking) that another answer
+            // might not finish before the function's time limit.
+            const next =
+              current && !text && !request.signal.aborted && Date.now() - started < FALLBACK_WINDOW_MS
+                ? nextCandidate(candidates, attempt, err)
+                : -1;
             if (next < 0) throw err;
             console.warn("[chat] MARYX falls back from", provider, model, err instanceof Error ? err.message : err);
             const replacement = candidates[next];
@@ -443,7 +470,7 @@ export async function POST(request: Request) {
             model = replacement.id;
             reasoning = "";
             sources.length = 0;
-            notices = [`${current.label} сейчас не отвечает — ответ сформировала ${replacement.label}.`];
+            notices = [`${current.label} сейчас не отвечает — отвечает ${replacement.label}.`];
           }
         }
       } catch (err) {
@@ -452,6 +479,12 @@ export async function POST(request: Request) {
         } else {
           console.error("[chat]", provider, model, err);
           error = describeError(err);
+          if (!text && failed.length > 1) {
+            // Not "X answered instead": nobody did. The browser resets the notice on "retry".
+            notices = [`Не ответила ни одна из моделей: ${failed.join(", ")}.`];
+            send({ type: "route", provider, model, search: plan?.webSearch || undefined, retry: true });
+            send({ type: "notice", text: notices[0] });
+          }
         }
       }
 

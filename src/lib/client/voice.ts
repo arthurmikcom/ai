@@ -166,7 +166,9 @@ export function speakableText(markdown: string): string {
   return markdown
     .replace(/```[\s\S]*?```/g, " Код показан на экране. ")
     .replace(/\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]/g, " Формула показана на экране. ")
-    .replace(/\$(?!\d)/g, "") // inline formulas; "$5" stays a price
+    // Inline formulas lose their delimiters; prices ("$5", "20$", "100 $") keep the sign.
+    .replace(/(?<!\\)\\\(([\s\S]+?)\\\)/g, "$1")
+    .replace(/(?<![\d\\])\$(?=[^\s$])([^$\n]*?[^\s$])\$(?!\d)/g, "$1")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
