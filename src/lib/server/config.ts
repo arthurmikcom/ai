@@ -28,6 +28,11 @@ export function apiKey(provider: ProviderId): string | undefined {
       return env("XAI_API_KEY");
     case "replicate":
       return env("REPLICATE_API_TOKEN");
+    case "qwen":
+      return env("DASHSCOPE_API_KEY");
+    case "custom":
+      // vLLM and others accept requests without a key unless started with --api-key.
+      return env("CUSTOM_LLM_API_KEY");
     case "ollama":
     case "maryx":
       return undefined;
@@ -36,6 +41,7 @@ export function apiKey(provider: ProviderId): string | undefined {
 
 export function isConfigured(provider: ProviderId): boolean {
   if (provider === "ollama") return Boolean(env("OLLAMA_BASE_URL"));
+  if (provider === "custom") return Boolean(env("CUSTOM_LLM_BASE_URL"));
   return Boolean(apiKey(provider));
 }
 
@@ -68,11 +74,22 @@ const OPENAI_COMPATIBLE_BASE_URLS: Partial<Record<ProviderId, string>> = {
   xai: "https://api.x.ai/v1",
 };
 
+/**
+ * Qwen's OpenAI-compatible API. Keys belong to one region: Singapore by default;
+ * DASHSCOPE_BASE_URL picks another (US: https://dashscope-us.aliyuncs.com/compatible-mode/v1,
+ * Beijing: https://dashscope.aliyuncs.com/compatible-mode/v1).
+ */
+function qwenBase(): string {
+  return (env("DASHSCOPE_BASE_URL") ?? "https://dashscope-intl.aliyuncs.com/compatible-mode/v1").replace(/\/+$/, "");
+}
+
 export function isOpenAICompatible(provider: ProviderId): boolean {
   return (
     provider === "openai" ||
     provider === "ollama" ||
     provider === "openrouter" ||
+    provider === "qwen" ||
+    provider === "custom" ||
     provider in OPENAI_COMPATIBLE_BASE_URLS
   );
 }
@@ -89,9 +106,19 @@ export function openAIClient(provider: ProviderId): OpenAI {
     // Ollama ignores the key, but the SDK requires a non-empty one.
     return new OpenAI({ apiKey: "ollama", baseURL: `${base.replace(/\/+$/, "")}/v1` });
   }
+  if (provider === "custom") {
+    const base = env("CUSTOM_LLM_BASE_URL");
+    if (!base) {
+      throw new NotConfiguredError(
+        "Свой сервер моделей не подключён: укажите CUSTOM_LLM_BASE_URL (например http://ваш-сервер:8000/v1).",
+      );
+    }
+    return new OpenAI({ apiKey: apiKey("custom") ?? "none", baseURL: base.replace(/\/+$/, "") });
+  }
   return new OpenAI({
     apiKey: requireKey(provider),
-    baseURL: provider === "openrouter" ? openRouterBase() : OPENAI_COMPATIBLE_BASE_URLS[provider],
+    baseURL:
+      provider === "openrouter" ? openRouterBase() : provider === "qwen" ? qwenBase() : OPENAI_COMPATIBLE_BASE_URLS[provider],
     defaultHeaders:
       provider === "openrouter"
         ? { "X-Title": "MARYX Ai" }

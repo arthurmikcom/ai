@@ -7,7 +7,11 @@ export type ProviderId =
   | "openrouter"
   | "deepseek"
   | "xai"
+  /** Qwen through Alibaba Cloud Model Studio (DashScope). */
+  | "qwen"
   | "ollama"
+  /** Our own OpenAI-compatible server (vLLM, SGLang, LM Studio…), e.g. open Qwen weights on a GPU. */
+  | "custom"
   | "replicate"
   /** Our own AI: picks the best real model for each message. */
   | "maryx";

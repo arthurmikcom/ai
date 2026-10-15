@@ -6,6 +6,7 @@ import { chatMessages, findAssistant, findChat, storedKeys } from "@/lib/server/
 import { getDb, schema } from "@/lib/server/db";
 import type { StoredFile } from "@/lib/server/db/schema";
 import { describeError, statusOf } from "@/lib/server/errors";
+import { loadOpenRouterChatModels } from "@/lib/server/models";
 import { jsonError, requireUser } from "@/lib/server/http";
 import {
   DocumentError,
@@ -342,6 +343,8 @@ export async function POST(request: Request) {
     facts = memoryOn ? (await listFacts(user.id)).map((f) => f.text) : [];
   }
   const plan = route;
+  // How hard an OpenRouter model thinks depends on its listed settings (MARYX has loaded them already).
+  if (!plan && req.provider === "openrouter") await loadOpenRouterChatModels();
   // MARYX may switch to a fallback model, so its request is built per model.
   const requestFor = (m?: ModelInfo): ChatRequest =>
     m && plan

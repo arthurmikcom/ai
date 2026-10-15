@@ -64,12 +64,28 @@ export const PROVIDERS: ProviderDef[] = [
     note: "Модели Grok",
   },
   {
+    id: "qwen",
+    name: "Qwen (Alibaba Cloud)",
+    envVar: "DASHSCOPE_API_KEY",
+    signupUrl: "https://modelstudio.console.alibabacloud.com/",
+    capabilities: ["chat"],
+    note: "Qwen 3.8 Max и Flash напрямую от Alibaba",
+  },
+  {
     id: "ollama",
     name: "Ollama (свои локальные модели)",
     envVar: "OLLAMA_BASE_URL",
     signupUrl: "https://ollama.com/download",
     capabilities: ["chat"],
     note: "Открытые модели на вашем компьютере, без ключей и оплаты",
+  },
+  {
+    id: "custom",
+    name: "Свой сервер моделей",
+    envVar: "CUSTOM_LLM_BASE_URL",
+    signupUrl: "https://qwen.readthedocs.io/",
+    capabilities: ["chat"],
+    note: "Открытые модели (например Qwen) на вашем GPU-сервере: vLLM, SGLang, LM Studio",
   },
   {
     id: "replicate",
@@ -128,7 +144,9 @@ const OPENROUTER_CHAT = viaOpenRouter("chat", [
   { id: "x-ai/grok-4.7", label: "Grok 4.7", description: "Флагман xAI", upstream: "xai", vision: true, reasoning: true },
   { id: "deepseek/deepseek-v4-pro", label: "DeepSeek V4 Pro", description: "Сильная и недорогая", upstream: "deepseek", reasoning: true },
   { id: "deepseek/deepseek-v4.1-flash", label: "DeepSeek V4.1 Flash", description: "Очень быстрая и дешёвая", upstream: "deepseek", vision: true, reasoning: true },
-  { id: "qwen/qwen3.8-max-0902", label: "Qwen 3.8 Max", description: "Флагман Alibaba", vision: true, reasoning: true },
+  { id: "qwen/qwen3.8-max-0902", label: "Qwen 3.8 Max", description: "Флагман Alibaba: код, анализ, огромная память", upstream: "qwen", vision: true, reasoning: true },
+  { id: "qwen/qwen3.8-flash", label: "Qwen 3.8 Flash", description: "Быстрая и очень дешёвая Qwen", upstream: "qwen", vision: true, reasoning: true },
+  { id: "qwen/qwen3.8-27b", label: "Qwen 3.8 27B", description: "Открытая модель Qwen: сильна в коде, недорогая", vision: true, reasoning: true },
   { id: "meta-llama/llama-4-maverick", label: "Llama 4 Maverick", description: "Открытая модель Meta", vision: true },
   { id: "mistralai/mistral-large-4-0", label: "Mistral Large 4", description: "Европейская модель от Mistral", vision: true },
 ]);
@@ -139,6 +157,8 @@ const OPENROUTER_IMAGE = viaOpenRouter("image", [
   { id: "openai/gpt-image-2", label: "GPT Image 2", description: "OpenAI: качественно и очень дёшево", upstream: "openai" },
   { id: "black-forest-labs/flux.2-pro", label: "FLUX.2 Pro", description: "Фотореализм от Black Forest Labs" },
   { id: "bytedance-seed/seedream-4.5", label: "Seedream 4.5", description: "Яркие детализированные картинки от ByteDance" },
+  { id: "qwen/qwen-image-3", label: "Qwen Image 3", description: "Alibaba: точный текст на картинках, недорого" },
+  { id: "qwen/qwen-image-3-pro", label: "Qwen Image 3 Pro", description: "Лучшее качество от Qwen" },
 ]);
 
 const OPENROUTER_VIDEO = viaOpenRouter("video", [
@@ -147,7 +167,7 @@ const OPENROUTER_VIDEO = viaOpenRouter("video", [
   { id: "google/veo-3.1", label: "Veo 3.1", description: "Лучшее качество от Google, со звуком", upstream: "google" },
   { id: "kwaivgi/kling-v3.0-std", label: "Kling 3.0", description: "Реалистичное движение" },
   { id: "minimax/hailuo-3", label: "Hailuo 3", description: "Хорошая физика движения" },
-  { id: "alibaba/wan-2.7", label: "Wan 2.7", description: "Открытая модель Alibaba" },
+  { id: "alibaba/wan-3.0", label: "Wan 3.0", description: "Новейшая модель Alibaba, со звуком" },
 ]);
 
 export const FEATURED_MODELS: Featured[] = [
@@ -270,6 +290,33 @@ export const FEATURED_MODELS: Featured[] = [
     label: "Grok 4",
     description: "Флагман xAI",
     capability: "chat",
+  },
+  {
+    provider: "qwen",
+    id: "qwen3.8-max",
+    label: "Qwen 3.8 Max",
+    description: "Флагман Alibaba: код, анализ, огромная память",
+    capability: "chat",
+    vision: true,
+    reasoning: true,
+  },
+  {
+    provider: "qwen",
+    id: "qwen3.8-flash",
+    label: "Qwen 3.8 Flash",
+    description: "Быстрая и очень дешёвая Qwen",
+    capability: "chat",
+    vision: true,
+    reasoning: true,
+  },
+  {
+    provider: "qwen",
+    id: "qwen3.7-plus",
+    label: "Qwen 3.7 Plus",
+    description: "Сбалансированная модель Qwen",
+    capability: "chat",
+    vision: true,
+    reasoning: true,
   },
 
   ...OPENROUTER_CHAT,

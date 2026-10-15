@@ -85,9 +85,11 @@ npm run dev
 | `ANTHROPIC_API_KEY` | Claude Opus 5.5, Sonnet 5.5, Haiku 5.5, Fable 5.1 | [console.anthropic.com](https://console.anthropic.com/settings/keys) |
 | `OPENAI_API_KEY` | GPT-6 Astra, GPT-6.1 Sol и др. + GPT Image | [platform.openai.com](https://platform.openai.com/api-keys) |
 | `GEMINI_API_KEY` | Gemini 3.x, Imagen, Nano Banana, видео Veo | [aistudio.google.com](https://aistudio.google.com/apikey) |
-| `OPENROUTER_API_KEY` | **Один ключ на всё:** Claude, GPT, Gemini, Grok, DeepSeek и сотни других, картинки (Nano Banana, GPT Image, FLUX) и видео (Veo, Seedance, Kling) | [openrouter.ai](https://openrouter.ai/keys) |
+| `OPENROUTER_API_KEY` | **Один ключ на всё:** Claude, GPT, Gemini, Grok, DeepSeek, Qwen и сотни других, картинки (Nano Banana, GPT Image, FLUX, Qwen Image) и видео (Veo, Seedance, Kling, Wan) | [openrouter.ai](https://openrouter.ai/keys) |
 | `DEEPSEEK_API_KEY` | DeepSeek Chat / Reasoner | [platform.deepseek.com](https://platform.deepseek.com/api_keys) |
 | `XAI_API_KEY` | Grok | [console.x.ai](https://console.x.ai) |
+| `DASHSCOPE_API_KEY` | Qwen 3.8 Max, Qwen 3.8 Flash, Qwen 3.7 Plus напрямую от Alibaba | [Alibaba Cloud Model Studio](https://modelstudio.console.alibabacloud.com/) |
+| `CUSTOM_LLM_BASE_URL` | Свой сервер с открытыми моделями (vLLM, SGLang, LM Studio) | см. «Qwen» ниже |
 | `OLLAMA_BASE_URL` | Ваши локальные модели | [ollama.com](https://ollama.com/download) |
 | `REPLICATE_API_TOKEN` | FLUX, Ideogram, Recraft, Kling, Veo, Seedance… | [replicate.com](https://replicate.com/account/api-tokens) |
 
@@ -104,6 +106,26 @@ npm run dev
 Список моделей не зашит намертво: сервер сверяет подобранные модели с живыми списками провайдеров. Устаревшие модели пропадают сами, а новые появляются в разделе «Показать ещё». На странице изображений и видео можно вписать **любую** модель Replicate в формате `owner/name`.
 
 Для моделей Claude Fable 5.1, Opus 5.5 и Sonnet 5.5 включены резервные модели на стороне сервера (`fallbacks: "default"`). Если модель отклонит запрос из-за срабатывания фильтров безопасности, Anthropic автоматически продолжит ответ другой моделью, а в чате появится пометка об этом.
+
+## Qwen
+
+Qwen — семейство моделей Alibaba ([github.com/QwenLM](https://github.com/QwenLM)). Репозиторий [QwenLM/Qwen](https://github.com/QwenLM/Qwen) — это первая версия 2023 года, её больше не развивают; актуальные модели — **Qwen 3.8** ([QwenLM/Qwen3.8](https://github.com/QwenLM/Qwen3.8)). Сами веса весят десятки гигабайт и работают только на видеокартах, поэтому в платформу Qwen подключается одним из трёх способов:
+
+1. **Через OpenRouter** — работает сразу, ключ уже есть. В списке моделей: Qwen 3.8 Max (флагман, думает всегда), Qwen 3.8 Flash (быстрая и дешёвая), Qwen 3.8 27B (открытая модель), а для картинок — Qwen Image 3 и Qwen Image 3 Pro. Видео Alibaba — Wan 3.0. MARYX тоже использует Qwen как запасную модель.
+2. **Напрямую от Alibaba Cloud** — задайте `DASHSCOPE_API_KEY` ([Model Studio](https://modelstudio.console.alibabacloud.com/)). Ключ привязан к региону: по умолчанию Сингапур, для США или Пекина добавьте `DASHSCOPE_BASE_URL` (адреса есть в `.env.example`). Тогда Qwen берётся напрямую, без наценки OpenRouter.
+3. **На своём сервере** — сами открытые веса. Арендуйте видеокарту (для Qwen 3.8 27B нужна одна на 80 ГБ, например H100 или A100 80 ГБ) и запустите [vLLM](https://docs.vllm.ai):
+
+   ```bash
+   vllm serve Qwen/Qwen3.8-27B --port 8000 --max-model-len 262144 \
+     --reasoning-parser qwen3 --enable-auto-tool-choice --tool-call-parser qwen3_coder \
+     --api-key ваш-секрет
+   ```
+
+   Модели поменьше: `Qwen/Qwen3.8-27B-FP8` (около 40 ГБ), `Qwen/Qwen3.6-35B-A3B` в FP8 (одна H100). Затем в Vercel задайте `CUSTOM_LLM_BASE_URL=http://адрес-сервера:8000/v1` и `CUSTOM_LLM_API_KEY=ваш-секрет` — модель появится в списке как «Свой сервер моделей». Так же подключаются SGLang (`sglang serve …`, порт 30000), LM Studio (порт 1234) и любой OpenAI-совместимый сервер. Данные пользователей тогда никуда не уходят, кроме вашего сервера. Не выставляйте vLLM в интернет без `--api-key`.
+
+На своём компьютере Qwen запускается через Ollama: `ollama pull qwen3.8` (или `qwen3`), затем `OLLAMA_BASE_URL=http://localhost:11434`.
+
+У Qwen 3.8 Max рассуждение нельзя выключить, а по умолчанию оно самое долгое (`xhigh`). Поэтому в обычном режиме платформа просит у таких моделей средний уровень, а с «Думать глубже» — максимальный.
 
 ## «Свой интеллект»: три уровня
 

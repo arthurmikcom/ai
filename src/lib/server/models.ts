@@ -2,6 +2,7 @@ import { FEATURED_MODELS, MARYX_MODEL, PROVIDERS } from "@/lib/catalog";
 import type { Capability, ModelInfo, ModelsResponse, ProviderId } from "@/lib/types";
 import { ADAPTIVE_THINKING } from "./chat/anthropic";
 import { THINKING_LEVEL_MODELS } from "./chat/google";
+import { rememberReasoning } from "./chat/reasoning";
 import { OPENAI_REASONING } from "./chat/openai-compatible";
 import {
   anthropicClient,
@@ -30,6 +31,7 @@ interface OpenRouterModel {
   name?: string;
   architecture?: { input_modalities?: string[] };
   supported_parameters?: string[] | Record<string, unknown>;
+  reasoning?: { mandatory?: boolean; default_effort?: string | null; supported_efforts?: string[] | null } | null;
 }
 
 const TTL_MS = 10 * 60 * 1000;
@@ -59,6 +61,16 @@ async function openRouterList(capability: Capability): Promise<LiveModel[]> {
   });
   if (!res.ok) throw new Error(`OpenRouter ${path}: HTTP ${res.status}`);
   const { data } = (await res.json()) as { data?: OpenRouterModel[] };
+  if (capability === "chat") {
+    for (const m of data ?? []) {
+      if (typeof m.id !== "string" || !m.reasoning) continue;
+      rememberReasoning(m.id, {
+        mandatory: m.reasoning.mandatory === true,
+        defaultEffort: m.reasoning.default_effort ?? undefined,
+        efforts: Array.isArray(m.reasoning.supported_efforts) ? m.reasoning.supported_efforts : null,
+      });
+    }
+  }
   return (data ?? [])
     // "~…-latest" aliases duplicate real models; ":batch" ids are for the Batch API.
     .filter((m) => typeof m.id === "string" && !m.id.startsWith("~") && !m.id.endsWith(":batch"))
@@ -147,6 +159,11 @@ function classify(provider: ProviderId, m: LiveModel): Capability | null {
       return /(image|imagine|video)/.test(id) ? null : "chat";
     case "openrouter":
       return m.capability ?? "chat";
+    case "qwen":
+      // Model Studio also hosts speech, embedding, translation, image and video models.
+      return /(image|wan|tts|asr|embed|rerank|realtime|audio|omni|livetranslate|mt-|ocr|video)/.test(id) ? null : "chat";
+    case "custom":
+      return /(embed|rerank|whisper|tts)/.test(id) ? null : "chat";
     case "deepseek":
     case "ollama":
       return "chat";
@@ -207,6 +224,14 @@ async function modelsFor(provider: ProviderId, capability: Capability): Promise<
   // promote a few live models so the provider still has something on top.
   if (result.length === 0) others.slice(0, 5).forEach((m) => (m.featured = true));
   return [...result, ...others];
+}
+
+/**
+ * Loads OpenRouter's chat model list (cached for 10 minutes), which also tells
+ * each model's reasoning settings, before a chat with a model picked by hand.
+ */
+export async function loadOpenRouterChatModels(): Promise<void> {
+  if (isConfigured("openrouter")) await liveModels("openrouter", "chat");
 }
 
 export async function listModels(capability: Capability | null): Promise<ModelsResponse> {

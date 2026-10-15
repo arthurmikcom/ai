@@ -24,6 +24,8 @@ const TIERS: Record<Tier, [ProviderId, string][]> = {
     ["openrouter", "google/gemini-3.8-flash"],
     ["openrouter", "deepseek/deepseek-v4.1-flash"],
     ["deepseek", "deepseek-chat"],
+    ["qwen", "qwen3.8-flash"],
+    ["openrouter", "qwen/qwen3.8-flash"],
   ],
   smart: [
     ["anthropic", "claude-sonnet-5-5"],
@@ -33,6 +35,8 @@ const TIERS: Record<Tier, [ProviderId, string][]> = {
     ["google", "gemini-3.1-pro-preview"],
     ["openrouter", "google/gemini-3.1-pro-preview"],
     ["openrouter", "deepseek/deepseek-v4-pro"],
+    ["qwen", "qwen3.8-max"],
+    ["openrouter", "qwen/qwen3.8-max-0902"],
   ],
   deep: [
     ["anthropic", "claude-opus-5-5"],
@@ -41,6 +45,8 @@ const TIERS: Record<Tier, [ProviderId, string][]> = {
     ["openrouter", "openai/gpt-6-astra"],
     ["google", "gemini-3.1-pro-preview"],
     ["openrouter", "google/gemini-3.1-pro-preview"],
+    ["qwen", "qwen3.8-max"],
+    ["openrouter", "qwen/qwen3.8-max-0902"],
   ],
 };
 
