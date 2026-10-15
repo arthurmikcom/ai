@@ -56,6 +56,44 @@ export async function imageToAttachment(file: File): Promise<Attachment> {
   return { mime: "image/jpeg", data: dataUrl.slice(dataUrl.indexOf(",") + 1), name: file.name };
 }
 
+/** Documents the chat accepts, by file extension (browsers often leave file.type empty). */
+const DOCUMENT_MIME: Record<string, string> = {
+  pdf: "application/pdf",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  xls: "application/vnd.ms-excel",
+  csv: "text/csv",
+  txt: "text/plain",
+  md: "text/markdown",
+  markdown: "text/markdown",
+  json: "application/json",
+};
+
+/** For <input accept>: images plus every document type. */
+export const ATTACH_ACCEPT = `image/*,${Object.keys(DOCUMENT_MIME).map((e) => `.${e}`).join(",")}`;
+
+/** Largest document we upload (the server and Vercel cap requests at a few MB). */
+export const MAX_DOCUMENT_BYTES = 3 * 1024 * 1024;
+
+export function documentMime(file: File): string | null {
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+  return DOCUMENT_MIME[ext] ?? null;
+}
+
+export function isDocumentAttachment(a: Pick<Attachment, "mime">): boolean {
+  return !a.mime.startsWith("image/");
+}
+
+/** Reads a document as base64 for upload; null when it's too big. */
+export async function documentToAttachment(file: File): Promise<Attachment | null> {
+  const mime = documentMime(file);
+  if (!mime || file.size > MAX_DOCUMENT_BYTES) return null;
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return { mime, data: btoa(binary), name: file.name };
+}
+
 export function relativeTime(ts: number): string {
   const diff = Date.now() - ts;
   const day = 24 * 60 * 60 * 1000;

@@ -21,6 +21,14 @@ const EXTENSIONS: Record<string, string> = {
   "video/mp4": "mp4",
   "video/webm": "webm",
   "video/quicktime": "mov",
+  "application/pdf": "pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+  "application/vnd.ms-excel": "xls",
+  "text/csv": "csv",
+  "text/plain": "txt",
+  "text/markdown": "md",
+  "application/json": "json",
 };
 const MIME_BY_EXT = Object.fromEntries(Object.entries(EXTENSIONS).map(([m, e]) => [e, m]));
 

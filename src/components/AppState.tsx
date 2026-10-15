@@ -81,7 +81,7 @@ export function useApp(): AppState {
 
 function titleFrom(text: string, attachments: Attachment[]): string {
   const clean = text.replace(/\s+/g, " ").trim();
-  if (!clean) return attachments.length ? "Изображение" : "Новый чат";
+  if (!clean) return attachments.find((a) => !a.mime.startsWith("image/"))?.name ?? (attachments.length ? "Изображение" : "Новый чат");
   return clean.length > 60 ? `${clean.slice(0, 57)}…` : clean;
 }
 
@@ -214,7 +214,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           message: message && {
             id: message.id,
             content: message.content,
-            attachments: message.attachments?.flatMap((a) => (a.data ? [{ mime: a.mime, data: a.data }] : [])),
+            attachments: message.attachments?.flatMap((a) =>
+              a.data ? [{ mime: a.mime, data: a.data, name: a.name }] : [],
+            ),
           },
           answerId,
         };

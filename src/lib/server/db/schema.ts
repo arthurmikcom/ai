@@ -100,6 +100,8 @@ export interface StoredFile {
   key: string;
   mime: string;
   name?: string;
+  /** Documents: where the extracted text is stored. */
+  textKey?: string;
 }
 
 export const chat = pgTable(

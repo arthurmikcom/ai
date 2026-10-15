@@ -67,6 +67,11 @@ export interface InlineImage {
   data: string;
 }
 
+/** A file uploaded with a message: an image or a document (PDF, Word, Excel…). */
+export interface InlineFile extends InlineImage {
+  name?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
@@ -133,7 +138,7 @@ export interface ChatSendRequest {
   /** Let the model search the web (models with `search`). */
   webSearch?: boolean;
   /** The new user message; omitted when regenerating the last answer. */
-  message?: { id: string; content: string; attachments?: InlineImage[] };
+  message?: { id: string; content: string; attachments?: InlineFile[] };
   /** Id for the assistant message the server will store. */
   answerId: string;
 }

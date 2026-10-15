@@ -10,9 +10,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ key:
 
   const file = await getFile(key);
   if (!file) return jsonError("Файл не найден", 404);
+  const mime = mimeOfKey(key);
+  // Images, video and PDFs open in the browser; other documents download.
+  const inline = /^(image|video)\//.test(mime) || mime === "application/pdf";
   return new Response(file.body, {
     headers: {
-      "Content-Type": mimeOfKey(key),
+      "Content-Type": mime,
+      "X-Content-Type-Options": "nosniff",
+      ...(inline ? {} : { "Content-Disposition": "attachment" }),
       ...(file.size ? { "Content-Length": String(file.size) } : {}),
       // Keys are unique and never rewritten.
       "Cache-Control": "private, max-age=31536000, immutable",

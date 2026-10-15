@@ -6,21 +6,28 @@ import { getDb, schema } from "@/lib/server/db";
 import type { StoredFile } from "@/lib/server/db/schema";
 import { describeError } from "@/lib/server/errors";
 import { jsonError, requireUser } from "@/lib/server/http";
-import { fileUrl, newKey, putFile, readFileBase64 } from "@/lib/server/storage";
+import { DocumentError, extractDocumentText, isDocumentMime, withDocuments } from "@/lib/server/documents";
+import { deleteFiles, fileUrl, newKey, putFile, readFileBase64 } from "@/lib/server/storage";
 import { consume, limitResponse, refund } from "@/lib/server/usage";
 import { parseChatSendRequest } from "@/lib/server/validate";
-import type { ChatRequest, ChatStreamEvent, InlineImage, Source, UsageKind } from "@/lib/types";
+import type { ChatRequest, ChatStreamEvent, InlineFile, InlineImage, Source, UsageKind } from "@/lib/types";
 
 // Long answers from reasoning models can take several minutes.
 export const maxDuration = 300;
+
+/**
+ * Characters of document text sent with one request (~40–50k tokens). The
+ * newest documents get it first; older ones are shortened or left out.
+ */
+const DOCUMENT_BUDGET = 150_000;
 
 const DEFAULT_SYSTEM =
   "Ты — Nexus AI, умный и дружелюбный ассистент. Отвечай на языке пользователя. " +
   "Используй Markdown, когда это помогает: списки, таблицы, блоки кода с указанием языка.";
 
-function titleFrom(text: string, hasImages: boolean): string {
+function titleFrom(text: string, files: InlineFile[] = []): string {
   const clean = text.replace(/\s+/g, " ").trim();
-  if (!clean) return hasImages ? "Изображение" : "Новый чат";
+  if (!clean) return files.find((f) => f.name && isDocumentMime(f.mime))?.name ?? (files.length ? "Изображение" : "Новый чат");
   return clean.length > 60 ? `${clean.slice(0, 57)}…` : clean;
 }
 
@@ -61,7 +68,7 @@ export async function POST(request: Request) {
         .values({
           id: req.chatId,
           userId: user.id,
-          title: titleFrom(req.message.content, Boolean(req.message.attachments)),
+          title: titleFrom(req.message.content, req.message.attachments),
           provider: req.provider,
           model: req.model,
           assistantId: assistant?.id ?? null,
@@ -79,12 +86,34 @@ export async function POST(request: Request) {
       .where(eq(schema.chat.id, chat.id));
   }
 
+  // Text of documents attached to the new message (by text key), to skip re-reading it.
+  const documentTexts = new Map<string, string>();
   if (req.message) {
     const stored: StoredFile[] = [];
-    for (const image of req.message.attachments ?? []) {
-      const key = newKey(user.id, "attachments", image.mime);
-      await putFile(key, Buffer.from(image.data, "base64"), image.mime);
-      stored.push({ key, mime: image.mime });
+    try {
+      for (const file of req.message.attachments ?? []) {
+        const bytes = Buffer.from(file.data, "base64");
+        const key = newKey(user.id, "attachments", file.mime);
+        if (isDocumentMime(file.mime)) {
+          // The text is pulled out once and kept next to the file for later turns.
+          const name = file.name || "документ";
+          const text = await extractDocumentText(bytes, file.mime, name);
+          const textKey = newKey(user.id, "attachments", "text/plain");
+          await putFile(key, bytes, file.mime);
+          stored.push({ key, mime: file.mime, name });
+          await putFile(textKey, Buffer.from(text, "utf8"), "text/plain");
+          stored[stored.length - 1].textKey = textKey;
+          documentTexts.set(textKey, text);
+        } else {
+          await putFile(key, bytes, file.mime);
+          stored.push({ key, mime: file.mime, name: file.name });
+        }
+      }
+    } catch (err) {
+      await deleteFiles(stored.flatMap((f) => (f.textKey ? [f.key, f.textKey] : [f.key]))).catch(() => {});
+      await refund(user.id, kind);
+      if (err instanceof DocumentError) return jsonError(err.message, 400);
+      throw err;
     }
     try {
       await db.insert(schema.message).values({
@@ -120,25 +149,53 @@ export async function POST(request: Request) {
 
   // Images of the new message are already in memory; older ones are re-read.
   const fresh = new Map<string, InlineImage[]>();
-  if (req.message?.attachments) fresh.set(req.message.id, req.message.attachments);
-  const history: ChatRequest["messages"] = await Promise.all(
-    rows
-      .filter((m) => m.role === "user" || (m.content && !m.error))
-      .map(async (m) => {
-        let attachments = fresh.get(m.id);
-        // Pictures drawn by the assistant stay out: models only read the user's images.
-        if (!attachments && m.role === "user" && m.attachments?.length) {
-          const loaded = await Promise.all(
-            m.attachments.map(async (f) => {
+  if (req.message?.attachments) {
+    fresh.set(req.message.id, req.message.attachments.filter((a) => a.mime.startsWith("image/")));
+  }
+  const kept = rows.filter((m) => m.role === "user" || (m.content && !m.error));
+  const loaded = await Promise.all(
+    kept.map(async (m) => {
+      // Pictures drawn by the assistant stay out: models only read the user's files.
+      const files = m.role === "user" ? (m.attachments ?? []) : [];
+      let images = fresh.get(m.id);
+      if (!images) {
+        const read = await Promise.all(
+          files
+            .filter((f) => f.mime.startsWith("image/"))
+            .map(async (f) => {
               const data = await readFileBase64(f.key);
               return data ? { mime: f.mime, data } : null;
             }),
-          );
-          attachments = loaded.filter((a): a is InlineImage => a !== null);
-        }
-        return { role: m.role, content: m.content, attachments: attachments?.length ? attachments : undefined };
-      }),
+        );
+        images = read.filter((a): a is InlineImage => a !== null);
+      }
+      const docs = await Promise.all(
+        files
+          .filter((f) => f.textKey)
+          .map(async (f) => {
+            const known = documentTexts.get(f.textKey!);
+            const text = known ?? Buffer.from((await readFileBase64(f.textKey!)) ?? "", "base64").toString("utf8");
+            return { name: f.name || "документ", text };
+          }),
+      );
+      return { m, images, docs: docs.filter((d) => d.text) };
+    }),
   );
+  // Document text budget goes to the newest messages first.
+  let budgetLeft = DOCUMENT_BUDGET;
+  const budgets = new Map<string, number>();
+  for (const { m, docs } of [...loaded].reverse()) {
+    if (!docs.length) continue;
+    const size = docs.reduce((sum, d) => sum + d.text.length, 0);
+    const share = Math.min(size, Math.max(budgetLeft, 2000 * docs.length));
+    budgets.set(m.id, share);
+    budgetLeft = Math.max(0, budgetLeft - share);
+  }
+  const history: ChatRequest["messages"] = loaded.map(({ m, images, docs }) => ({
+    role: m.role,
+    content: docs.length ? withDocuments(m.content, docs, budgets.get(m.id) ?? 0) : m.content,
+    attachments: images.length ? images : undefined,
+  }));
 
   const assistant = chat.assistantId ? await findAssistant(user.id, chat.assistantId) : undefined;
   const chatRequest: ChatRequest = {

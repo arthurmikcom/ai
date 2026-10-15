@@ -1,8 +1,14 @@
 "use client";
 
-import { ArrowUp, Brain, Globe, Palette, Paperclip, Square, X } from "lucide-react";
+import { ArrowUp, Brain, FileText, Globe, Palette, Paperclip, Square, X } from "lucide-react";
 import { useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
-import { imageToAttachment } from "@/lib/client/util";
+import {
+  ATTACH_ACCEPT,
+  documentMime,
+  documentToAttachment,
+  imageToAttachment,
+  isDocumentAttachment,
+} from "@/lib/client/util";
 import type { Attachment, ModelInfo } from "@/lib/types";
 
 interface Props {
@@ -45,20 +51,38 @@ export function Composer({
   const fileInput = useRef<HTMLInputElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
 
-  const canAttach = model?.vision !== false && !imageMode;
+  // Documents work with any model; pictures need one that can see.
+  const canAttach = !imageMode;
+  const canSeeImages = model?.vision !== false;
   const canSend = !disabled && !streaming && (imageMode ? text.trim() !== "" : text.trim() !== "" || attachments.length > 0);
 
   const addFiles = async (files: File[]) => {
     setError(null);
-    const images = files.filter((f) => f.type.startsWith("image/"));
-    if (images.length < files.length) setError("Пока можно прикреплять только изображения.");
     const room = MAX_ATTACHMENTS - attachments.length;
-    try {
-      const converted = await Promise.all(images.slice(0, room).map(imageToAttachment));
-      setAttachments((a) => [...a, ...converted]);
-    } catch {
-      setError("Не удалось прочитать изображение.");
+    const problems: string[] = [];
+    const added: Attachment[] = [];
+    for (const file of files.slice(0, room)) {
+      try {
+        if (file.type.startsWith("image/")) {
+          if (!canSeeImages) {
+            problems.push("Эта модель не видит изображения — выберите другую модель.");
+            continue;
+          }
+          added.push(await imageToAttachment(file));
+        } else if (documentMime(file)) {
+          const doc = await documentToAttachment(file);
+          if (doc) added.push(doc);
+          else problems.push(`«${file.name}» больше 3 МБ.`);
+        } else {
+          problems.push(`«${file.name}»: такой тип файла пока не поддерживается.`);
+        }
+      } catch {
+        problems.push(`Не удалось прочитать «${file.name}».`);
+      }
     }
+    if (files.length > room) problems.push(`Не больше ${MAX_ATTACHMENTS} файлов за раз.`);
+    setAttachments((a) => [...a, ...added]);
+    if (problems.length) setError(problems.join(" "));
   };
 
   const submit = () => {
@@ -92,12 +116,19 @@ export function Composer({
           <div className="flex flex-wrap gap-2 p-2">
             {attachments.map((a, i) => (
               <div key={i} className="relative">
-                {/* eslint-disable-next-line @next/next/no-img-element -- local data URL */}
-                <img
-                  src={`data:${a.mime};base64,${a.data}`}
-                  alt={a.name ?? ""}
-                  className="size-16 rounded-xl object-cover"
-                />
+                {isDocumentAttachment(a) ? (
+                  <div className="flex h-16 max-w-52 items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 text-xs text-zinc-300">
+                    <FileText className="size-5 shrink-0 text-violet-300" />
+                    <span className="line-clamp-2 break-all">{a.name}</span>
+                  </div>
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element -- local data URL
+                  <img
+                    src={`data:${a.mime};base64,${a.data}`}
+                    alt={a.name ?? ""}
+                    className="size-16 rounded-xl object-cover"
+                  />
+                )}
                 <button
                   type="button"
                   onClick={() => setAttachments((list) => list.filter((_, j) => j !== i))}
@@ -137,7 +168,7 @@ export function Composer({
           <input
             ref={fileInput}
             type="file"
-            accept="image/*"
+            accept={ATTACH_ACCEPT}
             multiple
             hidden
             onChange={(e) => {
@@ -150,9 +181,9 @@ export function Composer({
             title={
               imageMode
                 ? "В режиме рисования вложения не нужны"
-                : canAttach
-                  ? "Прикрепить изображение"
-                  : "Модель не принимает изображения"
+                : canSeeImages
+                  ? "Прикрепить файл: PDF, Word, Excel, CSV, TXT или изображение"
+                  : "Прикрепить документ: PDF, Word, Excel, CSV, TXT"
             }
             disabled={!canAttach || disabled || attachments.length >= MAX_ATTACHMENTS}
             onClick={() => fileInput.current?.click()}

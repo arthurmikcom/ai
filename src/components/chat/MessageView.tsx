@@ -1,6 +1,19 @@
 "use client";
 
-import { Brain, Check, ChevronDown, Copy, Download, Globe, Info, LoaderCircle, RefreshCw, TriangleAlert } from "lucide-react";
+import {
+  Brain,
+  Check,
+  ChevronDown,
+  Copy,
+  Download,
+  FileText,
+  Globe,
+  Info,
+  LoaderCircle,
+  RefreshCw,
+  TriangleAlert,
+} from "lucide-react";
+import { isDocumentAttachment } from "@/lib/client/util";
 import Link from "next/link";
 import { useState } from "react";
 import type { ChatMessage, ModelInfo } from "@/lib/types";
@@ -45,15 +58,28 @@ export function MessageView({ message, models, streaming, isLast, onRegenerate }
       <div className="flex flex-col items-end gap-2">
         {message.attachments && (
           <div className="flex flex-wrap justify-end gap-2">
-            {message.attachments.map((a, i) => (
-              // eslint-disable-next-line @next/next/no-img-element -- local data URL
-              <img
-                key={i}
-                src={a.url ?? `data:${a.mime};base64,${a.data}`}
-                alt={a.name ?? "вложение"}
-                className="max-h-48 rounded-xl border border-white/10 object-cover"
-              />
-            ))}
+            {message.attachments.map((a, i) =>
+              isDocumentAttachment(a) ? (
+                <a
+                  key={i}
+                  href={a.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex max-w-64 items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-sm text-zinc-200 hover:border-violet-300/30"
+                >
+                  <FileText className="size-5 shrink-0 text-violet-300" />
+                  <span className="truncate">{a.name ?? "Документ"}</span>
+                </a>
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element -- local data URL
+                <img
+                  key={i}
+                  src={a.url ?? `data:${a.mime};base64,${a.data}`}
+                  alt={a.name ?? "вложение"}
+                  className="max-h-48 rounded-xl border border-white/10 object-cover"
+                />
+              ),
+            )}
           </div>
         )}
         {message.content && (
