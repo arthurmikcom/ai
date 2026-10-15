@@ -43,6 +43,13 @@
       "when": 1792063801384,
       "tag": "0005_rebrand_maryx",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792064504752,
+      "tag": "0006_maryx_upgrades",
+      "breakpoints": true
     }
   ]
 }

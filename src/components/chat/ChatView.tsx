@@ -142,6 +142,15 @@ export function ChatView() {
                 models={allModels}
                 isLast={i === chat.messages.length - 1}
                 streaming={streaming && i === chat.messages.length - 1}
+                onSuggest={
+                  noProviders
+                    ? undefined
+                    : (text) => {
+                        stickToBottom.current = true;
+                        stopSpeaking();
+                        app.send(text, [], { deepThinking, webSearch: webSearch && Boolean(current?.search) }, choice);
+                      }
+                }
                 onRegenerate={() =>
                   app.regenerate(chat.id, {
                     deepThinking,

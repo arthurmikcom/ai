@@ -165,6 +165,8 @@ export function useSpeaking(): string | null {
 export function speakableText(markdown: string): string {
   return markdown
     .replace(/```[\s\S]*?```/g, " Код показан на экране. ")
+    .replace(/\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]/g, " Формула показана на экране. ")
+    .replace(/\$(?!\d)/g, "") // inline formulas; "$5" stays a price
     .replace(/`([^`]+)`/g, "$1")
     .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")

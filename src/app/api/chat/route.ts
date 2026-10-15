@@ -5,7 +5,7 @@ import { canDrawInChat, chatImageModel, generateChatImage } from "@/lib/server/c
 import { chatMessages, findAssistant, findChat, storedKeys } from "@/lib/server/chats";
 import { getDb, schema } from "@/lib/server/db";
 import type { StoredFile } from "@/lib/server/db/schema";
-import { describeError } from "@/lib/server/errors";
+import { describeError, statusOf } from "@/lib/server/errors";
 import { jsonError, requireUser } from "@/lib/server/http";
 import {
   DocumentError,
@@ -16,18 +16,22 @@ import {
 } from "@/lib/server/documents";
 import { deleteFiles, fileUrl, newKey, putFile, readFileBase64 } from "@/lib/server/storage";
 import {
+  ANSWER_STYLE,
+  instructionLines,
   listFacts,
-  memoryEnabled,
   mightHaveFacts,
   maryxSystem,
   planRoute,
   rememberFrom,
+  suggestFollowUps,
+  suggestTitle,
+  userPrefs,
   wantsImage,
   type MaryxPlan,
 } from "@/lib/server/maryx";
 import { consume, limitResponse, refund } from "@/lib/server/usage";
 import { parseChatSendRequest } from "@/lib/server/validate";
-import type { ChatRequest, ChatStreamEvent, InlineFile, InlineImage, Source, UsageKind } from "@/lib/types";
+import type { ChatRequest, ChatStreamEvent, InlineFile, InlineImage, ModelInfo, Source, UsageKind } from "@/lib/types";
 
 // Long answers from reasoning models can take several minutes.
 export const maxDuration = 300;
@@ -38,9 +42,16 @@ export const maxDuration = 300;
  */
 const DOCUMENT_BUDGET = 150_000;
 
-const DEFAULT_SYSTEM =
-  "Ты — MARYX Ai, умный и дружелюбный ассистент. Отвечай на языке пользователя. " +
-  "Используй Markdown, когда это помогает: списки, таблицы, блоки кода с указанием языка.";
+/**
+ * Characters of conversation text sent with one request (~20k tokens). In a
+ * longer chat the oldest turns are left out, so every turn stays fast and cheap.
+ */
+const HISTORY_BUDGET = 60_000;
+
+/** Pictures sent again from earlier turns; older ones are mentioned in words. */
+const HISTORY_IMAGES = 4;
+
+const DEFAULT_SYSTEM = `Ты — MARYX Ai, умный и дружелюбный ассистент.\n${ANSWER_STYLE}`;
 
 function titleFrom(text: string, files: InlineFile[] = []): string {
   const clean = text.replace(/\s+/g, " ").trim();
@@ -200,100 +211,158 @@ export async function POST(request: Request) {
     fresh.set(req.message.id, req.message.attachments.filter((a) => a.mime.startsWith("image/")));
   }
   const kept = rows.filter((m) => m.role === "user" || (m.content && !m.error));
+
+  // A long chat sends only its newest turns that fit the budget, opening with the user.
+  let first = kept.length - 1;
+  let used = kept[first].content.length;
+  while (first > 0 && used + kept[first - 1].content.length <= HISTORY_BUDGET) {
+    first--;
+    used += kept[first].content.length;
+  }
+  while (kept[first].role !== "user") first++;
+  const recent = kept.slice(first);
+  // Documents from the turns left out still come along, with the first turn that's sent.
+  const carried = kept
+    .slice(0, first)
+    .flatMap((m) => (m.role === "user" ? (m.attachments ?? []).filter((f) => f.textKey) : []));
+
   // Document text budget goes to the newest documents first; older ones past it are
   // left out (not even read), so a chat full of long files stays cheap per turn.
   const allowance = new Map<string, number>();
   let budgetLeft = DOCUMENT_BUDGET;
-  for (const m of [...kept].reverse()) {
+  const newestDocs = [
+    ...[...recent].reverse().flatMap((m) => (m.role === "user" ? (m.attachments ?? []) : [])),
+    ...[...carried].reverse(),
+  ];
+  for (const f of newestDocs) {
+    if (!f.textKey) continue;
+    const size = f.chars ?? documentTexts.get(f.textKey)?.length ?? DOCUMENT_BUDGET;
+    const share = Math.min(size, budgetLeft);
+    allowance.set(f.textKey, share);
+    budgetLeft -= share;
+  }
+  // Every picture of the message being answered goes; from earlier turns only the newest few.
+  const imageQuota = new Map<string, number>();
+  let imagesLeft = HISTORY_IMAGES;
+  for (const m of [...recent].reverse()) {
     if (m.role !== "user") continue;
-    for (const f of m.attachments ?? []) {
-      if (!f.textKey) continue;
-      const size = f.chars ?? documentTexts.get(f.textKey)?.length ?? DOCUMENT_BUDGET;
-      const share = Math.min(size, budgetLeft);
-      allowance.set(f.textKey, share);
-      budgetLeft -= share;
+    const count = fresh.get(m.id)?.length ?? (m.attachments ?? []).filter((f) => f.mime.startsWith("image/")).length;
+    if (m === recent[recent.length - 1]) {
+      imageQuota.set(m.id, count);
+      continue;
     }
+    imageQuota.set(m.id, Math.min(count, imagesLeft));
+    imagesLeft -= Math.min(count, imagesLeft);
   }
   const loaded = await Promise.all(
-    kept.map(async (m) => {
+    recent.map(async (m, i) => {
       // Pictures drawn by the assistant stay out: models only read the user's files.
       const files = m.role === "user" ? (m.attachments ?? []) : [];
+      const pictures = files.filter((f) => f.mime.startsWith("image/"));
       let images = fresh.get(m.id);
       if (!images) {
         const read = await Promise.all(
-          files
-            .filter((f) => f.mime.startsWith("image/"))
-            .map(async (f) => {
-              const data = await readFileBase64(f.key);
-              return data ? { mime: f.mime, data } : null;
-            }),
+          pictures.slice(0, imageQuota.get(m.id) ?? 0).map(async (f) => {
+            const data = await readFileBase64(f.key);
+            return data ? { mime: f.mime, data } : null;
+          }),
         );
         images = read.filter((a): a is InlineImage => a !== null);
       }
+      const leftOut = (fresh.get(m.id)?.length ?? pictures.length) - images.length;
       const docs = await Promise.all(
-        files
-          .filter((f) => f.textKey)
-          .map(async (f) => {
-            const max = allowance.get(f.textKey!) ?? 0;
-            // Only documents that fit the budget are read at all.
-            const text =
-              max > 0
-                ? (documentTexts.get(f.textKey!) ??
-                  Buffer.from((await readFileBase64(f.textKey!)) ?? "", "base64").toString("utf8"))
-                : "";
-            return { name: f.name || "документ", text, max };
-          }),
+        [...(i === 0 ? carried : []), ...files.filter((f) => f.textKey)].map(async (f) => {
+          const max = allowance.get(f.textKey!) ?? 0;
+          // Only documents that fit the budget are read at all.
+          const text =
+            max > 0
+              ? (documentTexts.get(f.textKey!) ??
+                Buffer.from((await readFileBase64(f.textKey!)) ?? "", "base64").toString("utf8"))
+              : "";
+          return { name: f.name || "документ", text, max };
+        }),
       );
-      return { m, images, docs };
+      return { m, images, docs, leftOut };
     }),
   );
-  const history: ChatRequest["messages"] = loaded.map(({ m, images, docs }) => ({
-    role: m.role,
-    content: docs.length ? withDocuments(m.content, docs) : m.content,
-    attachments: images.length ? images : undefined,
-  }));
+  const history: ChatRequest["messages"] = loaded.map(({ m, images, docs, leftOut }) => {
+    const text = leftOut > 0 ? `${m.content}\n[К сообщению были приложены изображения: ${leftOut}]` : m.content;
+    return {
+      role: m.role,
+      content: docs.length ? withDocuments(text, docs) : text,
+      attachments: images.length ? images : undefined,
+    };
+  });
+  const messages = mergeTurns(history);
 
   const assistant = chat.assistantId ? await findAssistant(user.id, chat.assistantId) : undefined;
+  const prefs = await userPrefs(user.id);
+  const omitted = first > 0 ? [`Начало этого диалога (${first} сообщ.) не поместилось в контекст и здесь не показано.`] : [];
 
   // MARYX: pick the real model for this message, then speak as MARYX with its memory.
   let route: MaryxPlan | undefined;
-  let system = assistant?.systemPrompt || DEFAULT_SYSTEM;
-  let messages = mergeTurns(history);
   // Stored facts go into every MARYX answer (regenerations too); new ones are learned from new messages.
-  const memoryOn = maryx && (await memoryEnabled(user.id));
+  const memoryOn = maryx && prefs.memory;
+  let facts: string[] = [];
+  const last = loaded[loaded.length - 1];
   if (maryx) {
-    const last = loaded[loaded.length - 1];
+    const previous = recent.findLast((m) => m.role === "assistant");
     try {
       route = await planRoute({
         text: last.m.content,
         hasImages: last.images.length > 0,
-        hasDocuments: last.docs.length > 0,
+        hasDocuments: loaded.some((l) => l.docs.some((d) => d.max > 0)),
         deepThinking: req.deepThinking ?? false,
         webSearch: req.webSearch ?? false,
+        previous: previous && {
+          provider: previous.provider ?? undefined,
+          model: previous.model ?? undefined,
+          content: previous.content,
+        },
       });
     } catch (err) {
       await refund(user.id, kind);
       return jsonError(describeError(err), 503);
     }
-    const facts = memoryOn ? (await listFacts(user.id)).map((f) => f.text) : [];
-    system = maryxSystem(route.model, facts, assistant?.systemPrompt);
-    // Older pictures can't go to a model that doesn't see images.
-    if (!route.model.vision) {
-      messages = messages.map((m) =>
-        m.attachments ? { ...m, attachments: undefined, content: `${m.content}\n[К сообщению было приложено изображение]` } : m,
-      );
-    }
+    facts = memoryOn ? (await listFacts(user.id)).map((f) => f.text) : [];
   }
-  const provider = route?.model.provider ?? req.provider;
-  const model = route?.model.id ?? req.model;
-  const chatRequest: ChatRequest = {
-    provider,
-    model,
-    system,
-    deepThinking: req.deepThinking,
-    webSearch: route ? route.webSearch : req.webSearch,
-    messages,
-  };
+  const plan = route;
+  // MARYX may switch to a fallback model, so its request is built per model.
+  const requestFor = (m?: ModelInfo): ChatRequest =>
+    m && plan
+      ? {
+          provider: m.provider,
+          model: m.id,
+          system: [
+            maryxSystem(m, facts, {
+              assistantPrompt: assistant?.systemPrompt,
+              instructions: prefs.instructions,
+              webSearch: plan.webSearch,
+            }),
+            ...omitted,
+          ].join("\n"),
+          deepThinking: req.deepThinking,
+          webSearch: plan.webSearch,
+          // Older pictures can't go to a model that doesn't see images.
+          messages: m.vision
+            ? messages
+            : messages.map((x) =>
+                x.attachments
+                  ? { ...x, attachments: undefined, content: `${x.content}\n[К сообщению было приложено изображение]` }
+                  : x,
+              ),
+        }
+      : {
+          provider: req.provider,
+          model: req.model,
+          system: [assistant?.systemPrompt || DEFAULT_SYSTEM, ...instructionLines(prefs.instructions), ...omitted].join("\n"),
+          deepThinking: req.deepThinking,
+          webSearch: req.webSearch,
+          messages,
+        };
+  const candidates = plan ? [plan.model, ...plan.fallbacks] : [];
+  let provider = plan?.model.provider ?? req.provider;
+  let model = plan?.model.id ?? req.model;
   const chatId = chat.id;
 
   // After the answer is sent: let MARYX note lasting facts from this message —
@@ -304,6 +373,31 @@ export async function POST(request: Request) {
     after(() =>
       answered ? rememberFrom(user.id, userText).catch((err) => console.error("[maryx] memory update failed", err)) : undefined,
     );
+  }
+
+  // A new chat with a long first message gets a short name from a fast model,
+  // written while the answer streams (unless the chat was renamed meanwhile).
+  let titleJob: Promise<string | null> | undefined;
+  const firstText = userText.trim();
+  if (created && req.message && (firstText.length > 40 || firstText.includes("\n"))) {
+    const initial = chat.title;
+    const names = (req.message.attachments ?? []).flatMap((f) => (f.name ? [f.name] : []));
+    titleJob = suggestTitle(firstText, names)
+      .then(async (title) => {
+        if (!title || title === initial) return null;
+        const renamed = await db
+          .update(schema.chat)
+          .set({ title })
+          .where(and(eq(schema.chat.id, chatId), eq(schema.chat.title, initial)))
+          .returning({ id: schema.chat.id });
+        return renamed.length ? title : null;
+      })
+      .catch((err) => {
+        console.error("[chat] title failed", err);
+        return null;
+      });
+    const job = titleJob;
+    after(() => job);
   }
 
   const encoder = new TextEncoder();
@@ -319,60 +413,113 @@ export async function POST(request: Request) {
 
       let text = "";
       let reasoning = "";
-      const notices: string[] = [];
+      let notices: string[] = [];
       const sources: Source[] = [];
       let error: string | undefined;
 
       try {
-        if (route) send({ type: "route", provider, model, search: route.webSearch || undefined });
-        for await (const event of streamChat(chatRequest, request.signal)) {
-          if (event.type === "text") text += event.text;
-          else if (event.type === "reasoning") reasoning += event.text;
-          else if (event.type === "notice") notices.push(event.text);
-          else if (event.type === "source") sources.push({ url: event.url, title: event.title });
-          send(event);
+        for (let attempt = 0; ; ) {
+          const current = candidates[attempt];
+          if (plan) send({ type: "route", provider, model, search: plan.webSearch || undefined, retry: attempt > 0 || undefined });
+          // The browser clears the failed attempt on "retry", then shows why the model changed.
+          if (attempt > 0) send({ type: "notice", text: notices[0] });
+          try {
+            for await (const event of streamChat(requestFor(current), request.signal)) {
+              if (event.type === "text") text += event.text;
+              else if (event.type === "reasoning") reasoning += event.text;
+              else if (event.type === "notice") notices.push(event.text);
+              else if (event.type === "source") sources.push({ url: event.url, title: event.title });
+              send(event);
+            }
+            break;
+          } catch (err) {
+            // MARYX: a model that fails before writing anything is replaced by the next best one.
+            const next = current && !text && !request.signal.aborted ? nextCandidate(candidates, attempt, err) : -1;
+            if (next < 0) throw err;
+            console.warn("[chat] MARYX falls back from", provider, model, err instanceof Error ? err.message : err);
+            const replacement = candidates[next];
+            attempt = next;
+            provider = replacement.provider;
+            model = replacement.id;
+            reasoning = "";
+            sources.length = 0;
+            notices = [`${current.label} сейчас не отвечает — ответ сформировала ${replacement.label}.`];
+          }
         }
-        send({ type: "done" });
       } catch (err) {
         if (request.signal.aborted) {
           notices.push("Генерация остановлена.");
         } else {
           console.error("[chat]", provider, model, err);
           error = describeError(err);
-          send({ type: "error", message: error });
         }
-      } finally {
-        try {
-          // A provider failure that produced nothing doesn't count toward the limit.
-          if (error && !text) await refund(user.id, kind);
-          answered = !error && text.length > 0;
-          await db.insert(schema.message).values({
-            id: req.answerId,
-            chatId,
-            role: "assistant",
-            content: text,
-            reasoning: reasoning || null,
-            notice: notices.length ? notices.join("\n") : null,
-            sources: sources.length ? sources.slice(0, 20) : null,
-            error: error ?? null,
-            provider,
-            model,
-            via: route ? "maryx" : null,
+      }
+
+      try {
+        // A provider failure that produced nothing doesn't count toward the limit.
+        if (error && !text) await refund(user.id, kind);
+        answered = !error && text.length > 0;
+        await db.insert(schema.message).values({
+          id: req.answerId,
+          chatId,
+          role: "assistant",
+          content: text,
+          reasoning: reasoning || null,
+          notice: notices.length ? notices.join("\n") : null,
+          sources: sources.length ? sources.slice(0, 20) : null,
+          error: error ?? null,
+          provider,
+          model,
+          via: plan ? "maryx" : null,
+        });
+        await db.update(schema.chat).set({ updatedAt: new Date() }).where(eq(schema.chat.id, chatId));
+      } catch (err) {
+        console.error("[chat] failed to save the answer", err);
+      }
+      // The answer is saved before "done", so a message sent right after it comes later in the chat.
+      if (error) send({ type: "error", message: error });
+      else if (!request.signal.aborted) send({ type: "done" });
+
+      try {
+        if (plan && answered && !request.signal.aborted) {
+          const items = await suggestFollowUps(last.m.content || "(документ)", text).catch((err) => {
+            console.error("[maryx] follow-ups failed", err);
+            return [];
           });
-          await db.update(schema.chat).set({ updatedAt: new Date() }).where(eq(schema.chat.id, chatId));
-        } catch (err) {
-          console.error("[chat] failed to save the answer", err);
+          if (items.length) {
+            send({ type: "suggestions", items });
+            await db.update(schema.message).set({ suggestions: items }).where(eq(schema.message.id, req.answerId));
+          }
         }
-        try {
-          controller.close();
-        } catch {
-          // already closed
+        if (titleJob && !request.signal.aborted) {
+          const title = await Promise.race([titleJob, new Promise<null>((r) => setTimeout(() => r(null), 4000))]);
+          if (title) send({ type: "title", title });
         }
+      } catch (err) {
+        console.error("[chat] after the answer", err);
+      }
+      try {
+        controller.close();
+      } catch {
+        // already closed
       }
     },
   });
 
   return ndjson(body);
+}
+
+/**
+ * The next model to try after `failed` broke, or -1. A rejected key or an empty
+ * balance affects the whole provider account, so that provider is skipped.
+ */
+function nextCandidate(candidates: ModelInfo[], failed: number, err: unknown): number {
+  const status = statusOf(err);
+  const account = status === 401 || status === 402 || status === 403;
+  for (let i = failed + 1; i < candidates.length; i++) {
+    if (!account || candidates[i].provider !== candidates[failed].provider) return i;
+  }
+  return -1;
 }
 
 /**
@@ -441,14 +588,12 @@ function drawInChat(
         }
         text = "Готово! Вот что получилось.";
         send({ type: "text", text });
-        send({ type: "done" });
       } catch (err) {
         if (request.signal.aborted) {
           notice = "Генерация остановлена.";
         } else {
           console.error("[chat:image]", model?.provider, model?.id, err);
           error = describeError(err);
-          send({ type: "error", message: error });
         }
       } finally {
         try {
@@ -469,6 +614,9 @@ function drawInChat(
         } catch (err) {
           console.error("[chat:image] failed to save the answer", err);
         }
+        // Like text answers: saved first, so the next message lands after this one.
+        if (error) send({ type: "error", message: error });
+        else if (!request.signal.aborted) send({ type: "done" });
         try {
           controller.close();
         } catch {

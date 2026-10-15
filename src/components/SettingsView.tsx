@@ -7,6 +7,7 @@ import { useModels } from "@/lib/client/useModels";
 import type { Capability, UsageKind } from "@/lib/types";
 import { useApp } from "./AppState";
 import { BillingSection, PromoAdmin } from "./BillingSection";
+import { InstructionsSection } from "./InstructionsSection";
 import { MemorySection } from "./MemorySection";
 import { PageHeading } from "./Design";
 
@@ -225,7 +226,10 @@ export function SettingsView() {
         <BillingSection />
 
         <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wider text-zinc-500">MARYX</h2>
-        <MemorySection />
+        <div className="space-y-4">
+          <InstructionsSection />
+          <MemorySection />
+        </div>
 
         {me?.admin && (
           <>

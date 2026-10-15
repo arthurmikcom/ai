@@ -143,6 +143,8 @@ export const message = pgTable(
     sources: jsonb("sources").$type<Source[]>(),
     /** "maryx" when MARYX picked the model that wrote this answer. */
     via: text("via").$type<"maryx">(),
+    /** Follow-up questions MARYX suggested after this answer. */
+    suggestions: jsonb("suggestions").$type<string[]>(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (t) => [index("message_chat_seq_idx").on(t.chatId, t.seq)],
@@ -210,6 +212,10 @@ export const userPref = pgTable("user_pref", {
     .references(() => user.id, { onDelete: "cascade" }),
   /** Let MARYX remember facts about the user. */
   memory: boolean("memory").default(true).notNull(),
+  /** Personal instructions: what the user tells about themselves… */
+  about: text("about"),
+  /** …and how they want answers to look. Both go into every chat's system prompt. */
+  style: text("style"),
 });
 
 /** Daily counters for the free-tier limits. */

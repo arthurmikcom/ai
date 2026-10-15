@@ -188,6 +188,20 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       const sources: Source[] = [];
       // A picture is credited to the image model that drew it, not the chat model.
       let drawnBy: Pick<ChatMessage, "provider" | "model"> = {};
+      // "done" ends the answer; the stream may still bring a chat title and follow-ups.
+      let finished = false;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        controllers.current.delete(chatId);
+        setStreaming((s) => {
+          const next = new Set(s);
+          next.delete(chatId);
+          return next;
+        });
+        update(chatId, (c) => ({ ...c, updatedAt: Date.now() }));
+        refreshMe();
+      };
       let lastFlush = 0;
       const flush = (force = false) => {
         const now = performance.now();
@@ -244,12 +258,35 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           }));
         }
         for await (const event of readNdjson<ChatStreamEvent>(res)) {
+          if (event.type === "title") {
+            update(chatId, (c) => ({ ...c, title: event.title }));
+            continue;
+          }
+          if (event.type === "suggestions") {
+            patchMessage(chatId, answerId, { suggestions: event.items });
+            continue;
+          }
+          if (finished) continue;
+          if (event.type === "done") {
+            flush(true);
+            finish();
+            continue;
+          }
           if (event.type === "text") text += event.text;
           else if (event.type === "reasoning") reasoning += event.text;
           else if (event.type === "notice") notice = notice ? `${notice}\n${event.text}` : event.text;
           else if (event.type === "source") sources.push({ url: event.url, title: event.title });
           else if (event.type === "route") {
             // MARYX picked the real model (and maybe search or drawing) for this answer.
+            // On "retry" the previous model failed before answering: start over.
+            if (event.retry) {
+              text = "";
+              reasoning = "";
+              notice = "";
+              sources.length = 0;
+              images.length = 0;
+              flush(true);
+            }
             drawnBy = { provider: event.provider, model: event.model };
             patchMessage(chatId, answerId, {
               via: "maryx",
@@ -266,6 +303,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         }
         flush(true);
       } catch (err) {
+        // Only the extras after "done" were lost; the answer itself is complete.
+        if (finished) return;
         flush(true);
         if (controller.signal.aborted) {
           patchMessage(chatId, answerId, { notice: "Генерация остановлена." });
@@ -276,14 +315,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           });
         }
       } finally {
-        controllers.current.delete(chatId);
-        setStreaming((s) => {
-          const next = new Set(s);
-          next.delete(chatId);
-          return next;
-        });
-        update(chatId, (c) => ({ ...c, updatedAt: Date.now() }));
-        refreshMe();
+        finish();
       }
     },
     [patchMessage, refreshMe, update],

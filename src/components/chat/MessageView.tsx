@@ -5,6 +5,7 @@ import {
   Check,
   ChevronDown,
   Copy,
+  CornerDownRight,
   Download,
   FileText,
   Globe,
@@ -29,6 +30,8 @@ interface Props {
   streaming: boolean;
   isLast: boolean;
   onRegenerate?: () => void;
+  /** Sends one of MARYX's follow-up suggestions as the next message. */
+  onSuggest?: (text: string) => void;
 }
 
 function Reasoning({ text, active }: { text: string; active: boolean }) {
@@ -53,7 +56,7 @@ function Reasoning({ text, active }: { text: string; active: boolean }) {
   );
 }
 
-export function MessageView({ message, models, streaming, isLast, onRegenerate }: Props) {
+export function MessageView({ message, models, streaming, isLast, onRegenerate, onSuggest }: Props) {
   const [copied, setCopied] = useState(false);
   const speaking = useSpeaking() === message.id;
   const canSpeak = useVoiceSupport()?.speak ?? false;
@@ -278,6 +281,22 @@ export function MessageView({ message, models, streaming, isLast, onRegenerate }
             </button>
           )}
           {modelLabel && <span className="ml-1 text-xs">{modelLabel}</span>}
+        </div>
+      )}
+
+      {isLast && !streaming && onSuggest && message.suggestions && message.suggestions.length > 0 && (
+        <div className="mt-3 flex flex-col items-start gap-2" aria-label="Что спросить дальше">
+          {message.suggestions.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => onSuggest(s)}
+              className="flex max-w-full items-center gap-2 rounded-xl border border-violet-300/15 bg-violet-300/[0.04] px-3 py-1.5 text-left text-sm text-zinc-300 transition hover:border-violet-300/40 hover:text-zinc-50"
+            >
+              <CornerDownRight className="size-3.5 shrink-0 text-violet-300" />
+              <span className="min-w-0">{s}</span>
+            </button>
+          ))}
         </div>
       )}
     </div>

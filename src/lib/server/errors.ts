@@ -10,7 +10,7 @@ export class HttpError extends Error {
   }
 }
 
-function statusOf(err: unknown): number | undefined {
+export function statusOf(err: unknown): number | undefined {
   // The Anthropic, OpenAI and Google SDK errors all expose a numeric `status`.
   if (typeof err === "object" && err !== null && "status" in err) {
     const status = (err as { status: unknown }).status;

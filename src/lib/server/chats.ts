@@ -37,6 +37,7 @@ function toMessage(row: MessageRow): ChatMessage {
     notice: row.notice ?? undefined,
     sources: row.sources ?? undefined,
     via: row.via ?? undefined,
+    suggestions: row.suggestions ?? undefined,
     createdAt: row.createdAt.getTime(),
   };
 }

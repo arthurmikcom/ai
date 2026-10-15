@@ -21,6 +21,7 @@
     "better-auth": "^1.7.7",
     "drizzle-orm": "^0.45.4",
     "fflate": "^0.8.2",
+    "katex": "^0.16.47",
     "lucide-react": "^1.56.0",
     "mammoth": "^1.13.0",
     "music-metadata": "^12.2.1",
@@ -31,7 +32,9 @@
     "react-dom": "19.3.0",
     "react-markdown": "^10.1.0",
     "rehype-highlight": "^7.0.2",
+    "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
     "stripe": "^23.0.0",
     "unpdf": "^1.8.1"
   },

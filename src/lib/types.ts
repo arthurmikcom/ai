@@ -90,6 +90,8 @@ export interface ChatMessage {
   sources?: Source[];
   /** "maryx" when MARYX chose the model (provider/model then name the real one). */
   via?: "maryx";
+  /** Follow-up questions MARYX suggests after this answer. */
+  suggestions?: string[];
   /** Browser only: the server refused this message, so it was never saved. */
   unsent?: boolean;
   /** Browser only: what the pending answer is busy with (drawing, searching). */
@@ -166,8 +168,15 @@ export type ChatStreamEvent =
   | { type: "reasoning"; text: string }
   | { type: "notice"; text: string }
   | { type: "source"; url: string; title?: string }
-  /** MARYX picked a model (and maybe search or drawing) for this answer. */
-  | { type: "route"; provider: ProviderId; model: string; search?: boolean; image?: boolean }
+  /**
+   * MARYX picked a model (and maybe search or drawing) for this answer. With
+   * `retry`, the previous model failed before answering and this one starts over.
+   */
+  | { type: "route"; provider: ProviderId; model: string; search?: boolean; image?: boolean; retry?: boolean }
+  /** A better name for a new chat (may arrive after "done"). */
+  | { type: "title"; title: string }
+  /** Follow-up questions for the answer (may arrive after "done"). */
+  | { type: "suggestions"; items: string[] }
   /** A picture drawn in the chat, and the image model that drew it. */
   | { type: "image"; url: string; mime: string; provider: ProviderId; model: string }
   | { type: "error"; message: string }
@@ -270,6 +279,12 @@ export interface BillingOptions {
     yookassa: { price: string } | null;
     stripe: { price: string } | null;
   };
+}
+
+/** Personal instructions for every chat (settings page). */
+export interface InstructionsResponse {
+  about: string;
+  style: string;
 }
 
 /** What MARYX remembers about the user (settings page). */
