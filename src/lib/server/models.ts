@@ -41,6 +41,10 @@ interface OpenRouterModel {
 
 const TTL_MS = 10 * 60 * 1000;
 const LIVE_TIMEOUT_MS = 8000;
+/** A healthy self-hosted server answers at once; a stopped GPU server shouldn't hold chats up. */
+const SELF_HOSTED_TIMEOUT_MS = 2500;
+/** A failed list is retried this soon (instead of after the full TTL) when there's no older one. */
+const RETRY_FAILED_MS = 30_000;
 const cache = new Map<string, { at: number; models: Promise<LiveModel[] | null>; last?: LiveModel[] }>();
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
@@ -122,7 +126,10 @@ async function fetchLive(provider: ProviderId, capability: Capability): Promise<
     return checks.filter((m): m is LiveModel => m !== null);
   }
   if (isOpenAICompatible(provider)) {
-    const models = await collect(openAIClient(provider).models.list());
+    const selfHosted = provider === "custom" || provider === "ollama";
+    const models = await collect(
+      openAIClient(provider).models.list(selfHosted ? { timeout: SELF_HOSTED_TIMEOUT_MS, maxRetries: 0 } : undefined),
+    );
     return models.map((m) => ({ id: m.id }));
   }
   return null;
@@ -133,20 +140,23 @@ function liveModels(provider: ProviderId, capability: Capability): Promise<LiveM
   // Only OpenRouter has a separate list per capability; others list everything at once.
   const key = provider === "openrouter" ? `${provider}:${capability}` : provider;
   const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < TTL_MS) return hit.models;
+  // While a list is being refreshed, callers get the last good one right away.
+  if (hit && Date.now() - hit.at < TTL_MS) return hit.last ? Promise.resolve(hit.last) : hit.models;
+  const timeout = provider === "custom" || provider === "ollama" ? SELF_HOSTED_TIMEOUT_MS : LIVE_TIMEOUT_MS;
   const entry: { at: number; models: Promise<LiveModel[] | null>; last?: LiveModel[] } = {
     at: Date.now(),
-    models: withTimeout(fetchLive(provider, capability), LIVE_TIMEOUT_MS)
+    models: withTimeout(fetchLive(provider, capability), timeout)
       .catch(() => null)
       .then((list) => {
-        // A failed refresh keeps serving the last good list.
         if (list) entry.last = list;
+        // Nothing to fall back on (e.g. a GPU server still starting): try again soon.
+        else if (!entry.last) entry.at = Date.now() - TTL_MS + RETRY_FAILED_MS;
+        // A failed refresh keeps serving the last good list.
         return list ?? entry.last ?? null;
       }),
     last: hit?.last,
   };
   cache.set(key, entry);
-  // While a stale list is refreshed, callers get the old one right away.
   return entry.last ? Promise.resolve(entry.last) : entry.models;
 }
 
@@ -195,8 +205,13 @@ function canSearch(provider: ProviderId, capability: Capability): boolean | unde
   return provider === "openrouter" && capability === "chat" ? true : undefined;
 }
 
+/** Self-hosted models that read images: CUSTOM_LLM_VISION=1, or a known multimodal family. */
+const SELF_HOSTED_VISION = /qwen3\.[5-9]|[-_.]vl\b|vl-|vision|gemma-?3|pixtral|llava|omni/i;
+
 function liveModelInfo(provider: ProviderId, capability: Capability, m: LiveModel): ModelInfo {
   const id = m.id;
+  const selfHostedVision =
+    provider === "custom" && (process.env.CUSTOM_LLM_VISION?.trim() === "1" || SELF_HOSTED_VISION.test(id));
   return {
     search: canSearch(provider, capability),
     id,
@@ -204,7 +219,7 @@ function liveModelInfo(provider: ProviderId, capability: Capability, m: LiveMode
     label: m.name || id,
     capability,
     featured: false,
-    vision: provider === "anthropic" || provider === "google" ? true : m.vision,
+    vision: provider === "anthropic" || provider === "google" || selfHostedVision ? true : m.vision,
     reasoning:
       m.reasoning ||
       (provider === "anthropic" && ADAPTIVE_THINKING.test(id)) ||

@@ -37,10 +37,15 @@ export function reasoningListLoaded(): boolean {
 const LEVELS = ["minimal", "low", "medium", "high", "xhigh", "max"];
 const rank = (effort: string) => LEVELS.indexOf(effort);
 
-/** The accepted effort nearest to `want`: at or above it when `up`, else at or below. */
-function nearest(info: ReasoningInfo | undefined, want: string, up: boolean): string {
-  const list = info?.efforts?.filter((e) => rank(e) >= 0);
-  if (!list?.length || list.includes(want)) return want;
+/**
+ * The accepted effort nearest to `want`: at or above it when `up`, else at or
+ * below. Undefined when the model lists efforts but none we know.
+ */
+function nearest(info: ReasoningInfo | undefined, want: string, up: boolean): string | undefined {
+  if (!info?.efforts) return want;
+  const list = info.efforts.filter((e) => rank(e) >= 0);
+  if (!list.length) return undefined;
+  if (list.includes(want)) return want;
   const sorted = [...list].sort((a, b) => rank(a) - rank(b));
   if (up) return sorted.find((e) => rank(e) > rank(want)) ?? sorted[sorted.length - 1];
   return [...sorted].reverse().find((e) => rank(e) < rank(want)) ?? sorted[0];
@@ -62,11 +67,19 @@ export type Effort = "normal" | "deep" | "light";
  */
 export function openRouterEffort(model: string, effort: Effort): string | undefined {
   const info = known.get(model);
+  const fallback = info?.defaultEffort !== undefined ? rank(info.defaultEffort) : -1;
+  if (effort === "deep") {
+    // Never less than "high" or than what the model does by default.
+    const pick = nearest(info, fallback > rank("high") ? info!.defaultEffort! : "high", true);
+    const floor = fallback >= 0 ? Math.min(rank("high"), fallback) : rank("high");
+    return pick !== undefined && rank(pick) >= floor ? pick : undefined;
+  }
   const thinksByDefault = Boolean(info && (info.mandatory || info.defaultEnabled));
-  const top = thinksByDefault && info?.defaultEffort !== undefined && rank(info.defaultEffort) >= rank("xhigh");
-  if (effort === "deep") return nearest(info, top ? info!.defaultEffort! : "high", true);
-  if (!top) return undefined;
-  return nearest(info, effort === "light" ? "low" : "medium", false);
+  if (!thinksByDefault || fallback < rank("xhigh")) return undefined;
+  if (effort === "light") return nearest(info, "low", false);
+  // At least "medium", and only if that is still below the model's own default.
+  const pick = nearest(info, "medium", true);
+  return pick !== undefined && rank(pick) < fallback ? pick : undefined;
 }
 
 /** Qwen models on Alibaba's API that have an `enable_thinking` switch. */
@@ -77,8 +90,21 @@ const QWEN_HYBRID = /^(qwen3\.[5-7]|qwen-(plus|flash|turbo)|qwen3-max)/;
  * medium, xhigh; xhigh by default), older hybrid models `enable_thinking`.
  */
 export function qwenThinking(model: string, effort: Effort): Record<string, unknown> {
-  if (/^qwen3\.8/.test(model)) {
-    return { reasoning_effort: effort === "deep" ? "xhigh" : effort === "light" ? "low" : "medium" };
-  }
-  return effort === "deep" && QWEN_HYBRID.test(model) ? { enable_thinking: true } : {};
+  if (/^qwen3\.8/.test(model)) return { reasoning_effort: qwen38Effort(effort) };
+  // Hybrids (Qwen 3.6 and 3.7 think by default) get an explicit switch; "-thinking" snapshots always think.
+  return QWEN_HYBRID.test(model) && !/thinking/.test(model) ? { enable_thinking: effort === "deep" } : {};
+}
+
+function qwen38Effort(effort: Effort): string {
+  return effort === "deep" ? "xhigh" : effort === "light" ? "low" : "medium";
+}
+
+/**
+ * Own servers (vLLM, SGLang, llama.cpp) pass `chat_template_kwargs` to the
+ * model's chat template; Qwen templates read these, others ignore them. Qwen 3.8
+ * would otherwise always think at "xhigh", and small jobs shouldn't think at all.
+ */
+export function selfHostedThinking(model: string, effort: Effort): Record<string, unknown> {
+  if (/qwen3\.8/i.test(model)) return { chat_template_kwargs: { reasoning_effort: qwen38Effort(effort) } };
+  return effort === "light" ? { chat_template_kwargs: { enable_thinking: false } } : {};
 }

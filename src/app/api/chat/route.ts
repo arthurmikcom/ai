@@ -481,7 +481,7 @@ export async function POST(request: Request) {
           notices.push("Генерация остановлена.");
         } else {
           console.error("[chat]", provider, model, err);
-          error = describeError(err);
+          error = describeError(err, provider);
           if (!text && failed.length > 1) {
             // Not "X answered instead": nobody did. The browser resets the notice on "retry".
             notices = [`Не ответила ни одна из моделей: ${failed.join(", ")}.`];

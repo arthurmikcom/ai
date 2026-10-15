@@ -174,7 +174,8 @@ async function quickText(system: string, user: string, timeoutMs: number): Promi
       for await (const event of streamChat(request, signal)) {
         if (event.type === "text") out += event.text;
       }
-      return out;
+      // A self-hosted server without a reasoning parser leaves the model's thinking in the text.
+      return out.replace(/^[\s\S]*<\/think>/, "").trim();
     } catch (err) {
       if (model === second || !second || signal.aborted) throw err;
     }

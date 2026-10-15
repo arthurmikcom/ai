@@ -1,7 +1,7 @@
 import type OpenAI from "openai";
 import type { ChatRequest, ChatStreamEvent } from "@/lib/types";
 import { openAIClient } from "../config";
-import { openRouterEffort, qwenThinking, type Effort } from "./reasoning";
+import { openRouterEffort, qwenThinking, selfHostedThinking, type Effort } from "./reasoning";
 
 // OpenAI models that accept `reasoning_effort`.
 export const OPENAI_REASONING = /^(gpt-5|gpt-6|o\d)/;
@@ -63,6 +63,7 @@ export async function* streamOpenAICompatible(
       ...(deep ? { reasoning_effort: "high" as const } : {}),
       ...(effort ? ({ reasoning: { effort } } as object) : {}),
       ...(req.provider === "qwen" ? qwenThinking(req.model, mode) : {}),
+      ...(req.provider === "custom" ? selfHostedThinking(req.model, mode) : {}),
       ...(search as object),
     },
     { signal },

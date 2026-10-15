@@ -110,7 +110,7 @@ export function openAIClient(provider: ProviderId): OpenAI {
     const base = env("CUSTOM_LLM_BASE_URL");
     if (!base) {
       throw new NotConfiguredError(
-        "Свой сервер моделей не подключён: укажите CUSTOM_LLM_BASE_URL (например http://ваш-сервер:8000/v1).",
+        "Свой сервер моделей не подключён: укажите CUSTOM_LLM_BASE_URL (например https://ваш-адрес/v1).",
       );
     }
     return new OpenAI({ apiKey: apiKey("custom") ?? "none", baseURL: base.replace(/\/+$/, "") });

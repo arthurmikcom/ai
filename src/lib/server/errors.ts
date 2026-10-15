@@ -1,3 +1,4 @@
+import type { ProviderId } from "@/lib/types";
 import { NotConfiguredError } from "./config";
 
 /** Error raised by our own REST calls (Replicate, media downloads). */
@@ -20,7 +21,7 @@ export function statusOf(err: unknown): number | undefined {
 }
 
 /** Turns any provider error into a short message for the user (in Russian). */
-export function describeError(err: unknown): string {
+export function describeError(err: unknown, provider?: ProviderId): string {
   if (err instanceof NotConfiguredError) return err.message;
 
   const detail = err instanceof Error ? err.message : String(err);
@@ -29,7 +30,10 @@ export function describeError(err: unknown): string {
       return `Провайдер отклонил запрос: ${detail}`;
     case 401:
     case 403:
-      return "Неверный API-ключ или нет доступа к этой модели. Проверьте ключ в .env.local.";
+      if (provider === "qwen") {
+        return "Alibaba Cloud не принял ключ. Ключи привязаны к региону: проверьте DASHSCOPE_API_KEY и DASHSCOPE_BASE_URL.";
+      }
+      return "Неверный API-ключ или нет доступа к этой модели. Проверьте ключ в переменных окружения (на Vercel: Settings → Environment Variables).";
     case 402:
       return "На счёте провайдера закончились средства.";
     case 404:
