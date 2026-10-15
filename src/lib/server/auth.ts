@@ -63,7 +63,7 @@ function createAuth(db: DB, secret: string) {
   const env = process.env;
   const social = socialProviders();
   return betterAuth({
-    appName: "Nexus AI",
+    appName: "MARYX Ai",
     secret,
     baseURL: baseURL(),
     database: drizzleAdapter(db, {
@@ -102,16 +102,16 @@ function createAuth(db: DB, secret: string) {
 
 type Auth = ReturnType<typeof createAuth>;
 
-const holder = globalThis as typeof globalThis & { __nexusAuth?: Promise<Auth> };
+const holder = globalThis as typeof globalThis & { __maryxAuth?: Promise<Auth> };
 
 export function getAuth(): Promise<Auth> {
-  holder.__nexusAuth ??= Promise.all([getDb(), resolveSecret()])
+  holder.__maryxAuth ??= Promise.all([getDb(), resolveSecret()])
     .then(([db, secret]) => createAuth(db, secret))
     .catch((err) => {
-      holder.__nexusAuth = undefined;
+      holder.__maryxAuth = undefined;
       throw err;
     });
-  return holder.__nexusAuth;
+  return holder.__maryxAuth;
 }
 
 export interface SessionUser {

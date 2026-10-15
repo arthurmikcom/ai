@@ -45,12 +45,12 @@ async function connect(): Promise<DB> {
 
 // Kept on globalThis so hot reloads in development reuse one connection
 // (PGlite allows a single open instance per data folder).
-const holder = globalThis as typeof globalThis & { __nexusDb?: Promise<DB> };
+const holder = globalThis as typeof globalThis & { __maryxDb?: Promise<DB> };
 
 export function getDb(): Promise<DB> {
-  holder.__nexusDb ??= connect().catch((err) => {
-    holder.__nexusDb = undefined;
+  holder.__maryxDb ??= connect().catch((err) => {
+    holder.__maryxDb = undefined;
     throw err;
   });
-  return holder.__nexusDb;
+  return holder.__maryxDb;
 }

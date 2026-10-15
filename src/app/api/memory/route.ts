@@ -1,5 +1,5 @@
 import { jsonError, requireUser } from "@/lib/server/http";
-import { deleteFacts, listFacts, memoryEnabled, setMemoryEnabled } from "@/lib/server/nexus";
+import { deleteFacts, listFacts, memoryEnabled, setMemoryEnabled } from "@/lib/server/maryx";
 import type { MemoryResponse } from "@/lib/types";
 
 async function current(userId: string): Promise<MemoryResponse> {
@@ -7,7 +7,7 @@ async function current(userId: string): Promise<MemoryResponse> {
   return { enabled, facts: facts.map((f) => ({ id: f.id, text: f.text, createdAt: f.createdAt.getTime() })) };
 }
 
-/** What Nexus remembers about the signed-in user. */
+/** What MARYX remembers about the signed-in user. */
 export async function GET(request: Request) {
   const user = await requireUser(request);
   if (user instanceof Response) return user;

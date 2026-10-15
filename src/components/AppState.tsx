@@ -29,7 +29,7 @@ import type {
   Source,
 } from "@/lib/types";
 
-const MODEL_KEY = "nexus:model";
+const MODEL_KEY = "maryx:model";
 
 export interface ModelChoice {
   provider: ProviderId;
@@ -249,10 +249,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           else if (event.type === "notice") notice = notice ? `${notice}\n${event.text}` : event.text;
           else if (event.type === "source") sources.push({ url: event.url, title: event.title });
           else if (event.type === "route") {
-            // Nexus picked the real model (and maybe search or drawing) for this answer.
+            // MARYX picked the real model (and maybe search or drawing) for this answer.
             drawnBy = { provider: event.provider, model: event.model };
             patchMessage(chatId, answerId, {
-              via: "nexus",
+              via: "maryx",
               ...drawnBy,
               generating: event.image ? "image" : event.search ? "search" : undefined,
             });

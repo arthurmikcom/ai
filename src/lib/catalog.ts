@@ -81,11 +81,11 @@ export const PROVIDERS: ProviderDef[] = [
   },
 ];
 
-/** Our own AI, shown first in the chat model picker (see server/nexus.ts). */
-export const NEXUS_MODEL: ModelInfo = {
-  provider: "nexus",
-  id: "nexus",
-  label: "Nexus",
+/** Our own AI, shown first in the chat model picker (see server/maryx.ts). */
+export const MARYX_MODEL: ModelInfo = {
+  provider: "maryx",
+  id: "maryx",
+  label: "MARYX",
   description: "Наш ИИ: сам выбирает лучшую модель под каждую задачу",
   capability: "chat",
   featured: true,
@@ -94,7 +94,7 @@ export const NEXUS_MODEL: ModelInfo = {
 };
 
 export function providerName(id: ProviderId): string {
-  if (id === "nexus") return "Nexus AI";
+  if (id === "maryx") return "MARYX Ai";
   return PROVIDERS.find((p) => p.id === id)?.name ?? id;
 }
 

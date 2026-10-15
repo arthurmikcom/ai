@@ -9,7 +9,7 @@ import { useApp, type ModelChoice } from "../AppState";
 import { findModel, ModelPicker } from "../ModelPicker";
 import { Composer } from "./Composer";
 import { MessageView } from "./MessageView";
-import { NexusVisual } from "../Design";
+import { MaryxVisual } from "../Design";
 
 const SUGGESTIONS = [
   { title: "Объясни просто", icon: Sparkles, text: "Объясни, как работают нейросети, как будто мне 12 лет" },
@@ -102,7 +102,7 @@ export function ChatView() {
       <header className="chat-header flex shrink-0 items-center gap-2 px-4 md:px-8">
         <ModelPicker models={models} value={choice} onChange={onPick} loading={loading} />
         <span className="ml-auto hidden items-center gap-2 text-[11px] text-zinc-500 lg:flex">Ваш личный диалог</span>
-        <Link href="/settings" aria-label="Открыть профиль" className="profile-shortcut ml-auto lg:ml-3">{(app.me?.user.name || "N").slice(0, 1).toUpperCase()}</Link>
+        <Link href="/settings" aria-label="Открыть профиль" className="profile-shortcut ml-auto lg:ml-3">{(app.me?.user.name || "M").slice(0, 1).toUpperCase()}</Link>
         {assistant && (
           <span className="flex min-w-0 max-w-[45%] items-center gap-1.5 rounded-full bg-violet-500/15 px-3 py-1 text-xs text-violet-200">
             <span>{assistant.emoji}</span>
@@ -161,14 +161,14 @@ export function ChatView() {
             <div className="home-hero">
               <div className="home-intro">
                 <div className="section-label mb-4">{assistant ? "Ваш персональный ассистент" : "Добро пожаловать в"}</div>
-                <h1>{assistant ? <>{assistant.emoji} {assistant.name}</> : <>Nexus <span>AI</span></>}</h1>
+                <h1>{assistant ? <>{assistant.emoji} {assistant.name}</> : <>MARYX <span>Ai</span></>}</h1>
                 <p>{assistant?.description || <>Лучшие модели мира.<br />Безграничные возможности.</>}</p>
-                <div className="provider-pills" aria-label="Модели в Nexus AI">
+                <div className="provider-pills" aria-label="Модели в MARYX Ai">
                   {["GPT", "Claude", "Gemini", "Llama", "DeepSeek"].map(name => <span key={name}>{name}</span>)}
                 </div>
               </div>
               <div className="home-art" aria-hidden="true">
-                <NexusVisual />
+                <MaryxVisual />
                 <span className="orb-label orb-label-text"><FileText className="size-4" />Тексты</span>
                 <span className="orb-label orb-label-image"><ImageIcon className="size-4" />Изображения</span>
                 <span className="orb-label orb-label-video"><Clapperboard className="size-4" />Видео</span>

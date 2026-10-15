@@ -29,7 +29,7 @@ export function apiKey(provider: ProviderId): string | undefined {
     case "replicate":
       return env("REPLICATE_API_TOKEN");
     case "ollama":
-    case "nexus":
+    case "maryx":
       return undefined;
   }
 }
@@ -94,7 +94,7 @@ export function openAIClient(provider: ProviderId): OpenAI {
     baseURL: provider === "openrouter" ? openRouterBase() : OPENAI_COMPATIBLE_BASE_URLS[provider],
     defaultHeaders:
       provider === "openrouter"
-        ? { "X-Title": "Nexus AI" }
+        ? { "X-Title": "MARYX Ai" }
         : undefined,
   });
 }

@@ -94,7 +94,7 @@ function amount() {
   return { value: proPriceRub().toFixed(2), currency: "RUB" };
 }
 
-const DESCRIPTION = "Подписка Nexus AI Pro на 1 месяц";
+const DESCRIPTION = "Подписка MARYX Ai Pro на 1 месяц";
 
 /**
  * Fiscal receipt (54-ФЗ). Needed when the shop sends receipts through

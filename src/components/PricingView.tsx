@@ -159,7 +159,7 @@ export function PricingView() {
                               type="button"
                               disabled={busy !== null || !consent}
                               onClick={() => checkout("yookassa")}
-                              className="nexus-button flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm"
+                              className="maryx-button flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm"
                             >
                               {busy === "yookassa" ? <LoaderCircle className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
                               Оплатить картой или СБП · {options.methods.yookassa.price}

@@ -19,12 +19,12 @@ import {
   listFacts,
   memoryEnabled,
   mightHaveFacts,
-  nexusSystem,
+  maryxSystem,
   planRoute,
   rememberFrom,
   wantsImage,
-  type NexusPlan,
-} from "@/lib/server/nexus";
+  type MaryxPlan,
+} from "@/lib/server/maryx";
 import { consume, limitResponse, refund } from "@/lib/server/usage";
 import { parseChatSendRequest } from "@/lib/server/validate";
 import type { ChatRequest, ChatStreamEvent, InlineFile, InlineImage, Source, UsageKind } from "@/lib/types";
@@ -39,7 +39,7 @@ export const maxDuration = 300;
 const DOCUMENT_BUDGET = 150_000;
 
 const DEFAULT_SYSTEM =
-  "Ты — Nexus AI, умный и дружелюбный ассистент. Отвечай на языке пользователя. " +
+  "Ты — MARYX Ai, умный и дружелюбный ассистент. Отвечай на языке пользователя. " +
   "Используй Markdown, когда это помогает: списки, таблицы, блоки кода с указанием языка.";
 
 function titleFrom(text: string, files: InlineFile[] = []): string {
@@ -70,10 +70,10 @@ export async function POST(request: Request) {
   let chat = await findChat(user.id, req.chatId);
   if (!chat && (!req.create || !req.message)) return jsonError("Чат не найден", 404);
 
-  // Nexus draws by itself when asked to ("нарисуй…", no files attached) and an image model is set up.
-  const nexus = req.provider === "nexus";
+  // MARYX draws by itself when asked to ("нарисуй…", no files attached) and an image model is set up.
+  const maryx = req.provider === "maryx";
   const autoDraw =
-    nexus &&
+    maryx &&
     !req.image &&
     req.message !== undefined &&
     !req.message.attachments?.length &&
@@ -83,7 +83,7 @@ export async function POST(request: Request) {
   // A picture drawn in the chat counts toward the image limit, not messages.
   let kind: UsageKind = draw ? "image" : "chat";
   if (!(await consume(user, kind))) {
-    // Nexus chose to draw on its own: with no pictures left today, answer in words.
+    // MARYX chose to draw on its own: with no pictures left today, answer in words.
     if (!autoDraw || !(await consume(user, "chat"))) return limitResponse(user, autoDraw ? "chat" : kind);
     draw = false;
     kind = "chat";
@@ -191,7 +191,7 @@ export async function POST(request: Request) {
   }
 
   if (draw) {
-    return drawInChat(request, user.id, chat.id, req.answerId, rows[rows.length - 1].content, nexus ? "nexus" : undefined);
+    return drawInChat(request, user.id, chat.id, req.answerId, rows[rows.length - 1].content, maryx ? "maryx" : undefined);
   }
 
   // Images of the new message are already in memory; older ones are re-read.
@@ -255,13 +255,13 @@ export async function POST(request: Request) {
 
   const assistant = chat.assistantId ? await findAssistant(user.id, chat.assistantId) : undefined;
 
-  // Nexus: pick the real model for this message, then speak as Nexus with its memory.
-  let route: NexusPlan | undefined;
+  // MARYX: pick the real model for this message, then speak as MARYX with its memory.
+  let route: MaryxPlan | undefined;
   let system = assistant?.systemPrompt || DEFAULT_SYSTEM;
   let messages = mergeTurns(history);
-  // Stored facts go into every Nexus answer (regenerations too); new ones are learned from new messages.
-  const memoryOn = nexus && (await memoryEnabled(user.id));
-  if (nexus) {
+  // Stored facts go into every MARYX answer (regenerations too); new ones are learned from new messages.
+  const memoryOn = maryx && (await memoryEnabled(user.id));
+  if (maryx) {
     const last = loaded[loaded.length - 1];
     try {
       route = await planRoute({
@@ -276,7 +276,7 @@ export async function POST(request: Request) {
       return jsonError(describeError(err), 503);
     }
     const facts = memoryOn ? (await listFacts(user.id)).map((f) => f.text) : [];
-    system = nexusSystem(route.model, facts, assistant?.systemPrompt);
+    system = maryxSystem(route.model, facts, assistant?.systemPrompt);
     // Older pictures can't go to a model that doesn't see images.
     if (!route.model.vision) {
       messages = messages.map((m) =>
@@ -296,13 +296,13 @@ export async function POST(request: Request) {
   };
   const chatId = chat.id;
 
-  // After the answer is sent: let Nexus note lasting facts from this message —
+  // After the answer is sent: let MARYX note lasting facts from this message —
   // only when the answer actually came through (a failed one is refunded).
   const userText = req.message?.content ?? "";
   let answered = false;
   if (memoryOn && req.message && mightHaveFacts(userText)) {
     after(() =>
-      answered ? rememberFrom(user.id, userText).catch((err) => console.error("[nexus] memory update failed", err)) : undefined,
+      answered ? rememberFrom(user.id, userText).catch((err) => console.error("[maryx] memory update failed", err)) : undefined,
     );
   }
 
@@ -357,7 +357,7 @@ export async function POST(request: Request) {
             error: error ?? null,
             provider,
             model,
-            via: route ? "nexus" : null,
+            via: route ? "maryx" : null,
           });
           await db.update(schema.chat).set({ updatedAt: new Date() }).where(eq(schema.chat.id, chatId));
         } catch (err) {
@@ -413,7 +413,7 @@ function drawInChat(
   chatId: string,
   answerId: string,
   prompt: string,
-  via?: "nexus",
+  via?: "maryx",
 ): Response {
   const encoder = new TextEncoder();
   const body = new ReadableStream<Uint8Array>({

@@ -19,7 +19,7 @@ const COPY: Record<MediaKind, { title: string; subtitle: string; placeholder: st
     placeholder: "Опишите изображение: что на нём, стиль, освещение, ракурс…",
     ideas: [
       "Уютная кофейня в дождливом Петербурге, вечер, тёплый свет, фотореализм",
-      "Логотип для AI-стартапа «Nexus»: минимализм, фиолетовый градиент",
+      "Логотип для AI-стартапа «MARYX»: минимализм, фиолетовый градиент",
       "Космонавт верхом на лошади на Марсе, кинематографичный кадр, 35 мм",
       "Акварельная иллюстрация лисы в осеннем лесу",
     ],
@@ -50,7 +50,7 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
   const items = useMediaItems(kind);
   const [prompt, setPrompt] = useState("");
   const [ratio, setRatio] = useState<AspectRatio>(RATIOS[kind][0]);
-  const [saved, setSaved] = useStoredJson<ModelChoice>(`nexus:${kind}-model`);
+  const [saved, setSaved] = useStoredJson<ModelChoice>(`maryx:${kind}-model`);
   const [customModel, setCustomModel] = useState("");
   const promptRef = useRef<HTMLTextAreaElement>(null);
 
@@ -163,7 +163,7 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
                 type="button"
                 onClick={submit}
                 disabled={!canGenerate}
-                className="nexus-button flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm"
+                className="maryx-button flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm"
               >
                 <WandSparkles className="size-4" />
                 Сгенерировать

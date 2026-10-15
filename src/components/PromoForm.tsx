@@ -37,14 +37,14 @@ export function PromoForm() {
         <input
           value={code}
           onChange={(e) => setCode(e.target.value)}
-          placeholder="NEXUS-XXXX-XXXX"
+          placeholder="MARYX-XXXX-XXXX"
           aria-label="Промокод"
           className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/30 px-3 py-2 font-mono text-sm uppercase text-zinc-100 outline-none placeholder:normal-case placeholder:text-zinc-600 focus:border-violet-400/50"
         />
         <button
           type="submit"
           disabled={busy || !code.trim()}
-          className="nexus-button rounded-xl px-4 py-2 text-sm"
+          className="maryx-button rounded-xl px-4 py-2 text-sm"
         >
           Активировать
         </button>

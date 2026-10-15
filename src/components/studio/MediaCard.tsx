@@ -88,7 +88,7 @@ export function MediaCard({ item, modelLabel, onReuse, onDelete }: Props) {
           {url && (
             <a
               href={url}
-              download={`nexus-${item.id.slice(0, 8)}.${ext}`}
+              download={`maryx-${item.id.slice(0, 8)}.${ext}`}
               title="Скачать"
               className="rounded-lg p-1.5 text-zinc-400 hover:bg-white/5 hover:text-zinc-100"
             >

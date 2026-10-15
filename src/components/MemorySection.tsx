@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/client/api";
 import type { MemoryResponse } from "@/lib/types";
 
-/** What Nexus remembers about the user: view, delete, turn off. */
+/** What MARYX remembers about the user: view, delete, turn off. */
 export function MemorySection() {
   const [memory, setMemory] = useState<MemoryResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -32,9 +32,9 @@ export function MemorySection() {
         <div className="flex items-start gap-3">
           <Brain className="mt-0.5 size-5 shrink-0 text-violet-300" />
           <div>
-            <div className="font-medium text-zinc-100">Память Nexus</div>
+            <div className="font-medium text-zinc-100">Память MARYX</div>
             <p className="mt-1 text-sm text-zinc-400">
-              Nexus запоминает важное о вас — имя, работу, предпочтения — и учитывает это в ответах.
+              MARYX запоминает важное о вас — имя, работу, предпочтения — и учитывает это в ответах.
             </p>
           </div>
         </div>
@@ -55,7 +55,7 @@ export function MemorySection() {
       {!memory && !error && <LoaderCircle className="mt-4 size-5 animate-spin text-zinc-500" />}
       {memory && memory.facts.length === 0 && (
         <p className="mt-4 text-sm text-zinc-500">
-          {memory.enabled ? "Пока ничего. Расскажите о себе в чате с Nexus — например, «меня зовут Артур»." : "Память выключена."}
+          {memory.enabled ? "Пока ничего. Расскажите о себе в чате с MARYX — например, «меня зовут Артур»." : "Память выключена."}
         </p>
       )}
       {memory && memory.facts.length > 0 && (
@@ -81,7 +81,7 @@ export function MemorySection() {
             type="button"
             disabled={busy}
             onClick={() => {
-              if (confirm("Стереть всё, что Nexus знает о вас?")) void run("/api/memory", { method: "DELETE" });
+              if (confirm("Стереть всё, что MARYX знает о вас?")) void run("/api/memory", { method: "DELETE" });
             }}
             className="mt-3 text-xs text-zinc-500 hover:text-red-300 disabled:opacity-50"
           >

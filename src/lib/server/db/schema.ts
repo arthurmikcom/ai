@@ -141,8 +141,8 @@ export const message = pgTable(
     notice: text("notice"),
     /** Web pages the answer cites (web search). */
     sources: jsonb("sources").$type<Source[]>(),
-    /** "nexus" when Nexus picked the model that wrote this answer. */
-    via: text("via").$type<"nexus">(),
+    /** "maryx" when MARYX picked the model that wrote this answer. */
+    via: text("via").$type<"maryx">(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (t) => [index("message_chat_seq_idx").on(t.chatId, t.seq)],
@@ -189,7 +189,7 @@ export const media = pgTable(
   (t) => [index("media_user_kind_idx").on(t.userId, t.kind, t.createdAt)],
 );
 
-/** Facts Nexus remembers about a user, shown and editable in settings. */
+/** Facts MARYX remembers about a user, shown and editable in settings. */
 export const memory = pgTable(
   "memory",
   {
@@ -208,7 +208,7 @@ export const userPref = pgTable("user_pref", {
   userId: text("user_id")
     .primaryKey()
     .references(() => user.id, { onDelete: "cascade" }),
-  /** Let Nexus remember facts about the user. */
+  /** Let MARYX remember facts about the user. */
   memory: boolean("memory").default(true).notNull(),
 });
 

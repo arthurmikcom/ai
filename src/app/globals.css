@@ -50,10 +50,10 @@ button, a, input, textarea { -webkit-tap-highlight-color: transparent; }
 .brand-mark svg { width: 25px; height: 25px; }
 .brand-wordmark { font-size: 20px; font-weight: 600; letter-spacing: -1px; color: #f6f5fc; }
 .brand-wordmark span { font-weight: 400; color: #938da8; }
-.nexus-button { border: 1px solid #b088ff70; background: linear-gradient(135deg, #984cf0, #6d36ca); color: #fff; font-weight: 600; box-shadow: inset 0 1px 0 #ffffff18, 0 5px 24px #7c3aed20; }
-.nexus-button:hover:not(:disabled) { background: linear-gradient(135deg, #ae67ff, #8141e5); box-shadow: 0 4px 22px #a68aff35; transform: translateY(-1px); }
-.nexus-button:active:not(:disabled) { transform: translateY(0); }
-.nexus-button:disabled { opacity: .4; filter: grayscale(.7); box-shadow: none; }
+.maryx-button { border: 1px solid #b088ff70; background: linear-gradient(135deg, #984cf0, #6d36ca); color: #fff; font-weight: 600; box-shadow: inset 0 1px 0 #ffffff18, 0 5px 24px #7c3aed20; }
+.maryx-button:hover:not(:disabled) { background: linear-gradient(135deg, #ae67ff, #8141e5); box-shadow: 0 4px 22px #a68aff35; transform: translateY(-1px); }
+.maryx-button:active:not(:disabled) { transform: translateY(0); }
+.maryx-button:disabled { opacity: .4; filter: grayscale(.7); box-shadow: none; }
 .surface-card { background: linear-gradient(135deg, #1a1627, #13101b); border: 1px solid #ffffff0d; box-shadow: 0 12px 32px #00000010; }
 .section-label { font-size: 10px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: #938da8; }
 .page-content { width: 100%; max-width: 1160px; margin-inline: auto; padding: 42px 48px 64px; animation: page-enter 500ms ease-out; }
@@ -99,9 +99,9 @@ button, a, input, textarea { -webkit-tap-highlight-color: transparent; }
 .login-input { height: 54px; border-radius: 12px; border: 1px solid #ffffff12; background: #14121d; padding-inline: 16px; }
 .login-input:focus { border-color: #a68aff80; }
 .orbit-art { position: relative; display: grid; place-items: center; }
-.orbit-art .nexus-orb { width: 100%; height: 100%; }
-.nexus-orb { position: relative; width: 100%; height: 100%; }
-.nexus-orb svg { width: 100%; height: 100%; overflow: visible; animation: orb-drift 8s ease-in-out infinite; }
+.orbit-art .maryx-orb { width: 100%; height: 100%; }
+.maryx-orb { position: relative; width: 100%; height: 100%; }
+.maryx-orb svg { width: 100%; height: 100%; overflow: visible; animation: orb-drift 8s ease-in-out infinite; }
 .profile-shortcut { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid #9564f570; border-radius: 50%; color: #e6dbff; background: #191325; font-size: 12px; }
 .profile-shortcut:hover { border-color: #ccb4ff; background: #2b1c45; }
 .home-dashboard { position: relative; max-width: 1320px; margin-inline: auto; padding: 14px 36px 24px; overflow-x: clip; animation: page-enter 500ms ease-out; }
@@ -114,7 +114,7 @@ button, a, input, textarea { -webkit-tap-highlight-color: transparent; }
 .provider-pills { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
 .provider-pills span { padding: 7px 13px; border: 1px solid #aca0d526; background: #12101990; border-radius: 30px; font-size: 11px; color: #c6bddc; }
 .home-art { position: relative; width: 100%; height: 310px; }
-.home-art .nexus-orb { width: 110%; margin-left: -8%; }
+.home-art .maryx-orb { width: 110%; margin-left: -8%; }
 .orb-label { position: absolute; display: flex; align-items: center; gap: 8px; padding: 10px 14px; border: 1px solid #c29cfc27; border-radius: 13px; background: linear-gradient(135deg, #302044d9, #141020ed); box-shadow: inset 0 1px 0 #ffffff08, 0 12px 24px #0004; color: #eee3ff; font-size: 11px; transform: rotate(8deg); }
 .orb-label svg { color: #d9baff; }
 .orb-label-text { right: 6%; top: 22%; }

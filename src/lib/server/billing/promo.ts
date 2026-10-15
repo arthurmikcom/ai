@@ -14,7 +14,7 @@ export function normalizeCode(raw: string): string {
 
 function randomCode(): string {
   const part = () => Array.from({ length: 4 }, () => ALPHABET[randomInt(ALPHABET.length)]).join("");
-  return `NEXUS-${part()}-${part()}`;
+  return `MARYX-${part()}-${part()}`;
 }
 
 function toPromo(row: typeof schema.promoCode.$inferSelect): PromoCode {

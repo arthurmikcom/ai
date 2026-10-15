@@ -1,4 +1,4 @@
-// Nexus — the platform's own AI. It isn't a separately trained model: for
+// MARYX — the platform's own AI. It isn't a separately trained model: for
 // every message it picks the best available real model (fast and cheap for
 // simple questions, strong for code and long tasks, the most powerful one
 // for "think deeper"), turns on web search or drawing when the request calls
@@ -78,7 +78,7 @@ function needsSmart(text: string, hasDocuments: boolean): boolean {
   );
 }
 
-export interface NexusPlan {
+export interface MaryxPlan {
   model: ModelInfo;
   webSearch: boolean;
 }
@@ -90,10 +90,10 @@ export async function planRoute(input: {
   hasDocuments: boolean;
   deepThinking: boolean;
   webSearch: boolean;
-}): Promise<NexusPlan> {
+}): Promise<MaryxPlan> {
   const { models } = await listModels("chat");
-  const available = models.filter((m) => m.provider !== "nexus");
-  if (available.length === 0) throw new Error("Nexus не может ответить: не подключена ни одна модель.");
+  const available = models.filter((m) => m.provider !== "maryx");
+  if (available.length === 0) throw new Error("MARYX не может ответить: не подключена ни одна модель.");
 
   const search = isConfigured("openrouter") && (input.webSearch || wantsSearch(input.text));
   const tier: Tier = input.deepThinking ? "deep" : needsSmart(input.text, input.hasDocuments) ? "smart" : "fast";
@@ -113,19 +113,19 @@ export async function planRoute(input: {
 }
 
 /**
- * Nexus's persona (or the assistant's own instructions, if the chat has one),
+ * MARYX's persona (or the assistant's own instructions, if the chat has one),
  * plus what it remembers about the user.
  */
-export function nexusSystem(model: ModelInfo, facts: string[], assistantPrompt?: string): string {
+export function maryxSystem(model: ModelInfo, facts: string[], assistantPrompt?: string): string {
   const date = new Date().toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
   const lines = [
     ...(assistantPrompt
       ? [assistantPrompt]
       : [
-          "Ты — Nexus, собственный искусственный интеллект платформы Nexus AI: дружелюбный, точный и полезный.",
+          "Ты — MARYX, собственный искусственный интеллект платформы MARYX Ai: дружелюбный, точный и полезный.",
           "Отвечай на языке пользователя. Используй Markdown, когда это помогает: списки, таблицы, блоки кода с указанием языка.",
         ]),
-    `Для каждого сообщения Nexus сам выбирает подходящую модель; этот ответ формирует ${model.label}. Если спросят, какая модель отвечает, скажи это честно.`,
+    `Для каждого сообщения MARYX сам выбирает подходящую модель; этот ответ формирует ${model.label}. Если спросят, какая модель отвечает, скажи это честно.`,
     `Сегодня ${date}.`,
   ];
   if (facts.length) {

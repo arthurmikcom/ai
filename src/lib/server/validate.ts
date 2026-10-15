@@ -3,7 +3,7 @@ import type { AspectRatio, ChatSendRequest, GenerateRequest, InlineFile, Provide
 import { isDocumentMime } from "./documents";
 import { isValidId } from "./http";
 
-const PROVIDER_IDS = new Set<string>([...PROVIDERS.map((p) => p.id), "nexus"]);
+const PROVIDER_IDS = new Set<string>([...PROVIDERS.map((p) => p.id), "maryx"]);
 const ASPECT_RATIOS = new Set<string>(["1:1", "16:9", "9:16", "4:3", "3:4"]);
 const IMAGE_MIME = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 const MAX_ATTACHMENTS = 4;
@@ -23,7 +23,10 @@ function isObject(value: unknown): value is Record<string, unknown> {
 /** Returns the parsed request, or an error message for the client. */
 export function parseChatSendRequest(body: unknown): ChatSendRequest | string {
   if (!isObject(body)) return "Пустой запрос";
-  const { chatId, create, provider, model, deepThinking, image, webSearch, message, answerId, replyTo } = body;
+  const { chatId, create, deepThinking, image, webSearch, message, answerId, replyTo } = body;
+  // Tabs opened before the rename to MARYX still say "nexus".
+  const provider = body.provider === "nexus" ? "maryx" : body.provider;
+  const model = body.model === "nexus" ? "maryx" : body.model;
   if (!isValidId(chatId) || !isValidId(answerId)) return "Неверный идентификатор";
   if (replyTo !== undefined && !isValidId(replyTo)) return "Неверный идентификатор";
   if (!isProvider(provider)) return "Неизвестный провайдер";

@@ -84,7 +84,7 @@ export function LoginView({ social }: Props) {
       <aside className="login-story">
         <div className="flex items-center gap-3">
           <BrandMark />
-          <span className="brand-wordmark">Nexus <span>AI</span></span>
+          <span className="brand-wordmark">MARYX <span>Ai</span></span>
         </div>
         <div className="my-6 md:my-10">
           <div className="section-label mb-5 hidden md:block">Интеллект без границ</div>
@@ -107,7 +107,7 @@ export function LoginView({ social }: Props) {
         <div className="mb-8">
           <div className="page-eyebrow"><span>01</span>Ваше пространство</div>
           <h1 className="text-[30px] font-medium tracking-[-0.04em] text-zinc-100">
-            {mode === "signin" ? "Вход в Nexus AI" : "Регистрация"}
+            {mode === "signin" ? "Вход в MARYX Ai" : "Регистрация"}
           </h1>
           <p className="mt-3 text-sm leading-6 text-zinc-400">
             {mode === "signin" ? "Хорошие идеи начинаются с диалога. Продолжим?" : "Создайте аккаунт — и дайте идеям больше свободы."}
@@ -178,7 +178,7 @@ export function LoginView({ social }: Props) {
           <button
             type="submit"
             disabled={busy}
-            className="nexus-button mt-2 flex h-[52px] w-full items-center justify-center gap-3 rounded-xl text-sm"
+            className="maryx-button mt-2 flex h-[52px] w-full items-center justify-center gap-3 rounded-xl text-sm"
           >
             {busy && <LoaderCircle className="size-4 animate-spin" />}
             {mode === "signin" ? "Войти" : "Создать аккаунт"}

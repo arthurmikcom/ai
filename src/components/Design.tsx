@@ -18,15 +18,15 @@ export function BrandMark({ className = "" }: { className?: string }) {
 export function OrbitArt({ className = "" }: { className?: string }) {
   return (
     <div className={`orbit-art ${className}`} aria-hidden="true">
-      <NexusVisual />
+      <MaryxVisual />
     </div>
   );
 }
 
-export function NexusVisual() {
+export function MaryxVisual() {
   const id = useId().replace(/:/g, "");
   return (
-    <div className="nexus-orb" aria-hidden="true">
+    <div className="maryx-orb" aria-hidden="true">
       <svg viewBox="0 0 480 400" fill="none">
         <defs>
           <radialGradient id={`${id}-ball`} cx=".3" cy=".2" r=".9">

@@ -122,13 +122,13 @@ export function MessageView({ message, models, streaming, isLast, onRegenerate }
   return (
     <div className="group">
       <div className="mb-4 flex items-center gap-2.5 text-xs font-medium text-zinc-300"><BrandMark className="!size-7 !rounded-lg [&_svg]:!size-5" />
-        {message.via === "nexus" ? (
+        {message.via === "maryx" ? (
           <>
-            Nexus
+            MARYX
             {modelLabel && <span className="font-normal text-zinc-500">· {modelLabel}</span>}
           </>
         ) : (
-          modelLabel || "Nexus AI"
+          modelLabel || "MARYX Ai"
         )}
       </div>
       {message.reasoning && (

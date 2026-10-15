@@ -89,14 +89,14 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-3 px-6 pb-7 pt-8">
         <BrandMark />
-        <span className="brand-wordmark">Nexus <span>AI</span></span>
+        <span className="brand-wordmark">MARYX <span>Ai</span></span>
       </div>
 
       <div className="px-5">
         <button
           type="button"
           onClick={() => goToChat(null)}
-          className="nexus-button flex w-full items-center gap-3 rounded-xl px-4 py-3 text-[13px]"
+          className="maryx-button flex w-full items-center gap-3 rounded-xl px-4 py-3 text-[13px]"
         >
           <MessageSquarePlus className="size-4" /> Новый чат
         </button>
@@ -174,7 +174,7 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
       {app.me?.plan.id === "free" && (
         <Link href="/pricing" onClick={onNavigate} className="sidebar-upgrade mx-5 mb-5 rounded-2xl border border-violet-300/15 p-4 hover:border-violet-300/35">
           <div className="flex items-center justify-between text-xs font-medium text-violet-200">
-            <span className="flex items-center gap-2"><Sparkles className="size-3.5" /> Nexus Pro</span>
+            <span className="flex items-center gap-2"><Sparkles className="size-3.5" /> MARYX Pro</span>
             <ArrowUpRight className="size-4" />
           </div>
           <p className="mt-2 text-[11px] leading-5 text-zinc-400">Больше места для больших идей. Откройте возможности Pro.</p>
@@ -246,7 +246,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <main className="app-main relative min-w-0 flex-1">
         <header className="mobile-bar">
-          <div className="flex items-center gap-2.5"><BrandMark className="!size-7 !rounded-lg" /><span className="brand-wordmark !text-base">Nexus <span>AI</span></span></div>
+          <div className="flex items-center gap-2.5"><BrandMark className="!size-7 !rounded-lg" /><span className="brand-wordmark !text-base">MARYX <span>Ai</span></span></div>
         <button
           type="button"
           onClick={() => setOpen(true)}

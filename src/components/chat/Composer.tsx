@@ -440,7 +440,7 @@ export function Composer({
               type="button"
               onClick={onStop}
               title="Остановить"
-              className="nexus-button rounded-xl p-2.5"
+              className="maryx-button rounded-xl p-2.5"
             >
               <Square className="size-4 fill-current" />
             </button>
@@ -450,7 +450,7 @@ export function Composer({
               onClick={submit}
               disabled={!canSend}
               title="Отправить"
-              className="nexus-button rounded-xl p-2.5 disabled:!bg-zinc-800 disabled:!text-zinc-500"
+              className="maryx-button rounded-xl p-2.5 disabled:!bg-zinc-800 disabled:!text-zinc-500"
             >
               <ArrowUp className="size-4" />
             </button>

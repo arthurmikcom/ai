@@ -12,7 +12,7 @@ async function openRouter<T>(path: string, init?: { method: "POST"; body: unknow
     method: init?.method ?? "GET",
     headers: {
       Authorization: `Bearer ${requireKey("openrouter")}`,
-      "X-Title": "Nexus AI",
+      "X-Title": "MARYX Ai",
       ...(init ? { "Content-Type": "application/json" } : {}),
     },
     body: init ? JSON.stringify(init.body) : undefined,

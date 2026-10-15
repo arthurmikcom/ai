@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 
-const EVENT = "nexus:storage";
+const EVENT = "maryx:storage";
 
 function subscribe(listener: () => void) {
   window.addEventListener("storage", listener);

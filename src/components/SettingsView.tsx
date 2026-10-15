@@ -224,7 +224,7 @@ export function SettingsView() {
         <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wider text-zinc-500">Подписка</h2>
         <BillingSection />
 
-        <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wider text-zinc-500">Nexus</h2>
+        <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wider text-zinc-500">MARYX</h2>
         <MemorySection />
 
         {me?.admin && (

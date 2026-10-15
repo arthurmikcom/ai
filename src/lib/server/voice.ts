@@ -44,7 +44,7 @@ async function viaOpenRouter(audio: Buffer, mime: string): Promise<string> {
       headers: {
         Authorization: `Bearer ${requireKey("openrouter")}`,
         "Content-Type": "application/json",
-        "X-Title": "Nexus AI",
+        "X-Title": "MARYX Ai",
       },
       body: JSON.stringify({ model, input_audio: { data: audio.toString("base64"), format: formatOf(mime) } }),
     });

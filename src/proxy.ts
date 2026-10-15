@@ -31,7 +31,7 @@ function passwordGate(request: NextRequest): NextResponse | null {
   }
   return new NextResponse("Требуется пароль", {
     status: 401,
-    headers: { "WWW-Authenticate": 'Basic realm="Nexus AI", charset="UTF-8"' },
+    headers: { "WWW-Authenticate": 'Basic realm="MARYX Ai", charset="UTF-8"' },
   });
 }
 

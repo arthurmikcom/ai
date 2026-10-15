@@ -190,7 +190,7 @@ function Editor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
             type="button"
             onClick={() => void save()}
             disabled={!valid || saving}
-            className="nexus-button rounded-xl px-5 py-2.5 text-sm"
+            className="maryx-button rounded-xl px-5 py-2.5 text-sm"
           >
             Сохранить
           </button>
@@ -217,7 +217,7 @@ export function AssistantsView() {
           <button
             type="button"
             onClick={() => setEditing(EMPTY)}
-            className="nexus-button flex items-center gap-2 rounded-xl px-4 py-3 text-[13px]"
+            className="maryx-button flex items-center gap-2 rounded-xl px-4 py-3 text-[13px]"
           >
             <Plus className="size-4" /> Создать ассистента
           </button>

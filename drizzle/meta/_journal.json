@@ -36,6 +36,13 @@
       "when": 1792025946710,
       "tag": "0004_nexus_memory",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792063801384,
+      "tag": "0005_rebrand_maryx",
+      "breakpoints": true
     }
   ]
 }

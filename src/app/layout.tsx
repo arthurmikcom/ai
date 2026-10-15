@@ -5,7 +5,7 @@ import { AppStateProvider } from "@/components/AppState";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Nexus AI",
+  title: "MARYX Ai",
   description: "Платформа искусственного интеллекта: чат с лучшими моделями, генерация изображений и видео, свои ассистенты.",
 };
 
