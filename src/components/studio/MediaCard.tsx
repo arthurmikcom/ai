@@ -58,7 +58,7 @@ export function MediaCard({ item, modelLabel, onReuse, onDelete }: Props) {
             <span className="line-clamp-5">{item.error}</span>
             {item.errorCode === "limit" && (
               <Link href="/pricing" className="font-medium text-white underline">
-                Тарифы →
+                Тарифы и кредиты →
               </Link>
             )}
           </div>

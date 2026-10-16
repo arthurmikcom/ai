@@ -65,6 +65,11 @@ export function googleClient(): GoogleGenAI {
   return new GoogleGenAI({ apiKey: requireKey("google") });
 }
 
+/** The key for an OpenRouter call: the user's own (BYOK) when given, else the server's. */
+export function openRouterKey(own?: string): string {
+  return own || requireKey("openrouter");
+}
+
 /** OpenRouter API root; OPENROUTER_BASE_URL points it at a local mock for testing. */
 export function openRouterBase(): string {
   return (env("OPENROUTER_BASE_URL") ?? "https://openrouter.ai/api/v1").replace(/\/+$/, "");
@@ -95,8 +100,11 @@ export function isOpenAICompatible(provider: ProviderId): boolean {
   );
 }
 
-/** OpenAI itself plus every provider that speaks the OpenAI wire format. */
-export function openAIClient(provider: ProviderId): OpenAI {
+/**
+ * OpenAI itself plus every provider that speaks the OpenAI wire format.
+ * `key` is a user's own OpenRouter key (BYOK), used instead of the server's.
+ */
+export function openAIClient(provider: ProviderId, key?: string): OpenAI {
   if (provider === "ollama") {
     const base = env("OLLAMA_BASE_URL");
     if (!base) {
@@ -117,7 +125,7 @@ export function openAIClient(provider: ProviderId): OpenAI {
     return new OpenAI({ apiKey: apiKey("custom") ?? "none", baseURL: base.replace(/\/+$/, "") });
   }
   return new OpenAI({
-    apiKey: requireKey(provider),
+    apiKey: provider === "openrouter" && key ? key : requireKey(provider),
     baseURL:
       provider === "openrouter" ? openRouterBase() : provider === "qwen" ? qwenBase() : OPENAI_COMPATIBLE_BASE_URLS[provider],
     defaultHeaders:

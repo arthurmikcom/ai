@@ -1,13 +1,5 @@
-import { isAdmin } from "@/lib/server/auth";
 import { createPromo, deletePromo, listPromos } from "@/lib/server/billing/promo";
-import { jsonError, requireUser } from "@/lib/server/http";
-import type { SessionUser } from "@/lib/server/auth";
-
-async function requireAdmin(request: Request): Promise<SessionUser | Response> {
-  const user = await requireUser(request);
-  if (user instanceof Response) return user;
-  return isAdmin(user) ? user : jsonError("Только для администраторов", 403);
-}
+import { jsonError, requireAdmin } from "@/lib/server/http";
 
 export async function GET(request: Request) {
   const admin = await requireAdmin(request);
@@ -15,7 +7,7 @@ export async function GET(request: Request) {
   return Response.json(await listPromos(), { headers: { "Cache-Control": "no-store" } });
 }
 
-/** Creates a code: { days, maxUses, note?, code? } — code is generated when omitted. */
+/** Creates a code: { days, credits?, maxUses, note?, code? } — code is generated when omitted. */
 export async function POST(request: Request) {
   const admin = await requireAdmin(request);
   if (admin instanceof Response) return admin;
@@ -23,6 +15,7 @@ export async function POST(request: Request) {
   const result = await createPromo({
     code: typeof body?.code === "string" && body.code.trim() ? body.code : undefined,
     days: Number(body?.days),
+    credits: body?.credits === undefined || body?.credits === "" ? 0 : Number(body.credits),
     maxUses: Number(body?.maxUses),
     note: typeof body?.note === "string" ? body.note : undefined,
   });

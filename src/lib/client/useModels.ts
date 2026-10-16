@@ -50,3 +50,8 @@ export function useModels(capability: Capability | "all") {
 
   return { data, error, loading: !data && !error };
 }
+
+/** Drops the cached lists, e.g. after the user saved or removed their own OpenRouter key. */
+export function forgetModels(): void {
+  cache.clear();
+}

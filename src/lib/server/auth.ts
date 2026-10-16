@@ -38,6 +38,17 @@ async function resolveSecret(): Promise<string> {
   }
 }
 
+let secret: Promise<string> | undefined;
+
+/** The server's secret (BETTER_AUTH_SECRET), also used to encrypt users' own API keys. */
+export function serverSecret(): Promise<string> {
+  secret ??= resolveSecret().catch((err) => {
+    secret = undefined;
+    throw err;
+  });
+  return secret;
+}
+
 /** Domains of this Vercel project: production plus the per-deployment preview domains. */
 export function vercelHosts(): string[] {
   const env = process.env;
@@ -105,7 +116,7 @@ type Auth = ReturnType<typeof createAuth>;
 const holder = globalThis as typeof globalThis & { __maryxAuth?: Promise<Auth> };
 
 export function getAuth(): Promise<Auth> {
-  holder.__maryxAuth ??= Promise.all([getDb(), resolveSecret()])
+  holder.__maryxAuth ??= Promise.all([getDb(), serverSecret()])
     .then(([db, secret]) => createAuth(db, secret))
     .catch((err) => {
       holder.__maryxAuth = undefined;

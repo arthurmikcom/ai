@@ -177,6 +177,18 @@ export interface ChatRequest {
   light?: boolean;
   webSearch?: boolean;
   messages: { role: "user" | "assistant"; content: string; attachments?: InlineImage[] }[];
+  /** The user's own OpenRouter key (BYOK) to send this request with. Set on the server only. */
+  apiKey?: string;
+  /** End-user id passed to OpenRouter for abuse tracking (a hash, not the account id). */
+  endUser?: string;
+}
+
+/** What one model call used, reported by the provider at the end of a stream. */
+export interface ChatUsage {
+  inputTokens: number;
+  outputTokens: number;
+  /** US dollars, when the provider reports it (OpenRouter). */
+  cost?: number;
 }
 
 export type ChatStreamEvent =
@@ -196,7 +208,9 @@ export type ChatStreamEvent =
   /** A picture drawn in the chat, and the image model that drew it. */
   | { type: "image"; url: string; mime: string; provider: ProviderId; model: string }
   | { type: "error"; message: string }
-  | { type: "done" };
+  | { type: "done" }
+  /** Tokens and cost of the call (server-side only, never sent to the browser). */
+  | { type: "usage"; usage: ChatUsage };
 
 // ---------- Image / video generation ----------
 
@@ -219,7 +233,8 @@ export type MediaOutput =
   | { type: "url"; url: string };
 
 export type GenerateResult =
-  | { status: "succeeded"; outputs: MediaOutput[] }
+  /** `cost`: US dollars, when the provider reported it (OpenRouter). */
+  | { status: "succeeded"; outputs: MediaOutput[]; cost?: number }
   | { status: "pending"; jobId: string; progress?: number }
   | { status: "failed"; error: string };
 
@@ -256,6 +271,26 @@ export type UsageSummary = Record<UsageKind, { used: number; limit: number | nul
 
 export type PlanId = "free" | "pro";
 
+/**
+ * How a request is paid for: the daily limits of the user's plan (or an
+ * admin's unlimited use), prepaid credits once those are used up, or the
+ * user's own OpenRouter key (BYOK).
+ */
+export type PaidBy = "free" | "pro" | "admin" | "credits" | "byok";
+
+/** What a recorded AI cost was for; "background" is MARYX's own small jobs (titles, follow-ups, memory). */
+export type CostKind = UsageKind | "background";
+
+/** A pack of AI credits on sale, with its price for each configured payment method. */
+export interface CreditPack {
+  id: string;
+  credits: number;
+  /** "199 ₽" (ЮKassa), when configured. */
+  rub?: string;
+  /** "$2.49" (Stripe), when configured. */
+  usd?: string;
+}
+
 export interface PlanInfo {
   id: PlanId;
   /** Where the paid period came from. */
@@ -281,6 +316,12 @@ export interface MeResponse {
   admin: boolean;
   plan: PlanInfo;
   usage: UsageSummary;
+  /** Today's AI spending against the plan's daily budget, in US dollars (limit null: none). */
+  budget: { used: number; limit: number | null };
+  /** Prepaid AI credits left. */
+  credits: number;
+  /** The user's own OpenRouter key (BYOK), if saved: its last characters. */
+  ownKey: { hint: string } | null;
   /** Social sign-in methods configured on this server. */
   social: { google: boolean; vk: boolean };
   /** Speech-to-text on the server is available (otherwise the browser's own, if any). */
@@ -290,6 +331,8 @@ export interface MeResponse {
 /** What /api/billing/plans tells the pricing page. */
 export interface BillingOptions {
   limits: Record<PlanId, Record<UsageKind, number | null>>;
+  /** Credit packs on sale (empty without a payment method) and the least a request takes. */
+  credits: { packs: CreditPack[]; min: Record<UsageKind, number> };
   /** Payment methods configured on this server, with the Pro price for each. */
   methods: {
     yookassa: { price: string } | null;
@@ -312,8 +355,29 @@ export interface MemoryResponse {
 export interface PromoCode {
   code: string;
   days: number;
+  credits: number;
   maxUses: number;
   uses: number;
   note?: string;
   createdAt: number;
+}
+
+/** Admin dashboard: what AI requests cost the server. */
+export interface CostReport {
+  /** Totals for today (UTC), the last 7 and the last 30 days, without requests paid by users' own keys. */
+  totals: { period: "today" | "week" | "month"; usd: number; requests: number }[];
+  /** Requests on users' own keys (BYOK) in the last 30 days — not paid by the server. */
+  byok: { usd: number; requests: number };
+  /** Daily budget for free requests across the whole site (AI_DAILY_BUDGET_USD), and today's free spending. */
+  budget: { limit: number | null; spentToday: number };
+  /** Share of the 30-day cost that was estimated from token counts rather than reported by the provider. */
+  estimatedShare: number;
+  /** The last 30 days (UTC), oldest first. */
+  days: { day: string; usd: number }[];
+  byModel: { provider: string; model: string; usd: number; requests: number }[];
+  byUser: { userId: string | null; email: string | null; usd: number; requests: number; credits: number }[];
+  byKind: { kind: CostKind; usd: number; requests: number }[];
+  byPayer: { paidBy: PaidBy; usd: number; requests: number }[];
+  /** Credits sold or given, and spent, in the last 30 days. */
+  credits: { granted: number; spent: number };
 }

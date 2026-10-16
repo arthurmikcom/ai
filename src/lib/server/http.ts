@@ -1,4 +1,4 @@
-import { getSessionUser, type SessionUser } from "./auth";
+import { getSessionUser, isAdmin, type SessionUser } from "./auth";
 
 export function jsonError(message: string, status: number): Response {
   return Response.json({ error: message }, { status });
@@ -8,6 +8,13 @@ export function jsonError(message: string, status: number): Response {
 export async function requireUser(request: Request): Promise<SessionUser | Response> {
   const user = await getSessionUser(request.headers);
   return user ?? jsonError("Войдите в аккаунт", 401);
+}
+
+/** The signed-in admin, or a 401/403 response to return as-is. */
+export async function requireAdmin(request: Request): Promise<SessionUser | Response> {
+  const user = await requireUser(request);
+  if (user instanceof Response) return user;
+  return isAdmin(user) ? user : jsonError("Только для администраторов", 403);
 }
 
 const ID_PATTERN = /^[\w-]{8,64}$/;

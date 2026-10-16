@@ -1,7 +1,7 @@
 import { redeemPromo } from "@/lib/server/billing/promo";
 import { jsonError, requireUser } from "@/lib/server/http";
 
-/** Activates a promo code for the signed-in user. */
+/** Activates a promo code for the signed-in user: { until?, credits } — days of Pro and/or credits. */
 export async function POST(request: Request) {
   const user = await requireUser(request);
   if (user instanceof Response) return user;
@@ -10,5 +10,5 @@ export async function POST(request: Request) {
   const result = await redeemPromo(user.id, body.code);
   return typeof result === "string"
     ? jsonError(result, 400)
-    : Response.json({ ok: true, until: result.getTime() });
+    : Response.json({ ok: true, until: result.until?.getTime(), credits: result.credits });
 }

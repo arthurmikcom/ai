@@ -8,6 +8,7 @@ import { and, desc, eq, gt, gte, inArray, isNull, lte, notInArray, sql } from "d
 import type { SessionUser } from "../auth";
 import { getDb, schema } from "../db";
 import { HttpError } from "../errors";
+import { grantCredits, type PackDef } from "./credits";
 import { addMonth, getSubscription, hasLiveStripe, isEntitled, needsYooKassaRepay, proPriceRub } from "./plans";
 
 interface YkPayment {
@@ -90,8 +91,8 @@ async function yk<T>(path: string, init?: { method: "POST"; body: unknown; idemp
   return (await res.json()) as T;
 }
 
-function amount() {
-  return { value: proPriceRub().toFixed(2), currency: "RUB" };
+function amount(rub = proPriceRub()) {
+  return { value: rub.toFixed(2), currency: "RUB" };
 }
 
 const DESCRIPTION = "Подписка MARYX Ai Pro на 1 месяц";
@@ -101,7 +102,7 @@ const DESCRIPTION = "Подписка MARYX Ai Pro на 1 месяц";
  * YooKassa (YOOKASSA_RECEIPTS=true); the VAT code comes from YOOKASSA_VAT_CODE
  * (1 = без НДС).
  */
-function receipt(email: string) {
+function receipt(email: string, description = DESCRIPTION, price = amount()) {
   if (process.env.YOOKASSA_RECEIPTS !== "true") return {};
   const vat = Number.parseInt(process.env.YOOKASSA_VAT_CODE ?? "1", 10);
   return {
@@ -109,9 +110,9 @@ function receipt(email: string) {
       customer: { email },
       items: [
         {
-          description: DESCRIPTION,
+          description,
           quantity: 1,
-          amount: amount(),
+          amount: price,
           vat_code: Number.isFinite(vat) ? vat : 1,
           payment_mode: "full_payment",
           payment_subject: "service",
@@ -152,11 +153,42 @@ export async function startYooKassaCheckout(user: SessionUser, origin: string): 
   return url;
 }
 
-async function recordPayment(p: YkPayment, userId: string, kind: "initial" | "renewal"): Promise<void> {
+/** A one-off payment for a pack of credits; the card isn't saved. Returns the payment page URL. */
+export async function startYooKassaCredits(user: SessionUser, origin: string, pack: PackDef): Promise<string> {
+  const description = `Пакет ${pack.credits} кредитов MARYX Ai`;
+  const payment = await yk<YkPayment>("/payments", {
+    method: "POST",
+    idempotenceKey: crypto.randomUUID(),
+    body: {
+      amount: amount(pack.rub),
+      capture: true,
+      confirmation: { type: "redirect", return_url: `${origin}/settings?billing=return` },
+      description,
+      metadata: { userId: user.id, kind: "credits", credits: String(pack.credits) },
+      ...receipt(user.email, description, amount(pack.rub)),
+    },
+  });
+  await recordPayment(payment, user.id, "credits", pack.credits);
+  const url = payment.confirmation?.confirmation_url;
+  if (!url) throw new Error("ЮKassa не вернула ссылку на оплату");
+  return url;
+}
+
+type PaymentKind = "initial" | "renewal" | "credits";
+
+async function recordPayment(p: YkPayment, userId: string, kind: PaymentKind, credits?: number): Promise<void> {
   const db = await getDb();
   await db
     .insert(schema.payment)
-    .values({ id: p.id, userId, kind, status: p.status, amount: p.amount.value, currency: p.amount.currency })
+    .values({
+      id: p.id,
+      userId,
+      kind,
+      status: p.status,
+      amount: p.amount.value,
+      currency: p.amount.currency,
+      credits: credits ?? null,
+    })
     .onConflictDoNothing();
 }
 
@@ -179,6 +211,21 @@ async function applyPayment(p: YkPayment): Promise<void> {
     .update(schema.payment)
     .set({ status: p.status })
     .where(and(eq(schema.payment.id, p.id), notInArray(schema.payment.status, ["succeeded", "canceled"])));
+
+  if (row.kind === "credits") {
+    // A pack of credits: added once, never touches the subscription.
+    if (p.status !== "succeeded" || !row.credits) return;
+    await db.transaction(async (tx) => {
+      const [claimed] = await tx
+        .update(schema.payment)
+        .set({ appliedAt: new Date() })
+        .where(and(eq(schema.payment.id, p.id), isNull(schema.payment.appliedAt)))
+        .returning();
+      if (!claimed) return;
+      await grantCredits({ id: `yookassa:${p.id}`, userId: row.userId, credits: row.credits!, source: "yookassa" }, tx);
+    });
+    return;
+  }
 
   if (p.status === "succeeded") {
     await db.transaction(async (tx) => {
@@ -268,10 +315,12 @@ export async function handleYooKassaWebhook(body: unknown): Promise<number> {
   }
   const userId = payment.metadata?.userId;
   const kind = payment.metadata?.kind;
-  if (!userId || (kind !== "initial" && kind !== "renewal")) return 200;
+  if (!userId || (kind !== "initial" && kind !== "renewal" && kind !== "credits")) return 200;
+  const credits = kind === "credits" ? Number.parseInt(payment.metadata?.credits ?? "", 10) : undefined;
+  if (credits !== undefined && !(Number.isInteger(credits) && credits > 0 && credits <= 1_000_000)) return 200;
   const [user] = await db.select({ id: schema.user.id }).from(schema.user).where(eq(schema.user.id, userId));
   if (!user) return 200;
-  await recordPayment(payment, userId, kind);
+  await recordPayment(payment, userId, kind, credits);
   if (kind === "renewal") {
     await db
       .update(schema.renewalAttempt)
@@ -282,19 +331,25 @@ export async function handleYooKassaWebhook(body: unknown): Promise<number> {
   return 200;
 }
 
-/** Back from the payment page: confirm the user's latest payment right away. */
-export async function syncLatestYooKassaPayment(userId: string): Promise<"succeeded" | "pending" | "failed"> {
+/**
+ * Back from the payment page: confirm the user's latest payment right away.
+ * `credits` tells a pack of credits from a Pro payment.
+ */
+export async function syncLatestYooKassaPayment(
+  userId: string,
+): Promise<{ status: "succeeded" | "pending" | "failed"; credits?: number }> {
   const db = await getDb();
   const [row] = await db
     .select()
     .from(schema.payment)
-    .where(eq(schema.payment.userId, userId))
+    .where(and(eq(schema.payment.userId, userId), inArray(schema.payment.kind, ["initial", "credits"])))
     .orderBy(desc(schema.payment.createdAt))
     .limit(1);
-  if (!row) return "failed";
+  if (!row) return { status: "failed" };
   const payment = await fetchAndApply(row.id);
-  if (payment.status === "succeeded") return "succeeded";
-  return payment.status === "canceled" ? "failed" : "pending";
+  const credits = row.kind === "credits" ? (row.credits ?? undefined) : undefined;
+  if (payment.status === "succeeded") return { status: "succeeded", credits };
+  return { status: payment.status === "canceled" ? "failed" : "pending", credits };
 }
 
 export async function setAutoRenew(userId: string, enabled: boolean): Promise<boolean> {

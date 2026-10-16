@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, CreditCard, LoaderCircle, Sparkles } from "lucide-react";
+import { Check, Coins, CreditCard, KeyRound, LoaderCircle, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/client/api";
@@ -9,17 +9,25 @@ import { useApp } from "./AppState";
 import { PromoForm } from "./PromoForm";
 import { PageHeading } from "./Design";
 
-const KIND_LABEL: Record<UsageKind, string> = {
-  chat: "сообщений в день",
-  image: "изображений в день",
-  video: "видео в день",
-  voice: "голосовых сообщений в день",
+/** Forms for 1, 2–4 and 5+ of each kind, then what follows the number. */
+const KIND_WORDS: Record<UsageKind, [string, string, string]> = {
+  chat: ["сообщение", "сообщения", "сообщений"],
+  image: ["изображение", "изображения", "изображений"],
+  video: ["видео", "видео", "видео"],
+  voice: ["голосовое сообщение", "голосовых сообщения", "голосовых сообщений"],
 };
 
+function plural(n: number, [one, few, many]: [string, string, string]): string {
+  const tens = n % 100;
+  const last = n % 10;
+  if (tens >= 11 && tens <= 14) return many;
+  return last === 1 ? one : last >= 2 && last <= 4 ? few : many;
+}
+
 function limitText(limit: number | null, kind: UsageKind): string {
-  if (limit === null) return `Без лимита: ${KIND_LABEL[kind].replace(" в день", "")}`;
-  if (limit === 0) return kind === "video" ? "Видео — только в Pro" : `${KIND_LABEL[kind]}: нет`;
-  return `${limit} ${KIND_LABEL[kind]}`;
+  if (limit === null) return `Без лимита: ${KIND_WORDS[kind][2]}`;
+  if (limit === 0) return kind === "video" ? "Видео — в Pro или за кредиты" : `${KIND_WORDS[kind][2]}: нет`;
+  return `${limit.toLocaleString("ru-RU")} ${plural(limit, KIND_WORDS[kind])} в день`;
 }
 
 export function PricingView() {
@@ -33,6 +41,21 @@ export function PricingView() {
     api<BillingOptions>("/api/billing/plans").then(setOptions, (e: Error) => setError(e.message));
   }, []);
 
+  const buyCredits = async (method: "yookassa" | "stripe", pack: string) => {
+    setBusy(`${method}:${pack}`);
+    setError(null);
+    try {
+      const { url } = await api<{ url: string }>("/api/billing/credits", {
+        method: "POST",
+        body: JSON.stringify({ method, pack }),
+      });
+      window.location.assign(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setBusy(null);
+    }
+  };
+
   const checkout = async (method: "yookassa" | "stripe") => {
     setBusy(method);
     setError(null);
@@ -41,7 +64,7 @@ export function PricingView() {
         method: "POST",
         body: JSON.stringify({ method, consent }),
       });
-      window.location.href = url;
+      window.location.assign(url);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setBusy(null);
@@ -106,7 +129,7 @@ export function PricingView() {
                   </div>
 
                   <ul className="mt-6 flex-1 space-y-3 text-[13px] text-zinc-300">
-                    {(Object.keys(KIND_LABEL) as UsageKind[]).map((kind) => (
+                    {(Object.keys(KIND_WORDS) as UsageKind[]).map((kind) => (
                       <li key={kind} className="flex items-center gap-2">
                         <Check className="size-4 shrink-0 text-emerald-400" />
                         {limitText(options.limits[plan.id][kind], kind)}
@@ -193,7 +216,79 @@ export function PricingView() {
           </div>
         )}
 
+        {options && (
+          <section id="credits" className="mt-10 scroll-mt-6">
+            <div className="flex items-center gap-2">
+              <Coins className="size-5 text-amber-300" />
+              <h2 className="text-xl font-semibold text-zinc-100">AI-кредиты</h2>
+              {me && (
+                <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-zinc-300">
+                  у вас: {me.credits.toLocaleString("ru-RU")}
+                </span>
+              )}
+            </div>
+            <p className="mt-2 max-w-2xl text-sm text-zinc-400">
+              Закончился дневной лимит — продолжайте за кредиты, на любом тарифе. Списывается реальная стоимость
+              запроса: сообщение быстрой модели — около {options.credits.min.chat} кредита, умные модели и большие файлы —
+              больше, картинка — от {options.credits.min.image}, видео — от {options.credits.min.video}. Кредиты не сгорают.
+            </p>
+            {options.credits.packs.length > 0 ? (
+              <div className="mt-5 grid gap-4 sm:grid-cols-3">
+                {options.credits.packs.map((pack) => (
+                  <div key={pack.id} className="surface-card flex flex-col rounded-2xl p-5">
+                    <div className="text-3xl font-medium tracking-tight text-zinc-100">
+                      {pack.credits.toLocaleString("ru-RU")}
+                    </div>
+                    <div className="text-sm text-zinc-500">кредитов</div>
+                    <div className="mt-5 space-y-2">
+                      {pack.rub && (
+                        <button
+                          type="button"
+                          disabled={busy !== null}
+                          onClick={() => buyCredits("yookassa", pack.id)}
+                          className="maryx-button flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-sm"
+                        >
+                          {busy === `yookassa:${pack.id}` ? <LoaderCircle className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
+                          {pack.rub} · картой или СБП
+                        </button>
+                      )}
+                      {pack.usd && (
+                        <button
+                          type="button"
+                          disabled={busy !== null}
+                          onClick={() => buyCredits("stripe", pack.id)}
+                          className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 py-2.5 text-sm font-medium text-zinc-100 hover:bg-white/10 disabled:opacity-50"
+                        >
+                          {busy === `stripe:${pack.id}` ? <LoaderCircle className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
+                          {pack.usd} · международная карта
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-4 rounded-xl bg-black/30 p-3 text-xs text-zinc-400">
+                {me?.admin
+                  ? "Продажа кредитов включится, когда будут заданы ключи ЮKassa или Stripe. Пока можно начислять кредиты вручную или промокодами в настройках."
+                  : "Покупка кредитов скоро появится. Кредиты также можно получить по промокоду."}
+              </p>
+            )}
+          </section>
+        )}
+
         {error && <p className="mt-6 text-center text-sm text-red-300">{error}</p>}
+
+        <div className="surface-card mx-auto mt-8 flex max-w-2xl items-start gap-3 rounded-2xl p-5 text-sm text-zinc-400">
+          <KeyRound className="mt-0.5 size-5 shrink-0 text-violet-300" />
+          <p>
+            Есть свой аккаунт OpenRouter? Подключите свой ключ в{" "}
+            <Link href="/settings" className="text-violet-300 hover:text-violet-200">
+              настройках
+            </Link>{" "}
+            — MARYX и модели OpenRouter будут работать за ваш счёт, без дневных лимитов.
+          </p>
+        </div>
 
         <div className="surface-card mx-auto mt-8 max-w-md rounded-2xl p-5">
           <h3 className="mb-2 text-center text-sm font-medium text-zinc-300">Есть промокод?</h3>

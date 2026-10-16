@@ -2,17 +2,20 @@ import type { GenerateRequest, GenerateResult, MediaKind, MediaOutput, ProviderI
 import { apiKey, openRouterBase } from "../config";
 import { checkGoogleVideo, generateGoogleImage, startGoogleVideo } from "./google";
 import { generateOpenAIImage } from "./openai";
-import { checkOpenRouterVideo, generateOpenRouterImage, startOpenRouterVideo } from "./openrouter";
+import { checkOpenRouterVideo, generateOpenRouterImage, startOpenRouterVideo, type OpenRouterCall } from "./openrouter";
 import { checkReplicate, startReplicate } from "./replicate";
 
-export async function startGeneration(req: GenerateRequest): Promise<GenerateResult> {
+export type { OpenRouterCall };
+
+/** `call` applies to OpenRouter: the user's own key (BYOK) and their pseudonym. */
+export async function startGeneration(req: GenerateRequest, call: OpenRouterCall = {}): Promise<GenerateResult> {
   if (req.provider === "replicate") return startReplicate(req);
   if (req.provider === "google") {
     return req.kind === "image" ? generateGoogleImage(req) : startGoogleVideo(req);
   }
   if (req.provider === "openai" && req.kind === "image") return generateOpenAIImage(req);
   if (req.provider === "openrouter") {
-    return req.kind === "image" ? generateOpenRouterImage(req) : startOpenRouterVideo(req);
+    return req.kind === "image" ? generateOpenRouterImage(req, call) : startOpenRouterVideo(req, call);
   }
   return {
     status: "failed",
@@ -24,10 +27,11 @@ export async function checkGeneration(
   provider: ProviderId,
   kind: MediaKind,
   jobId: string,
+  call: OpenRouterCall = {},
 ): Promise<GenerateResult> {
   if (provider === "replicate") return checkReplicate(jobId);
   if (provider === "google" && kind === "video") return checkGoogleVideo(jobId);
-  if (provider === "openrouter" && kind === "video") return checkOpenRouterVideo(jobId);
+  if (provider === "openrouter" && kind === "video") return checkOpenRouterVideo(jobId, call);
   return { status: "failed", error: "Для этого провайдера нет фоновых задач." };
 }
 
@@ -38,6 +42,7 @@ export async function checkGeneration(
 function mediaSource(
   provider: ProviderId,
   rawUrl: string,
+  ownKey?: string,
 ): { url: URL; headers: Record<string, string> } | null {
   let url: URL;
   try {
@@ -51,7 +56,7 @@ function mediaSource(
   // (which may be a local mock over http in tests).
   if (provider === "openrouter") {
     const base = new URL(openRouterBase());
-    const key = apiKey("openrouter");
+    const key = ownKey || apiKey("openrouter");
     const videos = `${base.pathname.replace(/\/+$/, "")}/videos/`;
     return key && url.origin === base.origin && url.pathname.startsWith(videos)
       ? { url, headers: { Authorization: `Bearer ${key}` } }
@@ -77,11 +82,12 @@ export async function downloadOutput(
   provider: ProviderId,
   output: MediaOutput,
   kind: MediaKind,
+  ownKey?: string,
 ): Promise<{ body: Buffer | ReadableStream<Uint8Array>; mime: string }> {
   if (output.type === "base64") {
     return { body: Buffer.from(output.data, "base64"), mime: output.mime };
   }
-  const source = mediaSource(provider, output.url);
+  const source = mediaSource(provider, output.url, ownKey);
   if (!source) throw new Error("Недопустимый адрес результата");
 
   let res = await fetch(source.url, { headers: source.headers, redirect: "manual" });

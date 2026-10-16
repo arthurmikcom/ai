@@ -1,7 +1,10 @@
 import { PROVIDERS } from "@/lib/catalog";
 import { getAuth, vercelHosts } from "@/lib/server/auth";
 import { isConfigured } from "@/lib/server/config";
+import { stripeCreditsConfigured } from "@/lib/server/billing/stripe";
+import { yookassaConfigured } from "@/lib/server/billing/yookassa";
 import { getDb, schema } from "@/lib/server/db";
+import { siteDailyBudget } from "@/lib/server/spend";
 
 const SETTINGS = "Vercel → Settings → Environment Variables, затем Redeploy";
 
@@ -88,6 +91,19 @@ export async function GET(request: Request) {
       `⚠ облачные модели не подключены — работает только бесплатный Qwen в браузере посетителя. ` +
       `Для Claude, GPT, Gemini, картинок и видео добавьте OPENROUTER_API_KEY: ${SETTINGS}`;
   }
+
+  // The money side: one key for everyone, limits per user, a daily budget for free use.
+  const budget = siteDailyBudget();
+  checks["Бюджет"] =
+    budget === null
+      ? `⚠ общий дневной бюджет на бесплатные запросы не задан — каждого пользователя ограничивают только лимиты тарифа. Чтобы расходы не превысили сумму в день, добавьте AI_DAILY_BUDGET_USD (например 5): ${SETTINGS}`
+      : `✓ бесплатные запросы — до $${budget} в сутки на весь сайт`;
+  const yookassa = yookassaConfigured();
+  const stripe = stripeCreditsConfigured();
+  checks["Оплата"] =
+    yookassa || stripe
+      ? `✓ ${[yookassa && "ЮKassa", stripe && "Stripe"].filter(Boolean).join(" и ")}: Pro и кредиты продаются`
+      : "⚠ не подключена — Pro и кредиты можно выдавать промокодами в Настройках";
 
   checks["Хранилище файлов"] = process.env.BLOB_READ_WRITE_TOKEN
     ? "✓ Vercel Blob подключён"

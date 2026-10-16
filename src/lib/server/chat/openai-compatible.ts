@@ -38,7 +38,7 @@ export async function* streamOpenAICompatible(
   req: ChatRequest,
   signal: AbortSignal,
 ): AsyncGenerator<ChatStreamEvent> {
-  const client = openAIClient(req.provider);
+  const client = openAIClient(req.provider, req.apiKey);
   const deep = req.deepThinking && req.provider === "openai" && OPENAI_REASONING.test(req.model);
   // OpenRouter takes one reasoning setting for every model and maps it to
   // each provider's own (models without reasoning ignore it).
@@ -55,11 +55,17 @@ export async function* streamOpenAICompatible(
         }
       : {};
 
+  // OpenRouter always ends a stream with its usage (and cost); others need asking.
+  // Self-hosted servers cost nothing to track, and some reject unknown fields.
+  const usage = req.provider !== "openrouter" && req.provider !== "ollama" && req.provider !== "custom";
+
   const stream = await client.chat.completions.create(
     {
       model: req.model,
       messages: toMessages(req),
       stream: true,
+      ...(usage ? { stream_options: { include_usage: true } } : {}),
+      ...(req.provider === "openrouter" && req.endUser ? { user: req.endUser } : {}),
       ...(deep ? { reasoning_effort: "high" as const } : {}),
       ...(effort ? ({ reasoning: { effort } } as object) : {}),
       ...(req.provider === "qwen" ? qwenThinking(req.model, mode) : {}),
@@ -80,6 +86,19 @@ export async function* streamOpenAICompatible(
       throw Object.assign(new Error(failure.message || "Провайдер прервал ответ"), {
         status: typeof failure.code === "number" ? failure.code : undefined,
       });
+    }
+    // The last chunk carries what the call used (OpenAI sends it with no choices,
+    // OpenRouter repeats the finish reason in it).
+    if (chunk.usage) {
+      const cost = (chunk.usage as { cost?: number | null }).cost;
+      yield {
+        type: "usage",
+        usage: {
+          inputTokens: chunk.usage.prompt_tokens ?? 0,
+          outputTokens: chunk.usage.completion_tokens ?? 0,
+          ...(typeof cost === "number" ? { cost } : {}),
+        },
+      };
     }
     const choice = chunk.choices?.[0];
     if (!choice) continue;

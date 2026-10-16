@@ -17,11 +17,16 @@ export function PromoForm() {
     setBusy(true);
     setMessage(null);
     try {
-      const { until } = await api<{ until: number }>("/api/billing/promo", {
+      const { until, credits } = await api<{ until?: number; credits?: number }>("/api/billing/promo", {
         method: "POST",
         body: JSON.stringify({ code }),
       });
-      setMessage({ ok: true, text: `Pro активирован до ${new Date(until).toLocaleDateString("ru-RU")}` });
+      const parts = [
+        ...(until ? [`Pro активирован до ${new Date(until).toLocaleDateString("ru-RU")}`] : []),
+        ...(credits ? [`начислено кредитов: ${credits}`] : []),
+      ];
+      const text = parts.join(", ");
+      setMessage({ ok: true, text: text ? text[0].toUpperCase() + text.slice(1) : "Промокод активирован" });
       setCode("");
       refreshMe();
     } catch (err) {

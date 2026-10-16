@@ -5,10 +5,12 @@ import { useState } from "react";
 import { authClient } from "@/lib/client/auth";
 import { useModels } from "@/lib/client/useModels";
 import type { Capability, UsageKind } from "@/lib/types";
+import { AdminCosts } from "./AdminCosts";
 import { useApp } from "./AppState";
 import { BillingSection, PromoAdmin } from "./BillingSection";
 import { InstructionsSection } from "./InstructionsSection";
 import { MemorySection } from "./MemorySection";
+import { OwnKeySection } from "./OwnKeySection";
 import { PageHeading } from "./Design";
 
 const CAPABILITY_LABEL: Record<Capability, string> = {
@@ -78,6 +80,23 @@ function Providers() {
         попадают в браузер.
       </p>
     </>
+  );
+}
+
+/**
+ * The plan's daily AI budget: expensive models and big files use it up before
+ * the message count does. Shown as a share, not in dollars.
+ */
+function BudgetMeter({ used, limit }: { used: number; limit: number }) {
+  const share = limit > 0 ? Math.min(100, (used / limit) * 100) : 100;
+  return (
+    <div className="rounded-xl border border-white/5 bg-black/15 p-4" title="Дорогие модели, большие файлы и видео расходуют бюджет быстрее">
+      <div className="text-xs text-zinc-500">Бюджет на ИИ</div>
+      <div className="mt-1 text-sm text-zinc-200">израсходовано {Math.round(share)}%</div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
+        <div className={`h-full rounded-full ${share >= 100 ? "bg-red-400" : "bg-violet-400"}`} style={{ width: `${share}%` }} />
+      </div>
+    </div>
   );
 }
 
@@ -198,7 +217,7 @@ export function SettingsView() {
                     <div key={kind} className="rounded-xl border border-white/5 bg-black/15 p-4">
                       <div className="text-xs text-zinc-500">{USAGE_LABEL[kind]}</div>
                       <div className="mt-1 text-sm text-zinc-200">
-                        {limit === null ? `${used} · без лимита` : limit === 0 ? "в тарифе Pro" : `${used} из ${limit}`}
+                        {limit === null ? `${used} · без лимита` : limit === 0 ? "в Pro или за кредиты" : `${used} из ${limit}`}
                       </div>
                       {limit !== null && (
                         <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
@@ -211,7 +230,15 @@ export function SettingsView() {
                     </div>
                   );
                 })}
+                {!me.admin && me.budget.limit !== null && (
+                  <BudgetMeter used={me.budget.used} limit={me.budget.limit} />
+                )}
               </div>
+              {me.ownKey && (
+                <p className="mt-3 text-xs text-zinc-500">
+                  Запросы через OpenRouter идут по вашему ключу и в эти лимиты не входят.
+                </p>
+              )}
 
               <div className="mt-6">
                 <DeleteAccount />
@@ -231,8 +258,15 @@ export function SettingsView() {
           <MemorySection />
         </div>
 
+        <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wider text-zinc-500">Свой ключ</h2>
+        <OwnKeySection />
+
         {me?.admin && (
           <>
+            <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wider text-zinc-500">
+              Расходы на ИИ <span className="normal-case tracking-normal">(видят только администраторы)</span>
+            </h2>
+            <AdminCosts />
             <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wider text-zinc-500">
               Промокоды <span className="normal-case tracking-normal">(видят только администраторы)</span>
             </h2>

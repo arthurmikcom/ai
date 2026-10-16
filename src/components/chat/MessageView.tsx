@@ -253,7 +253,7 @@ export function MessageView({ message, models, streaming, isLast, onRegenerate, 
             {message.error}
             {message.errorCode === "limit" && (
               <Link href="/pricing" className="ml-2 font-medium text-white underline">
-                Тарифы →
+                Тарифы и кредиты →
               </Link>
             )}
           </span>

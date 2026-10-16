@@ -3,7 +3,7 @@
 // every browser, unlike the Web Speech API, which needs Google's servers.
 
 import { toFile } from "openai";
-import { isConfigured, NotConfiguredError, openAIClient, openRouterBase, requireKey } from "./config";
+import { isConfigured, NotConfiguredError, openAIClient, openRouterBase, openRouterKey } from "./config";
 import { HttpError } from "./errors";
 
 /** Audio container → the format name the transcription APIs expect. */
@@ -26,8 +26,17 @@ export async function clipSeconds(audio: Buffer, mime: string): Promise<number |
   }
 }
 
-export function transcriptionAvailable(): boolean {
-  return isConfigured("openrouter") || isConfigured("openai");
+/** `ownKey`: the user has their own OpenRouter key, which can transcribe too. */
+export function transcriptionAvailable(ownKey = false): boolean {
+  return ownKey || isConfigured("openrouter") || isConfigured("openai");
+}
+
+/** A transcription and what it cost (USD, when the provider reported it). */
+export interface Transcript {
+  text: string;
+  provider: "openrouter" | "openai";
+  model: string;
+  cost?: number;
 }
 
 /** Models tried in order; the first may not be offered to every account. */
@@ -36,19 +45,27 @@ function openRouterModels(): string[] {
   return [...new Set([preferred || "openai/gpt-4o-mini-transcribe", "openai/whisper-1"])];
 }
 
-async function viaOpenRouter(audio: Buffer, mime: string): Promise<string> {
+async function viaOpenRouter(audio: Buffer, mime: string, key?: string, endUser?: string): Promise<Transcript> {
   let lastError: unknown;
   for (const model of openRouterModels()) {
     const res = await fetch(`${openRouterBase()}/audio/transcriptions`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${requireKey("openrouter")}`,
+        Authorization: `Bearer ${openRouterKey(key)}`,
         "Content-Type": "application/json",
         "X-Title": "MARYX Ai",
       },
-      body: JSON.stringify({ model, input_audio: { data: audio.toString("base64"), format: formatOf(mime) } }),
+      body: JSON.stringify({
+        model,
+        input_audio: { data: audio.toString("base64"), format: formatOf(mime) },
+        ...(endUser ? { user: endUser } : {}),
+      }),
     });
-    if (res.ok) return ((await res.json()) as { text?: string }).text ?? "";
+    if (res.ok) {
+      const body = (await res.json()) as { text?: string; usage?: { cost?: number | null } };
+      const cost = typeof body.usage?.cost === "number" ? body.usage.cost : undefined;
+      return { text: body.text ?? "", provider: "openrouter", model, cost };
+    }
     const detail = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
     const message = detail?.error?.message ?? res.statusText;
     lastError = new HttpError(res.status, message);
@@ -60,14 +77,17 @@ async function viaOpenRouter(audio: Buffer, mime: string): Promise<string> {
   throw lastError;
 }
 
-async function viaOpenAI(audio: Buffer, mime: string): Promise<string> {
+async function viaOpenAI(audio: Buffer, mime: string): Promise<Transcript> {
   const file = await toFile(audio, `voice.${formatOf(mime)}`, { type: mime });
-  const res = await openAIClient("openai").audio.transcriptions.create({ file, model: "gpt-4o-mini-transcribe" });
-  return res.text;
+  const model = "gpt-4o-mini-transcribe";
+  const res = await openAIClient("openai").audio.transcriptions.create({ file, model });
+  return { text: res.text, provider: "openai", model };
 }
 
-export async function transcribe(audio: Buffer, mime: string): Promise<string> {
-  if (isConfigured("openrouter")) return (await viaOpenRouter(audio, mime)).trim();
-  if (isConfigured("openai")) return (await viaOpenAI(audio, mime)).trim();
+/** `key`: the user's own OpenRouter key (BYOK), used instead of the site's keys. */
+export async function transcribe(audio: Buffer, mime: string, key?: string, endUser?: string): Promise<Transcript> {
+  const done = (t: Transcript) => ({ ...t, text: t.text.trim() });
+  if (key || isConfigured("openrouter")) return done(await viaOpenRouter(audio, mime, key, endUser));
+  if (isConfigured("openai")) return done(await viaOpenAI(audio, mime));
   throw new NotConfiguredError("Голосовой ввод не подключён: нужен ключ OpenRouter или OpenAI.");
 }

@@ -5,11 +5,13 @@
 // for it, speaks with its own persona and remembers facts about the user.
 
 import { and, asc, eq, inArray } from "drizzle-orm";
-import type { ChatRequest, ModelInfo, ProviderId } from "@/lib/types";
+import type { ChatRequest, ChatUsage, ModelInfo, ProviderId } from "@/lib/types";
 import { streamChat } from "./chat";
 import { isConfigured } from "./config";
 import { getDb, schema } from "./db";
 import { listModels } from "./models";
+import { endUserId } from "./own-key";
+import { chatEntry, recordCosts, requestChars, type Meter } from "./spend";
 
 type Tier = "fast" | "smart" | "deep";
 
@@ -118,13 +120,17 @@ export async function planRoute(input: {
   webSearch: boolean;
   /** MARYX's previous answer in this chat, to keep follow-ups on a strong model. */
   previous?: { provider?: ProviderId; model?: string; content: string };
+  /** The user brings their own OpenRouter key: MARYX picks only OpenRouter models, which it pays for. */
+  ownKey?: boolean;
 }): Promise<MaryxPlan> {
-  const { models } = await listModels("chat");
+  const { models } = await listModels("chat", { ownKey: input.ownKey });
   // Only server models: the browser ones run on the visitor's device, not here.
-  const available = models.filter((m) => m.provider !== "maryx" && !m.local);
+  const available = models.filter(
+    (m) => m.provider !== "maryx" && !m.local && (!input.ownKey || m.provider === "openrouter"),
+  );
   if (available.length === 0) throw new Error("MARYX не может ответить: не подключена ни одна модель.");
 
-  const search = isConfigured("openrouter") && (input.webSearch || wantsSearch(input.text));
+  const search = (input.ownKey || isConfigured("openrouter")) && (input.webSearch || wantsSearch(input.text));
   let tier: Tier = input.deepThinking ? "deep" : needsSmart(input.text, input.hasDocuments) ? "smart" : "fast";
   // A short follow-up ("а подробнее?", "исправь ошибку") to a strong answer or to
   // code stays on a strong model: alone it looks simple, in context it isn't.
@@ -155,30 +161,49 @@ export async function planRoute(input: {
   return { model, fallbacks: fallbacks.slice(0, 2), webSearch: search };
 }
 
-/** The fast model MARYX uses for its own small jobs (memory, titles, suggestions). */
-async function quickText(system: string, user: string, timeoutMs: number): Promise<string> {
-  const plan = await planRoute({ text: "", hasImages: false, hasDocuments: false, deepThinking: false, webSearch: false });
+/**
+ * The fast model MARYX uses for its own small jobs (memory, titles,
+ * suggestions). What each call costs is recorded against the user's request
+ * (`meter`), with their own key when the request had one.
+ */
+async function quickText(system: string, user: string, timeoutMs: number, meter: Meter): Promise<string> {
+  const ownKey = meter.paidBy === "byok" && meter.key ? meter.key : undefined;
+  const plan = await planRoute({
+    text: "",
+    hasImages: false,
+    hasDocuments: false,
+    deepThinking: false,
+    webSearch: false,
+    ownKey: Boolean(ownKey),
+  });
   const signal = AbortSignal.timeout(timeoutMs);
   // One fallback (from another vendor) if the first model is down.
   const [first, second] = [plan.model, ...plan.fallbacks];
   for (const model of [first, second]) {
     if (!model) break;
+    let out = "";
+    let usage: ChatUsage | undefined;
+    const request: ChatRequest = {
+      provider: model.provider,
+      model: model.id,
+      system,
+      light: true,
+      messages: [{ role: "user", content: user }],
+      apiKey: model.provider === "openrouter" ? ownKey : undefined,
+      endUser: endUserId(meter.userId),
+    };
     try {
-      let out = "";
-      const request: ChatRequest = {
-        provider: model.provider,
-        model: model.id,
-        system,
-        light: true,
-        messages: [{ role: "user", content: user }],
-      };
       for await (const event of streamChat(request, signal)) {
         if (event.type === "text") out += event.text;
+        else if (event.type === "usage") usage = event.usage;
       }
       // A self-hosted server without a reasoning parser leaves the model's thinking in the text.
       return out.replace(/^[\s\S]*<\/think>/, "").trim();
     } catch (err) {
       if (model === second || !second || signal.aborted) throw err;
+    } finally {
+      const entry = chatEntry("background", model.provider, model.id, usage, { input: requestChars(request), output: out.length });
+      if (entry) await recordCosts(meter.userId, meter.paidBy, [entry]).catch((err) => console.error("[maryx] cost not recorded", err));
     }
   }
   return "";
@@ -302,7 +327,7 @@ export function mightHaveFacts(text: string): boolean {
  * Updates the user's memory from one message with a fast model: adds new
  * lasting facts and removes ones the user corrected or asked to forget.
  */
-export async function rememberFrom(userId: string, userText: string): Promise<void> {
+export async function rememberFrom(userId: string, userText: string, meter: Meter): Promise<void> {
   const facts = await listFacts(userId);
   const out = await quickText(
     "Ты обновляешь долговременную память ассистента о пользователе. Верни ТОЛЬКО JSON без пояснений: " +
@@ -312,6 +337,7 @@ export async function rememberFrom(userId: string, userText: string): Promise<vo
     `Что уже известно:\n${facts.map((f, i) => `${i + 1}. ${f.text}`).join("\n") || "(ничего)"}\n\n` +
       `Сообщение пользователя:\n${userText.slice(0, 4000)}`,
     30_000,
+    meter,
   );
   const json = out.match(/\{[\s\S]*\}/)?.[0];
   if (!json) return;
@@ -344,12 +370,13 @@ export async function rememberFrom(userId: string, userText: string): Promise<vo
 // ---------- Titles and follow-ups ----------
 
 /** A short name for a new chat from its first message, or null if the model gave none. */
-export async function suggestTitle(text: string, fileNames: string[]): Promise<string | null> {
+export async function suggestTitle(text: string, fileNames: string[], meter: Meter): Promise<string | null> {
   const out = await quickText(
     "Придумай короткое название чата (2–6 слов) по первому сообщению пользователя. " +
       "Язык — как у сообщения. Верни только название: без кавычек, эмодзи и точки в конце.",
     [text.slice(0, 2000), ...fileNames.map((n) => `[файл: ${n}]`)].filter(Boolean).join("\n"),
     15_000,
+    meter,
   );
   const title = out
     .split("\n")
@@ -367,7 +394,7 @@ function excerpt(text: string, max: number): string {
 }
 
 /** Up to three short follow-up questions the user might ask next. */
-export async function suggestFollowUps(question: string, answer: string): Promise<string[]> {
+export async function suggestFollowUps(question: string, answer: string, meter: Meter): Promise<string[]> {
   const out = await quickText(
     "Предложи до трёх коротких вопросов или просьб, которые пользователь мог бы написать следующими, " +
       "чтобы продолжить разговор: углубиться, применить ответ на практике, пойти дальше. " +
@@ -376,6 +403,7 @@ export async function suggestFollowUps(question: string, answer: string): Promis
       "Если продолжать нечего (благодарность, прощание) — [].",
     `Вопрос пользователя:\n${excerpt(question, 1500)}\n\nОтвет ассистента:\n${excerpt(answer, 3000)}`,
     15_000,
+    meter,
   );
   const json = out.match(/\[[\s\S]*\]/)?.[0];
   if (!json) return [];

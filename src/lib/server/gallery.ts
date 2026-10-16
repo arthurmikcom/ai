@@ -4,9 +4,11 @@ import type { SessionUser } from "./auth";
 import { getDb, schema } from "./db";
 import type { StoredFile } from "./db/schema";
 import { describeError } from "./errors";
-import { checkGeneration, downloadOutput } from "./media";
+import { checkGeneration, downloadOutput, type OpenRouterCall } from "./media";
+import { endUserId, ownKey } from "./own-key";
+import { mediaCost } from "./pricing";
 import { deleteFiles, fileUrl, newKey, putFile } from "./storage";
-import { refund } from "./usage";
+import { settleCharge, type Charge } from "./usage";
 
 type MediaRow = typeof schema.media.$inferSelect;
 
@@ -40,7 +42,12 @@ export async function listMedia(userId: string, kind: MediaKind): Promise<MediaI
   return rows.map(toItem);
 }
 
-export async function createMedia(user: SessionUser, req: GenerateRequest): Promise<MediaRow> {
+/** How a gallery item is paid for; items made before credits existed counted toward the plan. */
+function chargeOf(row: MediaRow): Charge {
+  return { userId: row.userId, kind: row.kind, paidBy: row.paidBy ?? "free", held: row.heldCredits };
+}
+
+export async function createMedia(user: SessionUser, req: GenerateRequest, paid: Charge): Promise<MediaRow> {
   const db = await getDb();
   const [row] = await db
     .insert(schema.media)
@@ -53,6 +60,8 @@ export async function createMedia(user: SessionUser, req: GenerateRequest): Prom
       model: req.model,
       aspectRatio: req.aspectRatio,
       status: "pending",
+      paidBy: paid.paidBy,
+      heldCredits: paid.held,
     })
     .returning();
   return row;
@@ -68,13 +77,28 @@ async function update(row: MediaRow, changes: Partial<MediaRow>): Promise<MediaR
   return next ?? row;
 }
 
+/** Marks a pending item failed and gives its charge back — once, however many polls get here. */
 async function fail(row: MediaRow, error: string): Promise<MediaRow> {
-  await refund(row.userId, row.kind);
-  return update(row, { status: "failed", error, progress: null });
+  const db = await getDb();
+  const [failed] = await db
+    .update(schema.media)
+    .set({ status: "failed", error, progress: null, updatedAt: new Date() })
+    .where(and(eq(schema.media.id, row.id), eq(schema.media.status, "pending")))
+    .returning();
+  if (!failed) {
+    const [current] = await db.select().from(schema.media).where(eq(schema.media.id, row.id));
+    return current ?? row;
+  }
+  await settleCharge(chargeOf(row), [], true);
+  return failed;
 }
 
-/** Records a provider result; finished outputs are copied into our storage. */
-export async function applyResult(row: MediaRow, result: GenerateResult): Promise<MediaItem> {
+/**
+ * Records a provider result; finished outputs are copied into our storage and
+ * the cost is recorded. `call` carries the user's own OpenRouter key when the
+ * item is paid with it (needed to download OpenRouter videos).
+ */
+export async function applyResult(row: MediaRow, result: GenerateResult, call: OpenRouterCall = {}): Promise<MediaItem> {
   if (result.status === "pending") {
     return toItem(await update(row, { jobId: result.jobId, progress: result.progress ?? null }));
   }
@@ -83,7 +107,7 @@ export async function applyResult(row: MediaRow, result: GenerateResult): Promis
   const files: StoredFile[] = [];
   try {
     for (const output of result.outputs) {
-      const { body, mime } = await downloadOutput(row.provider, output, row.kind);
+      const { body, mime } = await downloadOutput(row.provider, output, row.kind, call.key);
       const key = newKey(row.userId, "media", mime);
       await putFile(key, body, mime);
       files.push({ key, mime });
@@ -105,6 +129,16 @@ export async function applyResult(row: MediaRow, result: GenerateResult): Promis
     const [current] = await db.select().from(schema.media).where(eq(schema.media.id, row.id));
     return toItem(current ?? row);
   }
+  const reported = result.cost !== undefined;
+  await settleCharge(chargeOf(row), [
+    {
+      kind: row.kind,
+      provider: row.provider,
+      model: row.model,
+      usd: result.cost ?? mediaCost(row.kind, row.model),
+      estimated: !reported,
+    },
+  ]);
   return toItem(saved);
 }
 
@@ -122,8 +156,14 @@ export async function refreshMedia(userId: string, id: string): Promise<MediaIte
     const stale = Date.now() - row.createdAt.getTime() > ORPHAN_AFTER_MS;
     return toItem(stale ? await fail(row, "Генерация прервалась. Попробуйте ещё раз.") : row);
   }
+  // A video paid with the user's own key is checked and downloaded with it.
+  const key = row.paidBy === "byok" ? await ownKey(userId) : undefined;
+  if (row.paidBy === "byok" && !key) {
+    return toItem(await fail(row, "Ваш ключ OpenRouter удалён из настроек — узнать, готово ли видео, больше нельзя."));
+  }
+  const call = { key, endUser: endUserId(userId) };
   try {
-    return await applyResult(row, await checkGeneration(row.provider, row.kind, row.jobId));
+    return await applyResult(row, await checkGeneration(row.provider, row.kind, row.jobId, call), call);
   } catch (err) {
     // Transient provider/network errors: keep the job and let the next poll retry.
     console.error("[media] status check failed", row.provider, row.jobId, err);

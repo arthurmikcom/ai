@@ -2,11 +2,18 @@ import Stripe from "stripe";
 import { eq, or } from "drizzle-orm";
 import type { SessionUser } from "../auth";
 import { getDb, schema } from "../db";
+import { grantCredits, type PackDef } from "./credits";
 import { getSubscription, hasLiveStripe, isEntitled, isLiveStripe } from "./plans";
 
 export function stripeConfigured(): boolean {
   const env = process.env;
   return Boolean(env.STRIPE_SECRET_KEY && env.STRIPE_PRICE_PRO && env.STRIPE_WEBHOOK_SECRET);
+}
+
+/** Credit packs need no price in Stripe: each checkout names its own amount. */
+export function stripeCreditsConfigured(): boolean {
+  const env = process.env;
+  return Boolean(env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET);
 }
 
 let client: Stripe | null = null;
@@ -116,6 +123,60 @@ export async function stripePortalUrl(userId: string, origin: string): Promise<s
 const idOf = (value: string | { id: string } | null | undefined) =>
   typeof value === "string" ? value : value?.id;
 
+/** A one-off Checkout for a pack of credits (in US dollars); returns its URL. */
+export async function startStripeCredits(user: SessionUser, origin: string, pack: PackDef): Promise<string> {
+  const sub = await getSubscription(user.id);
+  const session = await stripe().checkout.sessions.create({
+    mode: "payment",
+    line_items: [
+      {
+        price_data: {
+          currency: "usd",
+          unit_amount: Math.round(pack.usd * 100),
+          product_data: { name: `${pack.credits} кредитов MARYX Ai` },
+        },
+        quantity: 1,
+      },
+    ],
+    ...(sub?.stripeCustomerId ? { customer: sub.stripeCustomerId } : { customer_email: user.email }),
+    client_reference_id: user.id,
+    metadata: { userId: user.id, kind: "credits", credits: String(pack.credits) },
+    success_url: `${origin}/settings?billing=stripe-credits&session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${origin}/pricing`,
+  });
+  if (!session.url) throw new Error("Stripe не вернул ссылку на оплату");
+  return session.url;
+}
+
+/**
+ * Adds the credits of a paid credits Checkout, once per session however often
+ * Stripe (or the return page) reports it. Returns the session's state.
+ */
+async function applyCreditsSession(session: Stripe.Checkout.Session): Promise<"succeeded" | "pending" | "failed"> {
+  if (session.mode !== "payment" || session.metadata?.kind !== "credits") return "failed";
+  if (session.payment_status !== "paid") return session.status === "expired" ? "failed" : "pending";
+  const userId = session.metadata.userId || session.client_reference_id;
+  const credits = Number.parseInt(session.metadata.credits ?? "", 10);
+  if (!userId || !Number.isInteger(credits) || credits <= 0) return "failed";
+  try {
+    await grantCredits({ id: `stripe:${session.id}`, userId, credits, source: "stripe" });
+  } catch (err) {
+    // The account may have been deleted in the meantime (foreign key).
+    console.error("[stripe] failed to add credits", session.id, err);
+    return "failed";
+  }
+  return "succeeded";
+}
+
+/** After the redirect back from a credits Checkout: add them without waiting for the webhook. */
+export async function syncStripeCredits(userId: string, sessionId: string): Promise<"succeeded" | "pending" | "failed"> {
+  if (!/^cs_\w{1,250}$/.test(sessionId)) return "failed";
+  const session = await stripe().checkout.sessions.retrieve(sessionId);
+  // Only the buyer's own session: a session id from someone else adds nothing here.
+  if ((session.metadata?.userId || session.client_reference_id) !== userId) return "failed";
+  return applyCreditsSession(session);
+}
+
 /**
  * Copies the current state of a Stripe subscription into our table. Always
  * re-reads the subscription from Stripe, so out-of-order or replayed webhook
@@ -200,9 +261,15 @@ export async function handleStripeWebhook(body: string, signature: string | null
       const subscriptionId = idOf(session.subscription);
       if (session.mode === "subscription" && subscriptionId) {
         await syncSubscription(subscriptionId, session.client_reference_id);
+      } else if (session.mode === "payment") {
+        await applyCreditsSession(session);
       }
       break;
     }
+    // Bank transfers and the like are paid after the checkout completes.
+    case "checkout.session.async_payment_succeeded":
+      await applyCreditsSession(event.data.object);
+      break;
     case "customer.subscription.created":
     case "customer.subscription.updated":
     case "customer.subscription.deleted":

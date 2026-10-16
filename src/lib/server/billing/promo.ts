@@ -2,6 +2,7 @@ import { randomInt } from "node:crypto";
 import { desc, eq, sql } from "drizzle-orm";
 import type { PromoCode } from "@/lib/types";
 import { getDb, schema } from "../db";
+import { grantCredits } from "./credits";
 import { hasLiveStripe, isEntitled } from "./plans";
 
 const CODE_PATTERN = /^[A-Z0-9-]{4,40}$/;
@@ -21,6 +22,7 @@ function toPromo(row: typeof schema.promoCode.$inferSelect): PromoCode {
   return {
     code: row.code,
     days: row.days,
+    credits: row.credits,
     maxUses: row.maxUses,
     uses: row.uses,
     note: row.note ?? undefined,
@@ -37,19 +39,23 @@ export async function listPromos(): Promise<PromoCode[]> {
 export async function createPromo(input: {
   code?: string;
   days: number;
+  credits?: number;
   maxUses: number;
   note?: string;
 }): Promise<PromoCode | string> {
   const code = input.code ? normalizeCode(input.code) : randomCode();
+  const credits = input.credits ?? 0;
   if (!CODE_PATTERN.test(code)) return "Код: 4–40 символов, латиница, цифры и дефис";
-  if (!Number.isInteger(input.days) || input.days < 1 || input.days > 3650) return "Дней: от 1 до 3650";
+  if (!Number.isInteger(input.days) || input.days < 0 || input.days > 3650) return "Дней Pro: от 0 до 3650";
+  if (!Number.isInteger(credits) || credits < 0 || credits > 1_000_000) return "Кредитов: от 0 до 1 000 000";
+  if (input.days === 0 && credits === 0) return "Код должен давать дни Pro, кредиты или и то и другое";
   if (!Number.isInteger(input.maxUses) || input.maxUses < 1 || input.maxUses > 100_000) {
     return "Активаций: от 1 до 100 000";
   }
   const db = await getDb();
   const rows = await db
     .insert(schema.promoCode)
-    .values({ code, days: input.days, maxUses: input.maxUses, note: input.note?.slice(0, 200) || null })
+    .values({ code, days: input.days, credits, maxUses: input.maxUses, note: input.note?.slice(0, 200) || null })
     .onConflictDoNothing()
     .returning();
   return rows[0] ? toPromo(rows[0]) : "Такой код уже существует";
@@ -66,8 +72,11 @@ export async function deletePromo(code: string): Promise<boolean> {
 
 class RedeemError extends Error {}
 
-/** Grants Pro for the code's days. Returns the new end of the paid period, or an error message. */
-export async function redeemPromo(userId: string, rawCode: string): Promise<Date | string> {
+/**
+ * Grants the code's days of Pro and/or credits. Returns the new end of the
+ * paid period (if the code gives days) and the credits added, or an error message.
+ */
+export async function redeemPromo(userId: string, rawCode: string): Promise<{ until?: Date; credits: number } | string> {
   const code = normalizeCode(rawCode);
   if (!CODE_PATTERN.test(code)) return "Промокод не найден";
   const db = await getDb();
@@ -93,6 +102,11 @@ export async function redeemPromo(userId: string, rawCode: string): Promise<Date
         .update(schema.promoCode)
         .set({ uses: sql`${schema.promoCode.uses} + 1` })
         .where(eq(schema.promoCode.code, code));
+
+      if (promo.credits > 0) {
+        await grantCredits({ id: `promo:${code}:${userId}`, userId, credits: promo.credits, source: "promo", note: code }, tx);
+      }
+      if (promo.days <= 0) return { credits: promo.credits };
 
       const [sub] = await tx
         .select()
@@ -128,7 +142,7 @@ export async function redeemPromo(userId: string, rawCode: string): Promise<Date
             updatedAt: now,
           },
         });
-      return until;
+      return { until, credits: promo.credits };
     });
   } catch (err) {
     if (err instanceof RedeemError) return err.message;

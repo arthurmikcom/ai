@@ -3,6 +3,7 @@ import type { Capability, ModelInfo, ModelsResponse, ProviderId } from "@/lib/ty
 import { ADAPTIVE_THINKING } from "./chat/anthropic";
 import { THINKING_LEVEL_MODELS } from "./chat/google";
 import { reasoningListLoaded, rememberReasoning } from "./chat/reasoning";
+import { rememberPrice } from "./pricing";
 import { OPENAI_REASONING } from "./chat/openai-compatible";
 import {
   anthropicClient,
@@ -31,6 +32,8 @@ interface OpenRouterModel {
   name?: string;
   architecture?: { input_modalities?: string[] };
   supported_parameters?: string[] | Record<string, unknown>;
+  /** USD per token, as strings. */
+  pricing?: { prompt?: string; completion?: string };
   reasoning?: {
     mandatory?: boolean;
     default_enabled?: boolean;
@@ -65,14 +68,20 @@ async function collect<T>(iterable: AsyncIterable<T>, limit = 2000): Promise<T[]
 
 async function openRouterList(capability: Capability): Promise<LiveModel[]> {
   const path = capability === "chat" ? "/models" : `/${capability === "image" ? "images" : "videos"}/models`;
+  // The lists are public; the key only matters when the site has one (users with their own key also get them).
+  const key = apiKey("openrouter");
   const res = await fetch(`${openRouterBase()}${path}`, {
-    headers: { Authorization: `Bearer ${apiKey("openrouter")}` },
+    headers: key ? { Authorization: `Bearer ${key}` } : {},
   });
   if (!res.ok) throw new Error(`OpenRouter ${path}: HTTP ${res.status}`);
   const { data } = (await res.json()) as { data?: OpenRouterModel[] };
   if (capability === "chat") {
     for (const m of data ?? []) {
-      if (typeof m.id !== "string" || !m.reasoning) continue;
+      if (typeof m.id !== "string") continue;
+      const input = Number.parseFloat(m.pricing?.prompt ?? "");
+      const output = Number.parseFloat(m.pricing?.completion ?? "");
+      if (input >= 0 && output >= 0) rememberPrice(m.id, { input, output });
+      if (!m.reasoning) continue;
       rememberReasoning(m.id, {
         mandatory: m.reasoning.mandatory === true,
         defaultEnabled: m.reasoning.default_enabled === true,
@@ -229,11 +238,12 @@ function liveModelInfo(provider: ProviderId, capability: Capability, m: LiveMode
   };
 }
 
-async function modelsFor(provider: ProviderId, capability: Capability): Promise<ModelInfo[]> {
+async function modelsFor(provider: ProviderId, capability: Capability, ownKey: boolean): Promise<ModelInfo[]> {
   const picks = FEATURED_MODELS.filter((m) => m.provider === provider && m.capability === capability);
-  // A flagship offered through OpenRouter only stays on top when its own provider isn't set up.
+  // A flagship offered through OpenRouter only stays on top when its own provider isn't set up
+  // (or when the user brings their own OpenRouter key, which pays for it).
   const featured = picks
-    .filter((m) => !(m.upstream && isConfigured(m.upstream)))
+    .filter((m) => ownKey || !(m.upstream && isConfigured(m.upstream)))
     .map((m): ModelInfo => {
       const info: ModelInfo & { upstream?: ProviderId } = { ...m, featured: true, search: canSearch(provider, capability) };
       delete info.upstream;
@@ -263,15 +273,23 @@ async function modelsFor(provider: ProviderId, capability: Capability): Promise<
  * Loads OpenRouter's chat model list (cached for 10 minutes), which also tells
  * each model's reasoning settings, before a chat with a model picked by hand.
  */
-export async function loadOpenRouterChatModels(): Promise<void> {
-  if (!isConfigured("openrouter")) return;
+export async function loadOpenRouterChatModels(ownKey = false): Promise<void> {
+  if (!ownKey && !isConfigured("openrouter")) return;
   const load = liveModels("openrouter", "chat");
   // Wait only on a cold start, and briefly: the featured models are known anyway.
   if (!reasoningListLoaded()) await Promise.race([load, new Promise((r) => setTimeout(r, 1500))]);
 }
 
-export async function listModels(capability: Capability | null): Promise<ModelsResponse> {
-  const providers = PROVIDERS.map((p) => ({ ...p, configured: isConfigured(p.id) }));
+/**
+ * Providers and models available to a user. With their own OpenRouter key
+ * (`ownKey`), OpenRouter's models are theirs even when the site has no key.
+ */
+export async function listModels(capability: Capability | null, opts: { ownKey?: boolean } = {}): Promise<ModelsResponse> {
+  const ownKey = opts.ownKey ?? false;
+  const providers = PROVIDERS.map((p) => ({
+    ...p,
+    configured: isConfigured(p.id) || (ownKey && p.id === "openrouter"),
+  }));
   const capabilities: Capability[] = capability ? [capability] : ["chat", "image", "video"];
 
   const jobs = providers
@@ -279,7 +297,7 @@ export async function listModels(capability: Capability | null): Promise<ModelsR
     .flatMap((p) =>
       capabilities
         .filter((c) => p.capabilities.includes(c))
-        .map((c) => modelsFor(p.id, c)),
+        .map((c) => modelsFor(p.id, c, ownKey && p.id === "openrouter")),
     );
   const models = (await Promise.all(jobs)).flat();
   if (capabilities.includes("chat")) {
@@ -290,7 +308,7 @@ export async function listModels(capability: Capability | null): Promise<ModelsR
     const onServer = providers.some((p) => p.configured && p.capabilities.includes("chat"));
     models.unshift(
       onServer
-        ? { ...MARYX_MODEL, search: isConfigured("openrouter") || undefined }
+        ? { ...MARYX_MODEL, search: isConfigured("openrouter") || ownKey || undefined }
         : {
             ...MARYX_MODEL,
             description: "Наш ИИ: работает прямо в вашем браузере на Qwen — бесплатно",

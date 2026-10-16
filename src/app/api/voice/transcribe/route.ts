@@ -1,6 +1,8 @@
 import { describeError } from "@/lib/server/errors";
 import { jsonError, requireUser } from "@/lib/server/http";
-import { consume, limitResponse, refund } from "@/lib/server/usage";
+import { endUserId, ownKey } from "@/lib/server/own-key";
+import { transcriptionCost } from "@/lib/server/pricing";
+import { charge, deniedResponse, settleCharge } from "@/lib/server/usage";
 import { clipSeconds, transcribe } from "@/lib/server/voice";
 
 export const maxDuration = 60;
@@ -32,15 +34,29 @@ export async function POST(request: Request) {
     return jsonError("Запись слишком длинная: до 2 минут", 413);
   }
 
-  if (!(await consume(user, "voice"))) return limitResponse(user, "voice");
+  // Dictation goes through OpenRouter, with the user's own key when they saved one.
+  const key = await ownKey(user.id);
+  const paid = await charge(user, "voice", key);
+  if ("denied" in paid) return deniedResponse(user, "voice", paid.denied);
   try {
-    const text = await transcribe(bytes, mime);
-    // The provider has already processed (and billed) the clip, so it still counts.
-    if (!text) return jsonError("Не удалось разобрать речь. Попробуйте говорить громче или ближе к микрофону.", 422);
-    return Response.json({ text });
+    const result = await transcribe(bytes, mime, paid.key, endUserId(user.id));
+    // At 32 kbps a second of audio is about 4 KB.
+    const length = seconds ?? bytes.length / 4000;
+    // The provider has already processed (and billed) the clip, so it still counts when nothing was heard.
+    await settleCharge(paid, [
+      {
+        kind: "voice",
+        provider: result.provider,
+        model: result.model,
+        usd: result.cost ?? transcriptionCost(result.model, length),
+        estimated: result.cost === undefined,
+      },
+    ]);
+    if (!result.text) return jsonError("Не удалось разобрать речь. Попробуйте говорить громче или ближе к микрофону.", 422);
+    return Response.json({ text: result.text });
   } catch (err) {
-    await refund(user.id, "voice");
+    await settleCharge(paid, [], true);
     console.error("[voice]", err);
-    return jsonError(describeError(err), 502);
+    return jsonError(describeError(err, paid.key ? "openrouter" : undefined, Boolean(paid.key)), 502);
   }
 }

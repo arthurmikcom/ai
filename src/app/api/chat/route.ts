@@ -31,9 +31,12 @@ import {
   wantsImage,
   type MaryxPlan,
 } from "@/lib/server/maryx";
-import { consume, limitResponse, refund } from "@/lib/server/usage";
+import { endUserId, ownKey } from "@/lib/server/own-key";
+import { mediaCost } from "@/lib/server/pricing";
+import { chatEntry, requestChars, type CostEntry, type Meter } from "@/lib/server/spend";
+import { charge, deniedResponse, refundCharge, settleCharge, type Charge } from "@/lib/server/usage";
 import { parseChatSendRequest } from "@/lib/server/validate";
-import type { ChatRequest, ChatStreamEvent, InlineImage, ModelInfo, Source, UsageKind } from "@/lib/types";
+import type { ChatRequest, ChatStreamEvent, ChatUsage, InlineImage, ModelInfo, Source, UsageKind } from "@/lib/types";
 
 // Long answers from reasoning models can take several minutes.
 export const maxDuration = 300;
@@ -80,24 +83,32 @@ export async function POST(request: Request) {
   let chat = await findChat(user.id, req.chatId);
   if (!chat && (!req.create || !req.message)) return jsonError("Чат не найден", 404);
 
-  // MARYX draws by itself when asked to ("нарисуй…", no files attached) and an image model is set up.
   const maryx = req.provider === "maryx";
+  // With their own OpenRouter key, the user's OpenRouter requests (MARYX picks only those) go out with it.
+  const key = req.provider === "openrouter" || maryx || req.image ? await ownKey(user.id) : undefined;
+  // MARYX draws by itself when asked to ("нарисуй…", no files attached) and an image model is set up.
   const autoDraw =
     maryx &&
     !req.image &&
     req.message !== undefined &&
     !req.message.attachments?.length &&
     wantsImage(req.message.content) &&
-    (await canDrawInChat());
+    (await canDrawInChat(Boolean(key)));
   let draw = req.image || autoDraw;
   // A picture drawn in the chat counts toward the image limit, not messages.
   let kind: UsageKind = draw ? "image" : "chat";
-  if (!(await consume(user, kind))) {
+  let paid = await charge(user, kind, key);
+  if ("denied" in paid) {
     // MARYX chose to draw on its own: with no pictures left today, answer in words.
-    if (!autoDraw || !(await consume(user, "chat"))) return limitResponse(user, autoDraw ? "chat" : kind);
+    if (!autoDraw) return deniedResponse(user, kind, paid.denied);
+    paid = await charge(user, "chat", key);
+    if ("denied" in paid) return deniedResponse(user, "chat", paid.denied);
     draw = false;
     kind = "chat";
   }
+  const bill: Charge = paid;
+  // MARYX's own jobs for this message (title, follow-ups, memory) are recorded against it.
+  const meter: Meter = { userId: user.id, paidBy: bill.paidBy, key: bill.key };
 
   const created = !chat;
   if (!chat) {
@@ -118,7 +129,7 @@ export async function POST(request: Request) {
         })
         .returning();
     } catch (err) {
-      await refund(user.id, kind);
+      await refundCharge(bill);
       if (isUniqueViolation(err)) return jsonError("Чат с таким идентификатором уже существует", 409);
       throw err;
     }
@@ -155,7 +166,7 @@ export async function POST(request: Request) {
     } catch (err) {
       await deleteFiles(storedKeys(stored)).catch(() => {});
       // A file that trips the safety limits keeps its charge, so it can't be retried for free.
-      if (!(err instanceof DocumentLimitError)) await refund(user.id, kind);
+      if (!(err instanceof DocumentLimitError)) await refundCharge(bill);
       // Don't leave an empty chat behind when its first message was refused.
       if (created) await db.delete(schema.chat).where(and(eq(schema.chat.id, chat.id), eq(schema.chat.userId, user.id)));
       if (err instanceof DocumentError) return jsonError(err.message, 400);
@@ -170,7 +181,7 @@ export async function POST(request: Request) {
         attachments: stored.length ? stored : null,
       });
     } catch (err) {
-      await refund(user.id, kind);
+      await refundCharge(bill);
       if (isUniqueViolation(err)) return jsonError("Сообщение уже отправлено", 409);
       throw err;
     }
@@ -181,7 +192,7 @@ export async function POST(request: Request) {
     // server (e.g. it was refused), don't throw away the previous answer instead.
     const lastUser = existing.findLast((m) => m.role === "user");
     if (req.replyTo && lastUser?.id !== req.replyTo) {
-      await refund(user.id, kind);
+      await refundCharge(bill);
       return jsonError("Это сообщение не сохранилось — отправьте его ещё раз.", 409);
     }
     const last = existing[existing.length - 1];
@@ -196,12 +207,12 @@ export async function POST(request: Request) {
 
   const rows = await chatMessages(chat.id);
   if (rows[rows.length - 1]?.role !== "user") {
-    await refund(user.id, kind);
+    await refundCharge(bill);
     return jsonError("Нечего отправлять: последнее сообщение не от пользователя", 400);
   }
 
   if (draw) {
-    return drawInChat(request, user.id, chat.id, req.answerId, rows[rows.length - 1].content, maryx ? "maryx" : undefined);
+    return drawInChat(request, bill, chat.id, req.answerId, rows[rows.length - 1].content, maryx ? "maryx" : undefined);
   }
 
   // Images of the new message are already in memory; older ones are re-read.
@@ -329,18 +340,25 @@ export async function POST(request: Request) {
           model: previous.model ?? undefined,
           content: previous.content,
         },
+        ownKey: Boolean(bill.key),
       });
     } catch (err) {
-      await refund(user.id, kind);
+      await refundCharge(bill);
       return jsonError(describeError(err), 503);
     }
     facts = memoryOn ? (await listFacts(user.id)).map((f) => f.text) : [];
   }
   const plan = route;
   // How hard an OpenRouter model thinks depends on its listed settings (MARYX has loaded them already).
-  if (!plan && req.provider === "openrouter") await loadOpenRouterChatModels();
+  if (!plan && req.provider === "openrouter") await loadOpenRouterChatModels(Boolean(bill.key));
+  const endUser = endUserId(user.id);
   // MARYX may switch to a fallback model, so its request is built per model.
-  const requestFor = (m?: ModelInfo): ChatRequest =>
+  const requestFor = (m?: ModelInfo): ChatRequest => ({
+    ...baseRequest(m),
+    apiKey: (m?.provider ?? req.provider) === "openrouter" ? bill.key : undefined,
+    endUser,
+  });
+  const baseRequest = (m?: ModelInfo): ChatRequest =>
     m && plan
       ? {
           provider: m.provider,
@@ -383,7 +401,9 @@ export async function POST(request: Request) {
   let answered = false;
   if (memoryOn && req.message && mightHaveFacts(userText)) {
     after(() =>
-      answered ? rememberFrom(user.id, userText).catch((err) => console.error("[maryx] memory update failed", err)) : undefined,
+      answered
+        ? rememberFrom(user.id, userText, meter).catch((err) => console.error("[maryx] memory update failed", err))
+        : undefined,
     );
   }
 
@@ -396,7 +416,7 @@ export async function POST(request: Request) {
   const startTitle = () => {
     const initial = chat.title;
     const names = (req.message?.attachments ?? []).flatMap((f) => (f.name ? [f.name] : []));
-    titleJob = suggestTitle(firstText, names)
+    titleJob = suggestTitle(firstText, names, meter)
       .then(async (title) => {
         if (!title || title === initial || request.signal.aborted) return null;
         const renamed = await db
@@ -433,24 +453,46 @@ export async function POST(request: Request) {
       // Models MARYX tried that failed, and when it started (a fallback must still fit maxDuration).
       const failed: string[] = [];
       const started = Date.now();
+      // What each model call cost: reported at the end of a stream, else estimated from its text.
+      const costs: CostEntry[] = [];
+      let usage: ChatUsage | undefined;
+      let sent = 0;
+      let produced = 0;
+      const tally = () => {
+        const entry = chatEntry("chat", provider, model, usage, { input: sent, output: produced });
+        if (entry) costs.push(entry);
+        usage = undefined;
+        produced = 0;
+      };
       try {
         for (let attempt = 0; ; ) {
           const current = candidates[attempt];
           if (plan) send({ type: "route", provider, model, search: plan.webSearch || undefined, retry: attempt > 0 || undefined });
           // The browser clears the failed attempt on "retry", then shows why the model changed.
           if (attempt > 0) send({ type: "notice", text: notices[0] });
+          const call = requestFor(current);
+          sent = requestChars(call);
           try {
-            for await (const event of streamChat(requestFor(current), request.signal)) {
+            for await (const event of streamChat(call, request.signal)) {
+              if (event.type === "usage") {
+                usage = event.usage;
+                continue; // for the ledger only
+              }
               if (event.type === "text") {
                 text += event.text;
+                produced += event.text.length;
                 if (wantTitle && !titleJob) startTitle();
-              } else if (event.type === "reasoning") reasoning += event.text;
-              else if (event.type === "notice") notices.push(event.text);
+              } else if (event.type === "reasoning") {
+                reasoning += event.text;
+                produced += event.text.length;
+              } else if (event.type === "notice") notices.push(event.text);
               else if (event.type === "source") sources.push({ url: event.url, title: event.title });
               send(event);
             }
+            tally();
             break;
           } catch (err) {
+            tally();
             if (current) failed.push(current.label);
             // MARYX: a model that fails before writing anything is replaced by the next best
             // one — unless so much time went by (e.g. long thinking) that another answer
@@ -475,7 +517,7 @@ export async function POST(request: Request) {
           notices.push("Генерация остановлена.");
         } else {
           console.error("[chat]", provider, model, err);
-          error = describeError(err, provider);
+          error = describeError(err, provider, Boolean(bill.key));
           if (!text && failed.length > 1) {
             // Not "X answered instead": nobody did. The browser resets the notice on "retry".
             notices = [`Не ответила ни одна из моделей: ${failed.join(", ")}.`];
@@ -486,8 +528,9 @@ export async function POST(request: Request) {
       }
 
       try {
-        // A provider failure that produced nothing doesn't count toward the limit.
-        if (error && !text) await refund(user.id, kind);
+        // A provider failure that produced nothing doesn't count toward the limit
+        // (its cost, if any, is still recorded). Otherwise credits pay for what it cost.
+        await settleCharge(bill, costs, Boolean(error && !text));
         answered = !error && text.length > 0;
         await db.insert(schema.message).values({
           id: req.answerId,
@@ -512,7 +555,7 @@ export async function POST(request: Request) {
 
       try {
         if (plan && answered && !request.signal.aborted) {
-          const items = await suggestFollowUps(last.m.content || "(документ)", text).catch((err) => {
+          const items = await suggestFollowUps(last.m.content || "(документ)", text, meter).catch((err) => {
             console.error("[maryx] follow-ups failed", err);
             return [];
           });
@@ -586,12 +629,13 @@ function ndjson(body: ReadableStream<Uint8Array>): Response {
  */
 function drawInChat(
   request: Request,
-  userId: string,
+  bill: Charge,
   chatId: string,
   answerId: string,
   prompt: string,
   via?: "maryx",
 ): Response {
+  const userId = bill.userId;
   const encoder = new TextEncoder();
   const body = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -604,15 +648,19 @@ function drawInChat(
       };
       const db = await getDb();
       let files: StoredFile[] = [];
+      let cost: number | undefined;
       let model: { provider: ChatRequest["provider"]; id: string } | undefined;
       let text = "";
       let error: string | undefined;
       let notice: string | undefined;
       try {
-        const picked = await chatImageModel();
+        const picked = await chatImageModel(Boolean(bill.key));
         model = picked;
         if (via) send({ type: "route", provider: picked.provider, model: picked.id, image: true });
-        files = await generateChatImage(userId, prompt, picked, request.signal);
+        ({ files, cost } = await generateChatImage(userId, prompt, picked, request.signal, {
+          key: bill.key,
+          endUser: endUserId(userId),
+        }));
         for (const f of files) {
           send({ type: "image", url: fileUrl(f.key), mime: f.mime, provider: picked.provider, model: picked.id });
         }
@@ -623,11 +671,25 @@ function drawInChat(
           notice = "Генерация остановлена.";
         } else {
           console.error("[chat:image]", model?.provider, model?.id, err);
-          error = describeError(err);
+          error = describeError(err, model?.provider, Boolean(bill.key));
         }
       } finally {
         try {
-          if (!files.length) await refund(userId, "image");
+          await settleCharge(
+            bill,
+            files.length && model
+              ? [
+                  {
+                    kind: "image",
+                    provider: model.provider,
+                    model: model.id,
+                    usd: cost ?? mediaCost("image", model.id),
+                    estimated: cost === undefined,
+                  },
+                ]
+              : [],
+            !files.length,
+          );
           await db.insert(schema.message).values({
             id: answerId,
             chatId,

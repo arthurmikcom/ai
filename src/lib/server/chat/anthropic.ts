@@ -76,6 +76,15 @@ export async function* streamAnthropic(
   }
 
   const final = await stream.finalMessage();
+  const used = final.usage;
+  yield {
+    type: "usage",
+    usage: {
+      // Cache reads and writes are billed differently, but count as input here.
+      inputTokens: used.input_tokens + (used.cache_creation_input_tokens ?? 0) + (used.cache_read_input_tokens ?? 0),
+      outputTokens: used.output_tokens,
+    },
+  };
   if (final.stop_reason === "refusal") {
     yield { type: "notice", text: "Модель отказалась отвечать на этот запрос." };
   } else if (final.stop_reason === "max_tokens") {

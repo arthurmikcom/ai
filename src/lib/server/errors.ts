@@ -20,12 +20,25 @@ export function statusOf(err: unknown): number | undefined {
   return undefined;
 }
 
-/** Turns any provider error into a short message for the user (in Russian). */
-export function describeError(err: unknown, provider?: ProviderId): string {
+/**
+ * Turns any provider error into a short message for the user (in Russian).
+ * `ownKey`: the request went out with the user's own OpenRouter key, so key
+ * and balance problems are theirs to fix, not the site's.
+ */
+export function describeError(err: unknown, provider?: ProviderId, ownKey = false): string {
   if (err instanceof NotConfiguredError) return err.message;
 
   const detail = err instanceof Error ? err.message : String(err);
-  switch (statusOf(err)) {
+  const status = statusOf(err);
+  if (ownKey && provider === "openrouter") {
+    if (status === 401 || status === 403) {
+      return "OpenRouter не принял ваш ключ: возможно, он удалён или отключён. Проверьте ключ в настройках или удалите его, чтобы пользоваться тарифом сайта.";
+    }
+    if (status === 402) {
+      return "На вашем ключе OpenRouter закончились деньги или исчерпан его лимит. Пополните баланс на openrouter.ai/credits или удалите ключ в настройках, чтобы пользоваться тарифом сайта.";
+    }
+  }
+  switch (status) {
     case 400:
       return `Провайдер отклонил запрос: ${detail}`;
     case 401:

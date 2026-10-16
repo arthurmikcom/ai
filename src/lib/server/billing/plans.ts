@@ -5,8 +5,8 @@ import { getDb, schema } from "../db";
 export type SubscriptionRow = typeof schema.subscription.$inferSelect;
 
 const DEFAULT_LIMITS: Record<PlanId, Record<UsageKind, number>> = {
-  // Video costs dollars per clip, so by default it's a Pro feature.
-  free: { chat: 50, image: 10, video: 0, voice: 30 },
+  // Video costs dollars per clip, so by default it's a Pro feature (or paid with credits).
+  free: { chat: 20, image: 3, video: 0, voice: 20 },
   pro: { chat: 500, image: 100, video: 10, voice: 300 },
 };
 
