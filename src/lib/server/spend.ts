@@ -4,7 +4,7 @@
 
 import { and, eq, gte, inArray, ne, sql } from "drizzle-orm";
 import type { ChatRequest, ChatUsage, CostKind, CostReport, PaidBy, PlanId, ProviderId } from "@/lib/types";
-import { getDb, schema } from "./db";
+import { getDb, schema, type DB } from "./db";
 import { chatCost, tokensOf } from "./pricing";
 
 export interface CostEntry {
@@ -25,6 +25,9 @@ export interface Meter {
   key?: string;
 }
 
+type Tx = Parameters<Parameters<DB["transaction"]>[0]>[0];
+type Conn = DB | Tx;
+
 /** Characters a chat request sends, to estimate its tokens; a picture counts as ~1000 tokens. */
 export function requestChars(req: ChatRequest): number {
   return (
@@ -33,10 +36,16 @@ export function requestChars(req: ChatRequest): number {
   );
 }
 
+/** Hidden reasoning a model may bill while nothing is streamed yet, per second of waiting (conservative). */
+const HIDDEN_TOKENS_PER_SECOND = 20;
+
 /**
  * The cost of one chat call: from the usage the provider reported, or, when the
- * call ended before reporting it (stopped, failed mid-answer), estimated from
- * the characters sent and received. Null for a call that produced nothing.
+ * call ended before reporting it, estimated from the characters sent and
+ * received. A call that was stopped (by the user or the time limit) is billed
+ * by the provider for what it read and thought so far, so it gets at least the
+ * input plus a time-based allowance for hidden reasoning. Null for a call that
+ * failed before producing anything (the provider refused it).
  */
 export function chatEntry(
   kind: CostKind,
@@ -44,9 +53,14 @@ export function chatEntry(
   model: string,
   usage: ChatUsage | undefined,
   chars: { input: number; output: number },
+  stopped?: { seconds: number },
 ): CostEntry | null {
-  const used = usage ?? (chars.output > 0 ? { inputTokens: tokensOf(chars.input), outputTokens: tokensOf(chars.output) } : null);
-  if (!used) return null;
+  let used = usage;
+  if (!used) {
+    if (chars.output === 0 && !stopped) return null;
+    const hidden = stopped ? Math.round(stopped.seconds * HIDDEN_TOKENS_PER_SECOND) : 0;
+    used = { inputTokens: tokensOf(chars.input), outputTokens: Math.max(tokensOf(chars.output), hidden) };
+  }
   const { usd, estimated } = chatCost(provider, model, used);
   return { kind, provider, model, inputTokens: used.inputTokens, outputTokens: used.outputTokens, usd, estimated: estimated || !usage };
 }
@@ -56,21 +70,31 @@ export function startOfDay(now = new Date()): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 }
 
+function isForeignKeyViolation(err: unknown): boolean {
+  const e = err as { code?: string; cause?: { code?: string } } | null;
+  return (e?.code ?? e?.cause?.code) === "23503";
+}
+
 /**
- * Writes the cost of one request's model calls. `credits` (taken from the
- * user's balance for the whole request) is stored on the first row.
+ * Writes the cost of one request's model calls and drops its reservation (the
+ * pending row under `chargeId`). `credits` (taken from the user's balance for
+ * the whole request) is stored on the first row; credits taken for a request
+ * that left no cost behind still get a row, so the totals add up.
  */
 export async function recordCosts(
   userId: string | null,
   paidBy: PaidBy,
   entries: CostEntry[],
   credits = 0,
+  opts: { chargeId?: string; kind?: CostKind } = {},
 ): Promise<void> {
+  const at = new Date();
   const rows = entries
     .filter((e) => Number.isFinite(e.usd) && e.usd >= 0)
-    .map((e, i) => ({
+    .map((e) => ({
       id: crypto.randomUUID(),
       userId,
+      at,
       kind: e.kind,
       provider: e.provider.slice(0, 40),
       model: e.model.slice(0, 200),
@@ -79,26 +103,66 @@ export async function recordCosts(
       costUsd: e.usd,
       estimated: e.estimated,
       paidBy,
-      credits: i === 0 ? credits : 0,
+      credits: 0,
     }));
-  if (!rows.length) return;
-  const db = await getDb();
-  try {
-    await db.insert(schema.aiCost).values(rows);
-  } catch (err) {
-    // The account may have been deleted meanwhile; keep the cost without it.
-    if (!userId) throw err;
-    await db.insert(schema.aiCost).values(rows.map((r) => ({ ...r, userId: null })));
+  if (!rows.length && credits > 0) {
+    rows.push({
+      id: crypto.randomUUID(), userId, at, kind: opts.kind ?? "chat", provider: "-", model: "-",
+      inputTokens: null, outputTokens: null, costUsd: 0, estimated: true, paidBy, credits: 0,
+    });
   }
-  if (paidBy === "free") freeSpend.at = 0;
+  if (rows.length) rows[0].credits = credits;
+  const db = await getDb();
+  const write = (values: typeof rows) =>
+    db.transaction(async (tx) => {
+      if (opts.chargeId) await tx.delete(schema.aiCost).where(and(eq(schema.aiCost.id, opts.chargeId), eq(schema.aiCost.pending, true)));
+      if (values.length) await tx.insert(schema.aiCost).values(values);
+    });
+  try {
+    await write(rows);
+  } catch (err) {
+    // The account was deleted meanwhile: keep the cost for the totals, without it.
+    if (!userId || !isForeignKeyViolation(err)) throw err;
+    await write(rows.map((r) => ({ ...r, userId: null })));
+  }
 }
 
 /**
- * Today's spending on a user's requests that the plan pays for: requests paid
- * with credits or with the user's own key don't use up the plan's budget.
+ * Holds a request's estimated cost in the ledger while it runs (a pending row
+ * under the charge's id), so parallel requests see each other in the budgets.
+ * recordCosts replaces it with the real cost.
  */
-export async function userSpendToday(userId: string): Promise<number> {
-  const db = await getDb();
+export async function insertReservation(
+  conn: Conn,
+  r: { id: string; userId: string; kind: CostKind; provider: string; model: string; usd: number; paidBy: PaidBy },
+): Promise<void> {
+  await conn
+    .insert(schema.aiCost)
+    .values({
+      id: r.id,
+      userId: r.userId,
+      at: new Date(),
+      kind: r.kind,
+      provider: r.provider.slice(0, 40),
+      model: r.model.slice(0, 200),
+      costUsd: r.usd,
+      estimated: true,
+      paidBy: r.paidBy,
+      pending: true,
+    })
+    .onConflictDoNothing();
+}
+
+/** Kinds the per-user daily budget applies to; pictures and video are governed by their daily counts. */
+export const BUDGETED: CostKind[] = ["chat", "voice", "background"];
+
+/**
+ * Today's spending (finished and still running) on a user's chat, dictation and
+ * MARYX's jobs that the plan pays for: requests paid with credits or with the
+ * user's own key, and pictures and video, don't use up the plan's budget.
+ */
+export async function userSpendToday(userId: string, conn?: Conn): Promise<number> {
+  const db = conn ?? (await getDb());
   const [row] = await db
     .select({ usd: sql<number>`coalesce(sum(${schema.aiCost.costUsd}), 0)` })
     .from(schema.aiCost)
@@ -107,18 +171,19 @@ export async function userSpendToday(userId: string): Promise<number> {
         eq(schema.aiCost.userId, userId),
         gte(schema.aiCost.at, startOfDay()),
         inArray(schema.aiCost.paidBy, ["free", "pro", "admin"]),
+        inArray(schema.aiCost.kind, BUDGETED),
       ),
     );
   return Number(row?.usd ?? 0);
 }
 
-/** Daily AI budget per user in USD (FREE_DAILY_USD, PRO_DAILY_USD); null = none. */
+/** Daily AI budget per user in USD for chat and dictation (FREE_DAILY_USD, PRO_DAILY_USD); null = none. */
 export function planDailyUsd(plan: PlanId): number | null {
   const raw = process.env[plan === "free" ? "FREE_DAILY_USD" : "PRO_DAILY_USD"]?.trim();
   if (raw === "unlimited") return null;
   const value = raw ? Number.parseFloat(raw) : NaN;
   if (Number.isFinite(value) && value >= 0) return value;
-  return plan === "free" ? 0.1 : 1;
+  return plan === "free" ? 0.2 : 1;
 }
 
 /** Site-wide daily budget for free-plan requests (AI_DAILY_BUDGET_USD); null = none. */
@@ -127,19 +192,14 @@ export function siteDailyBudget(): number | null {
   return Number.isFinite(value) && value >= 0 ? value : null;
 }
 
-/** Today's free-plan spending, re-read at most every 15 seconds (and after each free request). */
-const freeSpend = { at: 0, day: "", usd: 0 };
-
-export async function freeSpendToday(): Promise<number> {
-  const day = startOfDay().toISOString();
-  if (freeSpend.day === day && Date.now() - freeSpend.at < 15_000) return freeSpend.usd;
-  const db = await getDb();
+/** Today's spending on free-plan requests across the site, including those still running. */
+export async function freeSpendToday(conn?: Conn): Promise<number> {
+  const db = conn ?? (await getDb());
   const [row] = await db
     .select({ usd: sql<number>`coalesce(sum(${schema.aiCost.costUsd}), 0)` })
     .from(schema.aiCost)
-    .where(and(gte(schema.aiCost.at, startOfDay()), inArray(schema.aiCost.paidBy, ["free"])));
-  Object.assign(freeSpend, { at: Date.now(), day, usd: Number(row?.usd ?? 0) });
-  return freeSpend.usd;
+    .where(and(gte(schema.aiCost.at, startOfDay()), eq(schema.aiCost.paidBy, "free")));
+  return Number(row?.usd ?? 0);
 }
 
 /** Whether the site's free budget for today is used up. */
@@ -162,7 +222,8 @@ export async function costReport(): Promise<CostReport> {
   // Raw SQL fragments take dates as text (the driver doesn't convert them there).
   const [todayAt, weekAt] = [today.toISOString(), week.toISOString()];
   const usd = sql<number>`coalesce(sum(${c.costUsd}), 0)`;
-  const requests = sql<number>`count(*)`;
+  // A request is what a user asked for; MARYX's own jobs (titles, follow-ups) aren't counted as requests.
+  const requests = sql<number>`count(*) filter (where ${c.kind} <> 'background')`;
   const costliest = sql`sum(${c.costUsd}) desc`;
   const site = and(gte(c.at, month), ne(c.paidBy, "byok"));
 
@@ -170,9 +231,9 @@ export async function costReport(): Promise<CostReport> {
     db
       .select({
         today: sql<number>`coalesce(sum(${c.costUsd}) filter (where ${c.at} >= ${todayAt}), 0)`,
-        todayN: sql<number>`count(*) filter (where ${c.at} >= ${todayAt})`,
+        todayN: sql<number>`count(*) filter (where ${c.at} >= ${todayAt} and ${c.kind} <> 'background')`,
         week: sql<number>`coalesce(sum(${c.costUsd}) filter (where ${c.at} >= ${weekAt}), 0)`,
-        weekN: sql<number>`count(*) filter (where ${c.at} >= ${weekAt})`,
+        weekN: sql<number>`count(*) filter (where ${c.at} >= ${weekAt} and ${c.kind} <> 'background')`,
         month: usd,
         monthN: requests,
         free: sql<number>`coalesce(sum(${c.costUsd}) filter (where ${c.at} >= ${todayAt} and ${c.paidBy} = 'free'), 0)`,
@@ -208,7 +269,7 @@ export async function costReport(): Promise<CostReport> {
       .groupBy(c.userId, schema.user.email)
       .orderBy(costliest)
       .limit(15),
-    db.select({ kind: c.kind, usd, requests }).from(c).where(site).groupBy(c.kind).orderBy(costliest),
+    db.select({ kind: c.kind, usd, requests: sql<number>`count(*)` }).from(c).where(site).groupBy(c.kind).orderBy(costliest),
     db.select({ paidBy: c.paidBy, usd, requests }).from(c).where(gte(c.at, month)).groupBy(c.paidBy).orderBy(costliest),
     db
       .select({ n: sql<number>`coalesce(sum(${schema.creditGrant.credits}), 0)` })

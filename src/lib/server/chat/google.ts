@@ -41,9 +41,18 @@ export async function* streamGoogle(
     },
   });
 
-  let usage: { promptTokenCount?: number; candidatesTokenCount?: number; thoughtsTokenCount?: number } | undefined;
   for await (const chunk of stream) {
-    if (chunk.usageMetadata) usage = chunk.usageMetadata;
+    // The totals so far come with every chunk (thinking is billed as output), so a stopped answer keeps them.
+    const used = chunk.usageMetadata;
+    if (used) {
+      yield {
+        type: "usage",
+        usage: {
+          inputTokens: used.promptTokenCount ?? 0,
+          outputTokens: (used.candidatesTokenCount ?? 0) + (used.thoughtsTokenCount ?? 0),
+        },
+      };
+    }
     const candidate = chunk.candidates?.[0];
     for (const part of candidate?.content?.parts ?? []) {
       if (!part.text) continue;
@@ -56,15 +65,5 @@ export async function* streamGoogle(
     } else if (candidate?.finishReason === "SAFETY") {
       yield { type: "notice", text: "Ответ остановлен фильтром безопасности Google." };
     }
-  }
-  // The totals so far come with every chunk; thinking is billed as output.
-  if (usage) {
-    yield {
-      type: "usage",
-      usage: {
-        inputTokens: usage.promptTokenCount ?? 0,
-        outputTokens: (usage.candidatesTokenCount ?? 0) + (usage.thoughtsTokenCount ?? 0),
-      },
-    };
   }
 }

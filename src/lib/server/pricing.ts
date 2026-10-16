@@ -12,29 +12,31 @@ interface TokenPrice {
 }
 
 const openRouterPrices = new Map<string, TokenPrice>();
-/** USD per picture, or per second of video, for OpenRouter's image and video models. */
-const openRouterMediaPrices = new Map<string, number>();
 
 export function rememberPrice(model: string, price: TokenPrice): void {
   openRouterPrices.set(model, price);
-}
-
-export function rememberMediaPrice(model: string, usd: number): void {
-  openRouterMediaPrices.set(model, usd);
 }
 
 const M = 1_000_000;
 
 /**
  * List prices in USD per million tokens [input, output], by model family. The
- * first pattern that matches the model id wins; a model nobody lists gets the
- * last row. Rough on purpose: they only matter until the provider says better.
+ * first pattern that matches the model id wins (ids like claude-opus-4-8 and
+ * anthropic/claude-opus-4.8 alike); a model nobody lists gets the last row,
+ * which is deliberately high so an unknown model is over- rather than
+ * under-counted. They only matter until the provider says better.
  */
 const FAMILIES: [RegExp, number, number][] = [
   [/fable|mythos/, 10, 50],
-  [/opus/, 4, 20],
+  [/opus-4([-.][01])?($|-20\d{6}|:)|3-opus/, 15, 75],
+  [/opus-5[-.]5/, 4, 20],
+  [/opus/, 5, 25],
+  [/sonnet-[34]|3(-\d)?-sonnet/, 3, 15],
   [/sonnet/, 2, 10],
-  [/haiku/, 0.1, 0.5],
+  [/haiku-5/, 0.1, 0.5],
+  [/haiku-3[-.]5|3-5-haiku/, 0.8, 4],
+  [/haiku-3|3-haiku/, 0.25, 1.25],
+  [/haiku/, 1, 5],
   [/gpt-\d+(\.\d+)?-astra|gpt-\d+(\.\d+)?-pro|\bo\d-pro/, 5, 30],
   [/\b(luna|mini|nano|lite)\b|flash-lite/, 0.25, 2],
   [/-sol\b|gpt-|\bo\d/, 2, 12],
@@ -48,7 +50,7 @@ const FAMILIES: [RegExp, number, number][] = [
   [/qwen/, 0.4, 1.6],
   [/llama/, 0.2, 0.6],
   [/mistral|mixtral/, 2, 6],
-  [/./, 1, 4],
+  [/./, 5, 25],
 ];
 
 function listPrice(model: string): TokenPrice {
@@ -80,6 +82,22 @@ export function tokensOf(chars: number): number {
   return Math.ceil(chars / 3.5);
 }
 
+/** Output a chat answer is assumed to need before it is written: a long answer, or a long think. */
+const ANSWER_TOKENS = { normal: 2000, deep: 8000 };
+
+/**
+ * What a chat call is expected to cost before it runs: the input it sends plus
+ * a long answer at the model's price. Held against budgets and credits while
+ * it runs; the real cost replaces it.
+ */
+export function estimateChat(provider: ProviderId, model: string, inputChars: number, deep: boolean): number {
+  if (isSelfHosted(provider) || provider === "maryx") return 0;
+  return chatCost(provider, model, {
+    inputTokens: tokensOf(inputChars),
+    outputTokens: deep ? ANSWER_TOKENS.deep : ANSWER_TOKENS.normal,
+  }).usd;
+}
+
 const IMAGE_PRICES: [RegExp, number][] = [
   [/schnell/, 0.003],
   [/gpt-image-1-mini|image-1-mini/, 0.011],
@@ -96,16 +114,17 @@ const VIDEO_PRICES: [RegExp, number][] = [
   [/./, 0.2],
 ];
 
-/** Default clip length when the request doesn't say. */
-const VIDEO_SECONDS = 6;
+/** Clip length when the request doesn't say: Veo makes 8 seconds by default, most others 5–6. */
+function defaultSeconds(id: string): number {
+  return /veo/.test(id) ? 8 : 6;
+}
 
 /** Estimated cost of one generated picture or clip. */
 export function mediaCost(kind: "image" | "video", model: string, seconds?: number): number {
   const id = model.toLowerCase();
-  const listed = openRouterMediaPrices.get(model);
-  if (kind === "image") return listed ?? IMAGE_PRICES.find(([re]) => re.test(id))![1];
-  const perSecond = listed ?? VIDEO_PRICES.find(([re]) => re.test(id))![1];
-  return perSecond * (seconds && seconds > 0 ? seconds : VIDEO_SECONDS);
+  if (kind === "image") return IMAGE_PRICES.find(([re]) => re.test(id))![1];
+  const perSecond = VIDEO_PRICES.find(([re]) => re.test(id))![1];
+  return perSecond * (seconds && seconds > 0 ? seconds : defaultSeconds(id));
 }
 
 /** Estimated cost of transcribing a clip: about $0.003 per minute (gpt-4o-mini-transcribe), $0.006 for Whisper. */

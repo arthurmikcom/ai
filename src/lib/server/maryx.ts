@@ -10,6 +10,7 @@ import { streamChat } from "./chat";
 import { isConfigured } from "./config";
 import { getDb, schema } from "./db";
 import { listModels } from "./models";
+import { creditValueUsd, takeCredits } from "./billing/credits";
 import { endUserId } from "./own-key";
 import { chatEntry, recordCosts, requestChars, type Meter } from "./spend";
 
@@ -203,7 +204,15 @@ async function quickText(system: string, user: string, timeoutMs: number, meter:
       if (model === second || !second || signal.aborted) throw err;
     } finally {
       const entry = chatEntry("background", model.provider, model.id, usage, { input: requestChars(request), output: out.length });
-      if (entry) await recordCosts(meter.userId, meter.paidBy, [entry]).catch((err) => console.error("[maryx] cost not recorded", err));
+      if (entry) {
+        try {
+          // On credits these jobs are paid with credits too, for the whole credits they cost.
+          const credits = meter.paidBy === "credits" ? await takeCredits(meter.userId, Math.floor(entry.usd / creditValueUsd())) : 0;
+          await recordCosts(meter.userId, meter.paidBy, [entry], credits);
+        } catch (err) {
+          console.error("[maryx] cost not recorded", err);
+        }
+      }
     }
   }
   return "";

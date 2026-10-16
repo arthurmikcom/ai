@@ -1,6 +1,9 @@
 // AI credits: a prepaid balance spent once the plan's daily limits are used up.
-// A request holds the least it can cost when it starts; when it ends, the rest
-// of its real cost (one credit per CREDIT_VALUE_USD of AI spending) is taken.
+// A request holds its estimated cost when it starts (one credit per
+// CREDIT_VALUE_USD of AI spending); when it ends, the real cost is settled:
+// the unused part goes back, and anything above the estimate is taken even if
+// that leaves the balance below zero — a debt that blocks further credit use
+// until the next top-up.
 
 import { desc, eq, sql } from "drizzle-orm";
 import type { UsageKind } from "@/lib/types";
@@ -14,7 +17,7 @@ export function creditValueUsd(): number {
   return Number.isFinite(value) && value > 0 ? value : 0.002;
 }
 
-/** The least one request takes from the balance; its real cost decides above that. */
+/** The least one request takes from the balance, however cheap it was. */
 export const MIN_CREDITS: Record<UsageKind, number> = { chat: 1, image: 5, video: 50, voice: 1 };
 
 /** Credits for a request that cost `usd`. */
@@ -25,28 +28,46 @@ export function creditsFor(kind: UsageKind, usd: number): number {
 export interface PackDef {
   id: string;
   credits: number;
-  /** Price in roubles (ЮKassa). */
+  /** Price in roubles (ЮKassa); 0 when the pack isn't sold for roubles. */
   rub: number;
-  /** Price in US dollars (Stripe). */
+  /** Price in US dollars (Stripe); 0 when the pack isn't sold for dollars. */
   usd: number;
 }
 
-/** Packs on sale: CREDIT_PACKS="credits:rub:usd,…" (default below). */
+/** Packs on sale: CREDIT_PACKS="credits:rub:usd,…" (default below); a price may be left out. */
 const DEFAULT_PACKS = "300:149:1.99,1000:399:4.99,5000:1690:19.99";
 
+/** A plain non-negative number ("399", "4.99"); anything else (spaces, words) is not one. */
+function price(raw: string | undefined): number | null {
+  const text = raw?.trim() ?? "";
+  if (!text) return 0;
+  return /^\d+(\.\d+)?$/.test(text) ? Number(text) : null;
+}
+
+function parsePacks(raw: string, warn: boolean): PackDef[] {
+  const packs: PackDef[] = [];
+  for (const part of raw.split(",")) {
+    const [c, r, u] = part.trim().split(":");
+    const credits = /^\d+$/.test(c?.trim() ?? "") ? Number(c) : NaN;
+    const rub = price(r);
+    const usd = price(u);
+    if (credits > 0 && credits <= 1_000_000 && rub !== null && usd !== null && (rub > 0 || usd > 0)) {
+      packs.push({ id: String(credits), credits, rub, usd });
+    } else if (warn && part.trim()) {
+      console.warn("[credits] CREDIT_PACKS: ignoring", JSON.stringify(part.trim()), "— expected credits:rub:usd");
+    }
+  }
+  return [...new Map(packs.map((p) => [p.id, p])).values()].slice(0, 6);
+}
+
 export function creditPacks(): PackDef[] {
-  const parse = (raw: string) =>
-    raw
-      .split(",")
-      .map((part) => part.trim().split(":").map((n) => Number.parseFloat(n)))
-      .filter(
-        ([credits, rub, usd]) =>
-          Number.isInteger(credits) && credits > 0 && credits <= 1_000_000 && rub > 0 && usd > 0,
-      )
-      .map(([credits, rub, usd]) => ({ id: String(credits), credits, rub, usd }));
-  const packs = parse(process.env.CREDIT_PACKS?.trim() || DEFAULT_PACKS);
-  const unique = [...new Map(packs.map((p) => [p.id, p])).values()];
-  return unique.length ? unique.slice(0, 6) : parse(DEFAULT_PACKS);
+  const custom = process.env.CREDIT_PACKS?.trim();
+  if (custom) {
+    const packs = parsePacks(custom, true);
+    if (packs.length) return packs;
+    console.warn("[credits] CREDIT_PACKS has no valid pack; selling the default ones");
+  }
+  return parsePacks(DEFAULT_PACKS, false);
 }
 
 export function findPack(id: unknown): PackDef | undefined {
@@ -84,28 +105,21 @@ export async function releaseCredits(userId: string, n: number): Promise<void> {
 }
 
 /**
- * Takes up to `n` more credits once a request's real cost is known. A request
- * that cost more than the balance had left empties it rather than going negative.
- * Returns how many were taken.
+ * Takes `n` more credits once a request's real cost is known, even when that
+ * leaves the balance below zero: the debt is paid off by the next top-up, and
+ * until then no request can hold credits. Returns how many were taken.
  */
 export async function takeCredits(userId: string, n: number): Promise<number> {
   if (n <= 0) return 0;
   const db = await getDb();
-  return db.transaction(async (tx) => {
-    const [row] = await tx
-      .select({ balance: schema.creditBalance.balance })
-      .from(schema.creditBalance)
-      .where(eq(schema.creditBalance.userId, userId))
-      .for("update");
-    const taken = Math.min(n, Math.max(0, row?.balance ?? 0));
-    if (taken > 0) {
-      await tx
-        .update(schema.creditBalance)
-        .set({ balance: sql`${schema.creditBalance.balance} - ${taken}`, updatedAt: new Date() })
-        .where(eq(schema.creditBalance.userId, userId));
-    }
-    return taken;
-  });
+  await db
+    .insert(schema.creditBalance)
+    .values({ userId, balance: -n })
+    .onConflictDoUpdate({
+      target: schema.creditBalance.userId,
+      set: { balance: sql`${schema.creditBalance.balance} - ${n}`, updatedAt: new Date() },
+    });
+  return n;
 }
 
 /**

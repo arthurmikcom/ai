@@ -190,6 +190,10 @@ export const media = pgTable(
     paidBy: text("paid_by").$type<PaidBy>(),
     /** Credits held when it started (paid with credits). */
     heldCredits: integer("held_credits").default(0).notNull(),
+    /** The charge's id: its reserved cost sits in ai_cost under this id until the job ends. */
+    chargeId: text("charge_id"),
+    /** UTC day (YYYY-MM-DD) the use was counted on, so a refund gives it back on that day. */
+    chargeDay: text("charge_day"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
@@ -356,6 +360,12 @@ export const aiCost = pgTable(
     paidBy: text("paid_by").$type<PaidBy>().notNull(),
     /** Credits taken from the user's balance for this request. */
     credits: integer("credits").default(0).notNull(),
+    /**
+     * A request still running: its estimated cost counts toward the budgets
+     * until the real cost replaces it. One left behind (the server was killed
+     * mid-answer) stays as the estimate.
+     */
+    pending: boolean("pending").default(false).notNull(),
   },
   (t) => [index("ai_cost_at_idx").on(t.at), index("ai_cost_user_idx").on(t.userId, t.at)],
 );

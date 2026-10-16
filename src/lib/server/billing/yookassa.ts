@@ -155,6 +155,7 @@ export async function startYooKassaCheckout(user: SessionUser, origin: string): 
 
 /** A one-off payment for a pack of credits; the card isn't saved. Returns the payment page URL. */
 export async function startYooKassaCredits(user: SessionUser, origin: string, pack: PackDef): Promise<string> {
+  if (!(pack.rub > 0)) throw new Error("Этот пакет не продаётся в рублях");
   const description = `Пакет ${pack.credits} кредитов MARYX Ai`;
   const payment = await yk<YkPayment>("/payments", {
     method: "POST",

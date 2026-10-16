@@ -1,12 +1,22 @@
 import { and, eq, sql } from "drizzle-orm";
 import { USAGE_KINDS, type PaidBy, type UsageKind, type UsageSummary } from "@/lib/types";
 import { isAdmin, type SessionUser } from "./auth";
-import { creditsFor, holdCredits, MIN_CREDITS, releaseCredits, takeCredits } from "./billing/credits";
+import { creditBalance, creditsFor, holdCredits, MIN_CREDITS, releaseCredits, takeCredits } from "./billing/credits";
 import { currentPlan, planLimit } from "./billing/plans";
 import { stripeCreditsConfigured } from "./billing/stripe";
 import { yookassaConfigured } from "./billing/yookassa";
 import { getDb, schema } from "./db";
-import { planDailyUsd, recordCosts, siteBudgetSpent, userSpendToday, type CostEntry } from "./spend";
+import {
+  BUDGETED,
+  freeSpendToday,
+  insertReservation,
+  planDailyUsd,
+  recordCosts,
+  siteBudgetSpent,
+  siteDailyBudget,
+  userSpendToday,
+  type CostEntry,
+} from "./spend";
 
 /** Today's limit for this user; null means unlimited. */
 export async function dailyLimit(user: SessionUser, kind: UsageKind): Promise<number | null> {
@@ -15,7 +25,7 @@ export async function dailyLimit(user: SessionUser, kind: UsageKind): Promise<nu
   return planLimit(plan, kind);
 }
 
-function today(): string {
+export function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
@@ -58,8 +68,8 @@ async function bump(userId: string, kind: Counter, limit: number | null): Promis
   return rows.length > 0;
 }
 
-/** Gives back a use when the provider failed before producing anything. */
-export async function refund(userId: string, kind: Counter): Promise<void> {
+/** Gives back a use when the provider failed before producing anything — on the day it was counted. */
+export async function refund(userId: string, kind: Counter, day = today()): Promise<void> {
   const db = await getDb();
   await db
     .update(schema.usage)
@@ -67,7 +77,7 @@ export async function refund(userId: string, kind: Counter): Promise<void> {
     .where(
       and(
         eq(schema.usage.userId, userId),
-        eq(schema.usage.day, today()),
+        eq(schema.usage.day, day),
         eq(schema.usage.kind, kind as UsageKind),
       ),
     );
@@ -90,33 +100,52 @@ export async function usageSummary(user: SessionUser): Promise<UsageSummary> {
 // ---------- Paying for one request ----------
 
 /**
- * How one request is paid for, decided before it starts. With the user's own
- * OpenRouter key it costs the site nothing. Otherwise it counts toward the
- * plan's daily limit, within the plan's daily budget (expensive models and big
- * files use it up faster) and, for free requests, the site-wide daily budget.
- * Past any of those it is paid with credits, if the user has some.
+ * How one request is paid for. With the user's own OpenRouter key it costs the
+ * site nothing. Otherwise it counts toward the plan's daily limit, within the
+ * plan's daily budget for chat and dictation (expensive models and big files
+ * use it up faster) and, for free requests, the site-wide daily budget. Past
+ * any of those it is paid with credits, if the user has enough.
+ *
+ * It happens in two steps: charge() before the request is prepared (counts,
+ * and the least credits it can take), then reserve() with its estimated cost
+ * once the model and input are known. The estimate is held while the request
+ * runs — in the ledger as a pending row, and from the credit balance — so
+ * parallel requests can't slip past a budget or spend credits twice.
+ * settleCharge() replaces it with the real cost.
  */
 export interface Charge {
+  /** Also the id of the pending ledger row holding the estimate. */
+  id: string;
   userId: string;
   kind: UsageKind;
   paidBy: PaidBy;
-  /** Credits held when it started (paidBy "credits"); the real cost is settled at the end. */
+  /** Credits held (paidBy "credits"); the real cost is settled at the end. */
   held: number;
   /** The user's own OpenRouter key (paidBy "byok"). */
   key?: string;
+  /** UTC day the use was counted on. */
+  day: string;
+  /** Credits the request was estimated to need, when there weren't enough. */
+  need?: number;
+  /** Settled or refunded already; later calls do nothing. */
+  done?: boolean;
 }
 
 /**
- * Why a request was refused: the plan's count limit, the user's daily budget,
- * the site's budget for free requests, or the daily count for one's own key.
+ * Why a request was refused: the plan's count limit, the user's daily budget
+ * (used up, or not enough left for this request), the site's budget for free
+ * requests, not enough credits for this request, or the daily count for
+ * one's own key.
  */
-export type Denial = "limit" | "spend" | "budget" | "ownKey";
+export type Denial = "limit" | "spend" | "expensive" | "budget" | "credits" | "ownKey";
 
 /** Requests a day with one's own key: no cost to the site, but the server still does the work. */
 const OWN_KEY_DAILY = 3000;
 
+const budgeted = (kind: UsageKind) => BUDGETED.includes(kind);
+
 export async function charge(user: SessionUser, kind: UsageKind, ownKey?: string): Promise<Charge | { denied: Denial }> {
-  const base = { userId: user.id, kind, held: 0 };
+  const base = { id: crypto.randomUUID(), userId: user.id, kind, held: 0, day: today() };
   if (ownKey) {
     return (await bump(user.id, "byok", OWN_KEY_DAILY)) ? { ...base, paidBy: "byok", key: ownKey } : { denied: "ownKey" };
   }
@@ -125,7 +154,7 @@ export async function charge(user: SessionUser, kind: UsageKind, ownKey?: string
     return { ...base, paidBy: "admin" };
   }
   const { plan } = await currentPlan(user.id);
-  const budget = planDailyUsd(plan);
+  const budget = budgeted(kind) ? planDailyUsd(plan) : null;
   let denied: Denial;
   if (budget !== null && (await userSpendToday(user.id)) >= budget) denied = "spend";
   else if (plan === "free" && (await siteBudgetSpent())) denied = "budget";
@@ -137,27 +166,95 @@ export async function charge(user: SessionUser, kind: UsageKind, ownKey?: string
   return { denied };
 }
 
-/** Undoes a charge: the request failed before producing anything. */
-export async function refundCharge(c: Charge): Promise<void> {
-  if (c.paidBy === "credits") await releaseCredits(c.userId, c.held);
-  else await refund(c.userId, c.paidBy === "byok" ? "byok" : c.kind);
+/**
+ * Holds a request's estimated cost (USD) while it runs. A plan-paid request
+ * that would go past the plan's or the site's budget switches to credits if
+ * the user has enough, else it is refused. A credit-paid one tops its hold up
+ * to the estimate. Returns the reason when refused (the charge is then still
+ * to be refunded by the caller).
+ */
+export async function reserve(
+  c: Charge,
+  usd: number,
+  call: { provider: string; model: string },
+): Promise<Denial | null> {
+  if (c.done || c.paidBy === "byok" || c.paidBy === "admin") return null;
+  const estimate = Number.isFinite(usd) && usd > 0 ? usd : 0;
+  const row = { id: c.id, userId: c.userId, kind: c.kind, provider: call.provider, model: call.model, usd: estimate };
+  const need = creditsFor(c.kind, estimate);
+  if (c.paidBy === "credits") {
+    if (need > c.held) {
+      if (!(await holdCredits(c.userId, need - c.held))) {
+        c.need = need;
+        return "credits";
+      }
+      c.held = need;
+    }
+  } else {
+    const verdict = await reservePlan(c.paidBy, row);
+    if (!verdict) return null;
+    // Over a budget: credits can still pay, and the plan's use is given back.
+    if (!(await holdCredits(c.userId, need))) return verdict;
+    await refund(c.userId, c.kind, c.day);
+    c.paidBy = "credits";
+    c.held = need;
+  }
+  await insertReservation(await getDb(), { ...row, paidBy: "credits" });
+  return null;
 }
 
 /**
- * Records what a request cost and, if it was paid with credits, takes the
- * rest of its price. With `failed` the charge is refunded instead (the cost,
- * if any, is still recorded). Never throws: the answer is already given.
+ * Checks a plan-paid request's estimate against the plan's and the site's
+ * budgets and reserves it. One request of a user at a time (and, with a site
+ * budget, one free request at a time), so parallel ones see each other.
+ */
+async function reservePlan(
+  plan: "free" | "pro",
+  row: { id: string; userId: string; kind: UsageKind; provider: string; model: string; usd: number },
+): Promise<Denial | null> {
+  const site = plan === "free" ? siteDailyBudget() : null;
+  const budget = budgeted(row.kind) ? planDailyUsd(plan) : null;
+  const db = await getDb();
+  return db.transaction(async (tx): Promise<Denial | null> => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`maryx-spend:${row.userId}`}))`);
+    if (site !== null) await tx.execute(sql`select pg_advisory_xact_lock(hashtext('maryx-spend:site-free'))`);
+    if (budget !== null) {
+      const spent = await userSpendToday(row.userId, tx);
+      if (spent + row.usd > budget) return spent >= budget ? "spend" : "expensive";
+    }
+    if (site !== null && (await freeSpendToday(tx)) + row.usd > site) return "budget";
+    await insertReservation(tx, { ...row, paidBy: plan });
+    return null;
+  });
+}
+
+/** Undoes a charge: the request failed before producing anything. */
+export async function refundCharge(c: Charge): Promise<void> {
+  await settleCharge(c, [], true);
+}
+
+/**
+ * Records what a request cost, replacing its reservation, and settles its
+ * credits: the unused part of the hold goes back, a cost above it is taken
+ * (even into debt). With `failed` the charge is refunded instead (a cost the
+ * provider billed anyway is still recorded). Runs once per charge; never
+ * throws, since the answer has already been given.
  */
 export async function settleCharge(c: Charge, costs: CostEntry[], failed = false): Promise<void> {
+  if (c.done) return;
+  c.done = true;
   try {
     let credits = 0;
     if (failed) {
-      await refundCharge(c);
+      if (c.paidBy === "credits") await releaseCredits(c.userId, c.held);
+      else await refund(c.userId, c.paidBy === "byok" ? "byok" : c.kind, c.day);
     } else if (c.paidBy === "credits") {
       const total = creditsFor(c.kind, costs.reduce((sum, e) => sum + e.usd, 0));
-      credits = c.held + (await takeCredits(c.userId, total - c.held));
+      if (total > c.held) await takeCredits(c.userId, total - c.held);
+      else await releaseCredits(c.userId, c.held - total);
+      credits = total;
     }
-    await recordCosts(c.userId, c.paidBy, costs, credits);
+    await recordCosts(c.userId, c.paidBy, costs, credits, { chargeId: c.id, kind: c.kind });
   } catch (err) {
     console.error("[usage] failed to settle a charge", c.paidBy, c.kind, err);
   }
@@ -170,11 +267,23 @@ const NOT_IN_PLAN: Record<UsageKind, string> = {
   voice: "Голосовой ввод не входит",
 };
 
-/** Error body for a refused request; `code` lets the UI offer plans and credits. */
-export async function deniedResponse(user: SessionUser, kind: UsageKind, denied: Denial): Promise<Response> {
+/**
+ * Error body for a refused request. `code` "limit" lets the UI offer plans and
+ * credits; "own-key-limit" (the daily count for one's own key) can't be lifted by them.
+ * `c` is the refused charge, when there was one (for the credits it needed).
+ */
+export async function deniedResponse(
+  user: SessionUser,
+  kind: UsageKind,
+  denied: Denial,
+  opts: { ownKey?: boolean; charge?: Charge } = {},
+): Promise<Response> {
   if (denied === "ownKey") {
     return Response.json(
-      { error: `Со своим ключом можно до ${OWN_KEY_DAILY} запросов в сутки. Лимит обновится в полночь по UTC.`, code: "limit" },
+      {
+        error: `Со своим ключом можно до ${OWN_KEY_DAILY} запросов в сутки. Лимит обновится в полночь по UTC, или удалите ключ в настройках, чтобы пользоваться тарифом сайта.`,
+        code: "own-key-limit",
+      },
       { status: 429 },
     );
   }
@@ -183,14 +292,27 @@ export async function deniedResponse(user: SessionUser, kind: UsageKind, denied:
   const ways = [
     ...(yookassaConfigured() || stripeCreditsConfigured() ? ["купите кредиты"] : []),
     ...(plan === "free" ? ["оформите Pro"] : []),
-    "подключите свой ключ OpenRouter в настройках",
+    opts.ownKey
+      ? "выберите MARYX или модель OpenRouter — запрос пойдёт по вашему ключу"
+      : "подключите свой ключ OpenRouter в настройках",
   ];
   const hint = `Чтобы продолжить сейчас, ${ways.join(", ").replace(/, ([^,]*)$/, " или $1")}.`;
   let error: string;
   if (denied === "spend") {
     error =
-      "Дневной бюджет вашего тарифа на ИИ израсходован: дорогие модели, большие файлы и видео тратят его быстрее. " +
+      "Дневной бюджет вашего тарифа на ИИ израсходован: дорогие модели и большие файлы тратят его быстрее. " +
       `Он обновится в полночь по UTC. ${hint}`;
+  } else if (denied === "expensive") {
+    error =
+      "Этот запрос дороже, чем осталось в дневном бюджете вашего тарифа: дорогая модель, «Думать глубже» или большие файлы. " +
+      `Выберите модель попроще (например MARYX) или сократите файлы. ${hint}`;
+  } else if (denied === "credits") {
+    const balance = await creditBalance(user.id);
+    const need = opts.charge?.need;
+    error =
+      balance < 0
+        ? `Предыдущий запрос стоил больше, чем оставалось кредитов: долг ${-balance} кр. Пополните кредиты, чтобы продолжить.`
+        : `Не хватает кредитов: этот запрос стоит около ${need ?? "?"}, а у вас ${balance}. Пополните кредиты или выберите модель попроще.`;
   } else if (denied === "budget") {
     error = `Бесплатные запросы на сегодня закончились: сайт исчерпал дневной бюджет. Попробуйте после полуночи по UTC. ${hint}`;
   } else {
@@ -199,6 +321,11 @@ export async function deniedResponse(user: SessionUser, kind: UsageKind, denied:
       limit === 0
         ? `${NOT_IN_PLAN[kind]} в ваш тариф. ${hint}`
         : `Дневной лимит исчерпан (${LIMIT_NAMES[kind]}: ${limit} в сутки). Лимит обновится в полночь по UTC. ${hint}`;
+  }
+  // Credits in debt can't pay for anything until topped up: say so, whatever the reason was.
+  if (denied !== "credits") {
+    const balance = await creditBalance(user.id);
+    if (balance < 0) error += ` Кредитов нет: долг ${-balance} кр. спишется из следующего пополнения.`;
   }
   return Response.json({ error, code: "limit" }, { status: 429 });
 }

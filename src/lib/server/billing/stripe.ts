@@ -91,8 +91,9 @@ export async function startStripeCheckout(user: SessionUser, origin: string): Pr
   }
   // Close checkout pages left open (another tab, an earlier attempt), so two of
   // them can't both be paid and create two subscriptions.
+  // A credits checkout of the same customer is left alone.
   const open = await stripe().checkout.sessions.list({ customer: customerId, status: "open", limit: 20 });
-  await Promise.all(open.data.map((s) => stripe().checkout.sessions.expire(s.id)));
+  await Promise.all(open.data.filter((s) => s.mode === "subscription").map((s) => stripe().checkout.sessions.expire(s.id)));
 
   const session = await stripe().checkout.sessions.create({
     mode: "subscription",
@@ -125,6 +126,7 @@ const idOf = (value: string | { id: string } | null | undefined) =>
 
 /** A one-off Checkout for a pack of credits (in US dollars); returns its URL. */
 export async function startStripeCredits(user: SessionUser, origin: string, pack: PackDef): Promise<string> {
+  if (!(pack.usd > 0)) throw new Error("Этот пакет не продаётся в долларах");
   const sub = await getSubscription(user.id);
   const session = await stripe().checkout.sessions.create({
     mode: "payment",
@@ -161,8 +163,11 @@ async function applyCreditsSession(session: Stripe.Checkout.Session): Promise<"s
   try {
     await grantCredits({ id: `stripe:${session.id}`, userId, credits, source: "stripe" });
   } catch (err) {
-    // The account may have been deleted in the meantime (foreign key).
-    console.error("[stripe] failed to add credits", session.id, err);
+    // Only a deleted account (foreign key) is final; anything else must fail loudly, so the
+    // webhook answers 500 and Stripe delivers the event again.
+    const e = err as { code?: string; cause?: { code?: string } };
+    if ((e.code ?? e.cause?.code) !== "23503") throw err;
+    console.error("[stripe] account gone, credits not added", session.id);
     return "failed";
   }
   return "succeeded";
@@ -174,7 +179,13 @@ export async function syncStripeCredits(userId: string, sessionId: string): Prom
   const session = await stripe().checkout.sessions.retrieve(sessionId);
   // Only the buyer's own session: a session id from someone else adds nothing here.
   if ((session.metadata?.userId || session.client_reference_id) !== userId) return "failed";
-  return applyCreditsSession(session);
+  try {
+    return await applyCreditsSession(session);
+  } catch (err) {
+    // Paid, but not credited yet: the webhook will retry. Never tell a paying user it failed.
+    console.error("[stripe] credits sync failed", session.id, err);
+    return "pending";
+  }
 }
 
 /**

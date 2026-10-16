@@ -1,7 +1,7 @@
 import { PROVIDERS } from "@/lib/catalog";
 import { getAuth, vercelHosts } from "@/lib/server/auth";
 import { isConfigured } from "@/lib/server/config";
-import { stripeCreditsConfigured } from "@/lib/server/billing/stripe";
+import { stripeConfigured, stripeCreditsConfigured } from "@/lib/server/billing/stripe";
 import { yookassaConfigured } from "@/lib/server/billing/yookassa";
 import { getDb, schema } from "@/lib/server/db";
 import { siteDailyBudget } from "@/lib/server/spend";
@@ -98,12 +98,21 @@ export async function GET(request: Request) {
     budget === null
       ? `⚠ общий дневной бюджет на бесплатные запросы не задан — каждого пользователя ограничивают только лимиты тарифа. Чтобы расходы не превысили сумму в день, добавьте AI_DAILY_BUDGET_USD (например 5): ${SETTINGS}`
       : `✓ бесплатные запросы — до $${budget} в сутки на весь сайт`;
-  const yookassa = yookassaConfigured();
-  const stripe = stripeCreditsConfigured();
-  checks["Оплата"] =
-    yookassa || stripe
-      ? `✓ ${[yookassa && "ЮKassa", stripe && "Stripe"].filter(Boolean).join(" и ")}: Pro и кредиты продаются`
-      : "⚠ не подключена — Pro и кредиты можно выдавать промокодами в Настройках";
+  const payments: string[] = [];
+  let paymentsWarn = false;
+  if (yookassaConfigured()) {
+    if (process.env.CRON_SECRET?.trim()) payments.push("ЮKassa: Pro и кредиты");
+    else {
+      paymentsWarn = true;
+      payments.push("ЮKassa: Pro и кредиты, но без CRON_SECRET подписки не продлеваются сами");
+    }
+  }
+  if (stripeCreditsConfigured()) {
+    payments.push(stripeConfigured() ? "Stripe: Pro и кредиты" : "Stripe: только кредиты (для Pro добавьте STRIPE_PRICE_PRO)");
+  }
+  checks["Оплата"] = payments.length
+    ? `${paymentsWarn ? "⚠" : "✓"} ${payments.join("; ")}`
+    : "⚠ не подключена — Pro и кредиты можно выдавать промокодами в Настройках";
 
   checks["Хранилище файлов"] = process.env.BLOB_READ_WRITE_TOKEN
     ? "✓ Vercel Blob подключён"

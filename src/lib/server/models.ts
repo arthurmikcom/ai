@@ -286,14 +286,17 @@ export async function loadOpenRouterChatModels(ownKey = false): Promise<void> {
  */
 export async function listModels(capability: Capability | null, opts: { ownKey?: boolean } = {}): Promise<ModelsResponse> {
   const ownKey = opts.ownKey ?? false;
+  // `configured` is the site's own setup (the admin panel shows it); the user's key only adds models.
+  const usable = (id: ProviderId) => isConfigured(id) || (ownKey && id === "openrouter");
   const providers = PROVIDERS.map((p) => ({
     ...p,
-    configured: isConfigured(p.id) || (ownKey && p.id === "openrouter"),
+    configured: isConfigured(p.id),
+    ...(ownKey && p.id === "openrouter" ? { ownKey: true } : {}),
   }));
   const capabilities: Capability[] = capability ? [capability] : ["chat", "image", "video"];
 
   const jobs = providers
-    .filter((p) => p.configured)
+    .filter((p) => usable(p.id))
     .flatMap((p) =>
       capabilities
         .filter((c) => p.capabilities.includes(c))
@@ -305,7 +308,7 @@ export async function listModels(capability: Capability | null, opts: { ownKey?:
     // runs in the visitor's browser on an open Qwen model, free and without keys.
     // Decided by configuration, so a model server that is briefly down doesn't
     // move visitors to a big download on their own devices.
-    const onServer = providers.some((p) => p.configured && p.capabilities.includes("chat"));
+    const onServer = providers.some((p) => usable(p.id) && p.capabilities.includes("chat"));
     models.unshift(
       onServer
         ? { ...MARYX_MODEL, search: isConfigured("openrouter") || ownKey || undefined }

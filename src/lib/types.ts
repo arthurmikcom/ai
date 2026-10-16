@@ -43,7 +43,10 @@ export interface ModelInfo {
 export interface ProviderStatus {
   id: ProviderId;
   name: string;
+  /** Set up on the server. */
   configured: boolean;
+  /** Not on the server, but this user's own key covers it (OpenRouter, BYOK). */
+  ownKey?: boolean;
   envVar: string;
   signupUrl: string;
   capabilities: Capability[];
@@ -331,6 +334,8 @@ export interface MeResponse {
 /** What /api/billing/plans tells the pricing page. */
 export interface BillingOptions {
   limits: Record<PlanId, Record<UsageKind, number | null>>;
+  /** Each plan's daily AI budget for chat and dictation, in US dollars (null: none). */
+  budget: Record<PlanId, number | null>;
   /** Credit packs on sale (empty without a payment method) and the least a request takes. */
   credits: { packs: CreditPack[]; min: Record<UsageKind, number> };
   /** Payment methods configured on this server, with the Pro price for each. */

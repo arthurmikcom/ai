@@ -32,6 +32,10 @@ export function BillingSection() {
     })
       .then(({ status, credits }) => {
         const what = credits ? "кредиты" : "Pro";
+        // Still processing: the provider confirms within a minute or so; look again a few times.
+        if (status === "pending") {
+          for (const delay of [10_000, 25_000, 50_000]) setTimeout(refreshMe, delay);
+        }
         setMessage(
           status === "succeeded"
             ? { ok: true, text: credits ? "Оплата прошла — кредиты зачислены. Спасибо!" : "Оплата прошла — Pro активирован. Спасибо!" }
@@ -159,7 +163,11 @@ export function BillingSection() {
             <div className="text-sm text-zinc-100">
               Кредиты: <span className="font-medium">{me.credits.toLocaleString("ru-RU")}</span>
             </div>
-            <div className="text-xs text-zinc-500">Тратятся, когда дневной лимит закончился. Не сгорают.</div>
+            <div className="text-xs text-zinc-500">
+              {me.credits < 0
+                ? "Последний запрос стоил больше остатка — долг спишется из следующего пополнения."
+                : "Тратятся, когда дневной лимит закончился. Не сгорают."}
+            </div>
           </div>
         </div>
         <Link
@@ -197,10 +205,18 @@ export function PromoAdmin() {
     e.preventDefault();
     setBusy(true);
     setError(null);
+    // Whole numbers; "1 000" with a space is fine.
+    const whole = (v: string) => (/^\d+$/.test(v.replace(/\s/g, "")) ? Number(v.replace(/\s/g, "")) : NaN);
+    const values = { days: whole(days || "0"), credits: whole(credits || "0"), maxUses: whole(maxUses) };
+    if (Object.values(values).some((v) => !Number.isInteger(v))) {
+      setError("Дни, кредиты и активации — целые числа");
+      setBusy(false);
+      return;
+    }
     try {
       await api("/api/admin/promo", {
         method: "POST",
-        body: JSON.stringify({ days: Number(days), credits: Number(credits || 0), maxUses: Number(maxUses), note }),
+        body: JSON.stringify({ ...values, note }),
       });
       setNote("");
       await load();

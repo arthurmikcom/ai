@@ -31,7 +31,7 @@ function limitText(limit: number | null, kind: UsageKind): string {
 }
 
 export function PricingView() {
-  const { me } = useApp();
+  const { me, refreshMe } = useApp();
   const [options, setOptions] = useState<BillingOptions | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -39,7 +39,14 @@ export function PricingView() {
 
   useEffect(() => {
     api<BillingOptions>("/api/billing/plans").then(setOptions, (e: Error) => setError(e.message));
-  }, []);
+    // The balance may have changed since the app loaded (pictures, video, dictation).
+    refreshMe();
+  }, [refreshMe]);
+
+  // The credits section appears once the plans have loaded, so a link to #credits scrolls here then.
+  useEffect(() => {
+    if (options && window.location.hash === "#credits") document.getElementById("credits")?.scrollIntoView();
+  }, [options]);
 
   const buyCredits = async (method: "yookassa" | "stripe", pack: string) => {
     setBusy(`${method}:${pack}`);
@@ -143,6 +150,12 @@ export function PricingView() {
                       <Check className="size-4 shrink-0 text-emerald-400" />
                       Свои ассистенты
                     </li>
+                    {options.budget[plan.id] !== null && (
+                      <li className="flex items-start gap-2 text-zinc-500">
+                        <Check className="mt-0.5 size-4 shrink-0 text-zinc-600" />
+                        Дорогие модели, «Думать глубже» и большие файлы расходуют дневной лимит быстрее
+                      </li>
+                    )}
                   </ul>
 
                   {pro && (
@@ -223,7 +236,7 @@ export function PricingView() {
               <h2 className="text-xl font-semibold text-zinc-100">AI-кредиты</h2>
               {me && (
                 <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-zinc-300">
-                  у вас: {me.credits.toLocaleString("ru-RU")}
+                  {me.credits < 0 ? `долг: ${(-me.credits).toLocaleString("ru-RU")}` : `у вас: ${me.credits.toLocaleString("ru-RU")}`}
                 </span>
               )}
             </div>

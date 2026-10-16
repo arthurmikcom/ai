@@ -2,7 +2,7 @@ import { describeError } from "@/lib/server/errors";
 import { jsonError, requireUser } from "@/lib/server/http";
 import { endUserId, ownKey } from "@/lib/server/own-key";
 import { transcriptionCost } from "@/lib/server/pricing";
-import { charge, deniedResponse, settleCharge } from "@/lib/server/usage";
+import { charge, deniedResponse, refundCharge, reserve, settleCharge } from "@/lib/server/usage";
 import { clipSeconds, transcribe } from "@/lib/server/voice";
 
 export const maxDuration = 60;
@@ -37,11 +37,16 @@ export async function POST(request: Request) {
   // Dictation goes through OpenRouter, with the user's own key when they saved one.
   const key = await ownKey(user.id);
   const paid = await charge(user, "voice", key);
-  if ("denied" in paid) return deniedResponse(user, "voice", paid.denied);
+  if ("denied" in paid) return deniedResponse(user, "voice", paid.denied, { ownKey: Boolean(key) });
+  // At 32 kbps a second of audio is about 4 KB.
+  const length = seconds ?? bytes.length / 4000;
+  const refused = await reserve(paid, transcriptionCost("whisper", length), { provider: "openrouter", model: "transcription" });
+  if (refused) {
+    await refundCharge(paid);
+    return deniedResponse(user, "voice", refused, { ownKey: Boolean(key), charge: paid });
+  }
   try {
     const result = await transcribe(bytes, mime, paid.key, endUserId(user.id));
-    // At 32 kbps a second of audio is about 4 KB.
-    const length = seconds ?? bytes.length / 4000;
     // The provider has already processed (and billed) the clip, so it still counts when nothing was heard.
     await settleCharge(paid, [
       {

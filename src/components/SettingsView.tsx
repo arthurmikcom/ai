@@ -1,7 +1,7 @@
 "use client";
 
 import { Circle, CircleCheck, ExternalLink, LogOut, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { authClient } from "@/lib/client/auth";
 import { useModels } from "@/lib/client/useModels";
 import type { Capability, UsageKind } from "@/lib/types";
@@ -58,6 +58,10 @@ function Providers() {
                 {p.configured ? (
                   <span className="text-emerald-300">
                     подключён{counts.get(p.id) ? ` · моделей: ${counts.get(p.id)}` : ""}
+                  </span>
+                ) : p.ownKey ? (
+                  <span className="text-amber-200">
+                    на сервере не подключён — модели видны вам только через ваш собственный ключ
                   </span>
                 ) : (
                   <a
@@ -170,7 +174,11 @@ function DeleteAccount() {
 }
 
 export function SettingsView() {
-  const { me, signOut } = useApp();
+  const { me, signOut, refreshMe } = useApp();
+  // Credits and today's usage may have changed since the app loaded (pictures, video, dictation).
+  useEffect(() => {
+    refreshMe();
+  }, [refreshMe]);
 
   return (
     <div className="h-full overflow-y-auto">

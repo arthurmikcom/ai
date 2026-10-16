@@ -62,8 +62,16 @@ export async function* streamAnthropic(
     { signal },
   );
 
+  // Usage so far, reported as it grows so a stopped answer still knows what it used.
+  let inputTokens = 0;
   for await (const event of stream) {
-    if (event.type === "content_block_start" && event.content_block.type === "fallback") {
+    if (event.type === "message_start") {
+      const u = event.message.usage;
+      inputTokens = u.input_tokens + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);
+      yield { type: "usage", usage: { inputTokens, outputTokens: u.output_tokens } };
+    } else if (event.type === "message_delta") {
+      yield { type: "usage", usage: { inputTokens, outputTokens: event.usage.output_tokens } };
+    } else if (event.type === "content_block_start" && event.content_block.type === "fallback") {
       const { from, to } = event.content_block;
       yield { type: "notice", text: `${from.model} отклонила запрос — ответ продолжила ${to.model}.` };
     } else if (event.type === "content_block_delta") {

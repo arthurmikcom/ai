@@ -1,4 +1,5 @@
 import { creditPacks, MIN_CREDITS } from "@/lib/server/billing/credits";
+import { planDailyUsd } from "@/lib/server/spend";
 import { planLimit } from "@/lib/server/billing/plans";
 import { stripeConfigured, stripeCreditsConfigured, stripePriceLabel } from "@/lib/server/billing/stripe";
 import { yookassaConfigured, yookassaPriceLabel } from "@/lib/server/billing/yookassa";
@@ -32,13 +33,15 @@ export async function GET(request: Request) {
       ? creditPacks().map((p) => ({
           id: p.id,
           credits: p.credits,
-          ...(rub ? { rub: money(p.rub, "RUB") } : {}),
-          ...(usd ? { usd: money(p.usd, "USD") } : {}),
+          ...(rub && p.rub > 0 ? { rub: money(p.rub, "RUB") } : {}),
+          ...(usd && p.usd > 0 ? { usd: money(p.usd, "USD") } : {}),
         }))
+        .filter((p) => p.rub || p.usd)
       : [];
 
   const body: BillingOptions = {
     limits: { free: limits("free"), pro: limits("pro") },
+    budget: { free: planDailyUsd("free"), pro: planDailyUsd("pro") },
     credits: { packs, min: MIN_CREDITS },
     methods: {
       yookassa: yookassaConfigured() ? { price: yookassaPriceLabel() } : null,

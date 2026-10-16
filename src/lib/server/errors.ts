@@ -31,8 +31,12 @@ export function describeError(err: unknown, provider?: ProviderId, ownKey = fals
   const detail = err instanceof Error ? err.message : String(err);
   const status = statusOf(err);
   if (ownKey && provider === "openrouter") {
-    if (status === 401 || status === 403) {
+    if (status === 401) {
       return "OpenRouter не принял ваш ключ: возможно, он удалён или отключён. Проверьте ключ в настройках или удалите его, чтобы пользоваться тарифом сайта.";
+    }
+    // 403: the model's moderation flagged the input, or the key hit its own spending limit.
+    if (status === 403) {
+      return `OpenRouter отклонил запрос: ${detail}. Если дело в модерации — переформулируйте запрос или выберите другую модель.`;
     }
     if (status === 402) {
       return "На вашем ключе OpenRouter закончились деньги или исчерпан его лимит. Пополните баланс на openrouter.ai/credits или удалите ключ в настройках, чтобы пользоваться тарифом сайта.";

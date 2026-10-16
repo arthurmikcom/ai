@@ -3,17 +3,20 @@ import type { GenerateRequest, GenerateResult, MediaItem, MediaKind } from "@/li
 import type { SessionUser } from "./auth";
 import { getDb, schema } from "./db";
 import type { StoredFile } from "./db/schema";
-import { describeError } from "./errors";
+import { describeError, statusOf } from "./errors";
 import { checkGeneration, downloadOutput, type OpenRouterCall } from "./media";
 import { endUserId, ownKey } from "./own-key";
 import { mediaCost } from "./pricing";
 import { deleteFiles, fileUrl, newKey, putFile } from "./storage";
-import { settleCharge, type Charge } from "./usage";
+import { settleCharge, today, type Charge } from "./usage";
+import type { CostEntry } from "./spend";
 
 type MediaRow = typeof schema.media.$inferSelect;
 
 /** A start request that died (e.g. a crashed function) leaves no job id behind. */
 const ORPHAN_AFTER_MS = 5 * 60 * 1000;
+/** A job still not done after this long is given up on (the provider has lost it or keeps failing). */
+const GIVE_UP_AFTER_MS = 2 * 60 * 60 * 1000;
 
 function toItem(row: MediaRow): MediaItem {
   return {
@@ -42,9 +45,31 @@ export async function listMedia(userId: string, kind: MediaKind): Promise<MediaI
   return rows.map(toItem);
 }
 
-/** How a gallery item is paid for; items made before credits existed counted toward the plan. */
+/**
+ * How a gallery item is paid for. Items made before credits existed counted
+ * toward the plan; they are booked as "pro" so they stay out of the site's
+ * budget for free requests.
+ */
 function chargeOf(row: MediaRow): Charge {
-  return { userId: row.userId, kind: row.kind, paidBy: row.paidBy ?? "free", held: row.heldCredits };
+  return {
+    id: row.chargeId ?? row.id,
+    userId: row.userId,
+    kind: row.kind,
+    paidBy: row.paidBy ?? "pro",
+    held: row.heldCredits,
+    day: row.chargeDay ?? today(),
+  };
+}
+
+/** The estimated (or reported) cost of an item the provider made. */
+function costOf(row: MediaRow, reported?: number): CostEntry {
+  return {
+    kind: row.kind,
+    provider: row.provider,
+    model: row.model,
+    usd: reported ?? mediaCost(row.kind, row.model),
+    estimated: reported === undefined,
+  };
 }
 
 export async function createMedia(user: SessionUser, req: GenerateRequest, paid: Charge): Promise<MediaRow> {
@@ -62,6 +87,8 @@ export async function createMedia(user: SessionUser, req: GenerateRequest, paid:
       status: "pending",
       paidBy: paid.paidBy,
       heldCredits: paid.held,
+      chargeId: paid.id,
+      chargeDay: paid.day,
     })
     .returning();
   return row;
@@ -77,8 +104,12 @@ async function update(row: MediaRow, changes: Partial<MediaRow>): Promise<MediaR
   return next ?? row;
 }
 
-/** Marks a pending item failed and gives its charge back — once, however many polls get here. */
-async function fail(row: MediaRow, error: string): Promise<MediaRow> {
+/**
+ * Marks a pending item failed and gives its charge back — once, however many
+ * polls get here. `costs`: what the provider billed anyway (it made the
+ * result, but it couldn't be stored).
+ */
+async function fail(row: MediaRow, error: string, costs: CostEntry[] = []): Promise<MediaRow> {
   const db = await getDb();
   const [failed] = await db
     .update(schema.media)
@@ -89,7 +120,7 @@ async function fail(row: MediaRow, error: string): Promise<MediaRow> {
     const [current] = await db.select().from(schema.media).where(eq(schema.media.id, row.id));
     return current ?? row;
   }
-  await settleCharge(chargeOf(row), [], true);
+  await settleCharge(chargeOf(row), costs, true);
   return failed;
 }
 
@@ -114,7 +145,8 @@ export async function applyResult(row: MediaRow, result: GenerateResult, call: O
     }
   } catch (err) {
     await deleteFiles(files.map((f) => f.key)).catch(() => {});
-    return toItem(await fail(row, describeError(err)));
+    // The provider made (and billed) it; only the copy failed.
+    return toItem(await fail(row, describeError(err), [costOf(row, result.cost)]));
   }
 
   // Two polls can finish the same job at once; only the first one keeps its files.
@@ -129,16 +161,7 @@ export async function applyResult(row: MediaRow, result: GenerateResult, call: O
     const [current] = await db.select().from(schema.media).where(eq(schema.media.id, row.id));
     return toItem(current ?? row);
   }
-  const reported = result.cost !== undefined;
-  await settleCharge(chargeOf(row), [
-    {
-      kind: row.kind,
-      provider: row.provider,
-      model: row.model,
-      usd: result.cost ?? mediaCost(row.kind, row.model),
-      estimated: !reported,
-    },
-  ]);
+  await settleCharge(chargeOf(row), [costOf(row, result.cost)]);
   return toItem(saved);
 }
 
@@ -161,10 +184,20 @@ export async function refreshMedia(userId: string, id: string): Promise<MediaIte
   if (row.paidBy === "byok" && !key) {
     return toItem(await fail(row, "Ваш ключ OpenRouter удалён из настроек — узнать, готово ли видео, больше нельзя."));
   }
+  if (Date.now() - row.createdAt.getTime() > GIVE_UP_AFTER_MS) {
+    // The provider may have billed it; the estimate stays in the ledger, the user gets the use back.
+    return toItem(await fail(row, "Видео так и не было готово. Попробуйте ещё раз.", row.paidBy === "byok" ? [] : [costOf(row)]));
+  }
   const call = { key, endUser: endUserId(userId) };
   try {
     return await applyResult(row, await checkGeneration(row.provider, row.kind, row.jobId, call), call);
   } catch (err) {
+    // With the user's own key, a rejected key or a job that belongs to another
+    // account won't get better: stop polling.
+    const status = statusOf(err);
+    if (row.paidBy === "byok" && (status === 401 || status === 403 || status === 404)) {
+      return toItem(await fail(row, describeError(err, row.provider, true)));
+    }
     // Transient provider/network errors: keep the job and let the next poll retry.
     console.error("[media] status check failed", row.provider, row.jobId, err);
     return toItem(row);
@@ -173,6 +206,13 @@ export async function refreshMedia(userId: string, id: string): Promise<MediaIte
 
 export async function deleteMedia(userId: string, id: string): Promise<boolean> {
   const db = await getDb();
+  // A job still running goes on at the provider, which bills it: book its estimated cost.
+  const [abandoned] = await db
+    .update(schema.media)
+    .set({ status: "failed", error: "Удалено", updatedAt: new Date() })
+    .where(and(eq(schema.media.id, id), eq(schema.media.userId, userId), eq(schema.media.status, "pending")))
+    .returning();
+  if (abandoned) await settleCharge(chargeOf(abandoned), abandoned.paidBy === "byok" ? [] : [costOf(abandoned)]);
   const [row] = await db
     .delete(schema.media)
     .where(and(eq(schema.media.id, id), eq(schema.media.userId, userId)))

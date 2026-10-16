@@ -104,7 +104,12 @@ export async function redeemPromo(userId: string, rawCode: string): Promise<{ un
         .where(eq(schema.promoCode.code, code));
 
       if (promo.credits > 0) {
-        await grantCredits({ id: `promo:${code}:${userId}`, userId, credits: promo.credits, source: "promo", note: code }, tx);
+        // Per code instance: a code deleted and created again under the same name gives its credits again.
+        const granted = await grantCredits(
+          { id: `promo:${code}:${promo.createdAt.getTime()}:${userId}`, userId, credits: promo.credits, source: "promo", note: code },
+          tx,
+        );
+        if (!granted) throw new RedeemError("Вы уже получили кредиты по этому промокоду");
       }
       if (promo.days <= 0) return { credits: promo.credits };
 

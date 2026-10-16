@@ -12,11 +12,14 @@ export async function POST(request: Request) {
   const admin = await requireAdmin(request);
   if (admin instanceof Response) return admin;
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+  // Whole numbers only: anything else (null, "1 000", "abc") is refused rather than read as 0.
+  const whole = (v: unknown, fallback?: number) =>
+    v === undefined || v === "" ? (fallback ?? NaN) : typeof v === "number" ? v : typeof v === "string" && /^\d+$/.test(v.trim()) ? Number(v) : NaN;
   const result = await createPromo({
     code: typeof body?.code === "string" && body.code.trim() ? body.code : undefined,
-    days: Number(body?.days),
-    credits: body?.credits === undefined || body?.credits === "" ? 0 : Number(body.credits),
-    maxUses: Number(body?.maxUses),
+    days: whole(body?.days),
+    credits: whole(body?.credits, 0),
+    maxUses: whole(body?.maxUses),
     note: typeof body?.note === "string" ? body.note : undefined,
   });
   return typeof result === "string" ? jsonError(result, 400) : Response.json(result);
