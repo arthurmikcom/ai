@@ -82,7 +82,12 @@ export async function GET(request: Request) {
 
   const providers = PROVIDERS.filter((p) => isConfigured(p.id)).map((p) => p.name);
   if (providers.length) checks["Нейросети"] = `✓ ${providers.join(", ")}`;
-  else fail("Нейросети", `не добавлен ни один ключ (например OPENROUTER_API_KEY): ${SETTINGS}`);
+  else {
+    // The site still works: MARYX runs on a free Qwen model in each visitor's browser.
+    checks["Нейросети"] =
+      `⚠ облачные модели не подключены — работает только бесплатный Qwen в браузере посетителя. ` +
+      `Для Claude, GPT, Gemini, картинок и видео добавьте OPENROUTER_API_KEY: ${SETTINGS}`;
+  }
 
   checks["Хранилище файлов"] = process.env.BLOB_READ_WRITE_TOKEN
     ? "✓ Vercel Blob подключён"

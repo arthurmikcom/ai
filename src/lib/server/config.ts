@@ -35,6 +35,7 @@ export function apiKey(provider: ProviderId): string | undefined {
       return env("CUSTOM_LLM_API_KEY");
     case "ollama":
     case "maryx":
+    case "browser":
       return undefined;
   }
 }

@@ -120,7 +120,8 @@ export async function planRoute(input: {
   previous?: { provider?: ProviderId; model?: string; content: string };
 }): Promise<MaryxPlan> {
   const { models } = await listModels("chat");
-  const available = models.filter((m) => m.provider !== "maryx");
+  // Only server models: the browser ones run on the visitor's device, not here.
+  const available = models.filter((m) => m.provider !== "maryx" && !m.local);
   if (available.length === 0) throw new Error("MARYX не может ответить: не подключена ни одна модель.");
 
   const search = isConfigured("openrouter") && (input.webSearch || wantsSearch(input.text));

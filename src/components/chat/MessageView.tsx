@@ -138,14 +138,21 @@ export function MessageView({ message, models, streaming, isLast, onRegenerate, 
         <Reasoning text={message.reasoning} active={streaming && !message.content} />
       )}
 
-      {waiting && message.generating === "search" && (
+      {waiting && message.status && (
+        <div className="flex items-center gap-2 py-2 text-sm text-zinc-400" role="status">
+          <LoaderCircle className="size-4 animate-spin text-violet-300" />
+          {message.status}
+        </div>
+      )}
+
+      {waiting && !message.status && message.generating === "search" && (
         <div className="flex items-center gap-2 py-2 text-sm text-zinc-400">
           <Globe className="size-4 animate-pulse text-violet-300" />
           Ищу в интернете…
         </div>
       )}
 
-      {waiting && message.generating !== "search" && (
+      {waiting && !message.status && message.generating !== "search" && (
         <div className="flex items-center gap-1.5 py-2">
           <span className="size-2 animate-bounce rounded-full bg-zinc-400 [animation-delay:-0.3s]" />
           <span className="size-2 animate-bounce rounded-full bg-zinc-400 [animation-delay:-0.15s]" />

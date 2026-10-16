@@ -3,6 +3,7 @@
 import { Check, LoaderCircle, UserRound } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/client/api";
+import { forgetInstructions } from "@/lib/client/local-ai";
 import type { InstructionsResponse } from "@/lib/types";
 
 const MAX = 1500;
@@ -41,6 +42,7 @@ export function InstructionsSection() {
         body: JSON.stringify(sent),
       });
       setSaved(r);
+      forgetInstructions();
       // Text typed while saving stays (and stays unsaved).
       setAbout((cur) => (cur === sent.about ? r.about : cur));
       setStyle((cur) => (cur === sent.style ? r.style : cur));

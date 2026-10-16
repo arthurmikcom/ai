@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { after } from "next/server";
 import { streamChat } from "@/lib/server/chat";
 import { canDrawInChat, chatImageModel, generateChatImage } from "@/lib/server/chat/image";
-import { chatMessages, findAssistant, findChat, storedKeys } from "@/lib/server/chats";
+import { chatMessages, findAssistant, findChat, storedKeys, titleFrom } from "@/lib/server/chats";
 import { getDb, schema } from "@/lib/server/db";
 import type { StoredFile } from "@/lib/server/db/schema";
 import { describeError, statusOf } from "@/lib/server/errors";
@@ -33,7 +33,7 @@ import {
 } from "@/lib/server/maryx";
 import { consume, limitResponse, refund } from "@/lib/server/usage";
 import { parseChatSendRequest } from "@/lib/server/validate";
-import type { ChatRequest, ChatStreamEvent, InlineFile, InlineImage, ModelInfo, Source, UsageKind } from "@/lib/types";
+import type { ChatRequest, ChatStreamEvent, InlineImage, ModelInfo, Source, UsageKind } from "@/lib/types";
 
 // Long answers from reasoning models can take several minutes.
 export const maxDuration = 300;
@@ -57,12 +57,6 @@ const HISTORY_IMAGES = 4;
 const FALLBACK_WINDOW_MS = 90_000;
 
 const DEFAULT_SYSTEM = `Ты — MARYX Ai, умный и дружелюбный ассистент.\n${ANSWER_STYLE}`;
-
-function titleFrom(text: string, files: InlineFile[] = []): string {
-  const clean = text.replace(/\s+/g, " ").trim();
-  if (!clean) return files.find((f) => f.name && isDocumentMime(f.mime))?.name ?? (files.length ? "Изображение" : "Новый чат");
-  return clean.length > 60 ? `${clean.slice(0, 57)}…` : clean;
-}
 
 function isUniqueViolation(err: unknown): boolean {
   const code = (err as { code?: string; cause?: { code?: string } })?.code ??

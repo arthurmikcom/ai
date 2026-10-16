@@ -17,6 +17,7 @@
     "@e965/xlsx": "^0.20.3",
     "@electric-sql/pglite": "^0.5.9",
     "@google/genai": "^2.29.1",
+    "@mlc-ai/web-llm": "^0.2.86",
     "@vercel/blob": "^2.8.1",
     "better-auth": "^1.7.7",
     "drizzle-orm": "^0.45.4",

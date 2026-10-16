@@ -109,8 +109,53 @@ export const MARYX_MODEL: ModelInfo = {
   reasoning: true,
 };
 
+/**
+ * Open Qwen models that run in the visitor's browser through WebLLM (WebGPU):
+ * free and without keys. Ids are WebLLM's without the quantization suffix
+ * (client/local-ai.ts adds q4f16_1 or q4f32_1 for the visitor's GPU).
+ */
+export const BROWSER_MODELS: ModelInfo[] = [
+  {
+    provider: "browser",
+    id: "Qwen3-1.7B",
+    label: "Qwen 3 1.7B",
+    description: "Бесплатно, без ключей: работает в вашем браузере (≈1 ГБ один раз)",
+    capability: "chat",
+    featured: true,
+    vision: false,
+    reasoning: true,
+    local: true,
+    downloadMB: 1000,
+  },
+  {
+    provider: "browser",
+    id: "Qwen3-4B",
+    label: "Qwen 3 4B",
+    description: "Умнее, для мощных компьютеров (≈2,3 ГБ один раз)",
+    capability: "chat",
+    featured: true,
+    vision: false,
+    reasoning: true,
+    local: true,
+    downloadMB: 2300,
+  },
+  {
+    provider: "browser",
+    id: "Qwen3-0.6B",
+    label: "Qwen 3 0.6B",
+    description: "Самая лёгкая, для телефонов и слабых устройств (≈0,4 ГБ)",
+    capability: "chat",
+    featured: true,
+    vision: false,
+    reasoning: true,
+    local: true,
+    downloadMB: 400,
+  },
+];
+
 export function providerName(id: ProviderId): string {
   if (id === "maryx") return "MARYX Ai";
+  if (id === "browser") return "Qwen в браузере — бесплатно";
   return PROVIDERS.find((p) => p.id === id)?.name ?? id;
 }
 

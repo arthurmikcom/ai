@@ -38,6 +38,8 @@ interface Props {
   disabled: boolean;
   /** Why the field is disabled, shown in place of the hint. */
   disabledText?: string;
+  /** Files can be attached (models in the browser read text only). */
+  allowFiles?: boolean;
   streaming: boolean;
   deepThinking: boolean;
   onDeepThinkingChange: (value: boolean) => void;
@@ -64,6 +66,7 @@ export function Composer({
   model,
   disabled,
   disabledText,
+  allowFiles = true,
   streaming,
   deepThinking,
   onDeepThinkingChange,
@@ -92,7 +95,7 @@ export function Composer({
   const textarea = useRef<HTMLTextAreaElement>(null);
 
   // Documents work with any model; pictures need one that can see.
-  const canAttach = !imageMode;
+  const canAttach = !imageMode && allowFiles;
   const canSeeImages = model?.vision !== false;
   const canSend = !disabled && !streaming && (imageMode ? text.trim() !== "" : text.trim() !== "" || attachments.length > 0);
 
@@ -322,7 +325,9 @@ export function Composer({
             title={
               imageMode
                 ? "В режиме рисования вложения не нужны"
-                : canSeeImages
+                : !allowFiles
+                  ? "Модель в браузере читает только текст"
+                  : canSeeImages
                   ? "Прикрепить файл: PDF, Word, Excel, CSV, TXT или изображение"
                   : "Прикрепить документ: PDF, Word, Excel, CSV, TXT"
             }

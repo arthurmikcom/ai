@@ -3,7 +3,9 @@
 import { ArrowRight, ArrowUpRight, Clapperboard, Code2, Compass, FileText, Image as ImageIcon, KeyRound, Lightbulb, LoaderCircle, Plus, Sparkles, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { autoModel, useLocalSupport } from "@/lib/client/local-ai";
 import { useModels } from "@/lib/client/useModels";
+import type { SendOptions } from "@/lib/types";
 import { speak, stopSpeaking, useVoiceSupport } from "@/lib/client/voice";
 import { useApp, type ModelChoice } from "../AppState";
 import { findModel, ModelPicker } from "../ModelPicker";
@@ -63,10 +65,25 @@ export function ChatView() {
     (a) => a.id === (chat ? chat.assistantId : app.draftAssistantId),
   );
   const noProviders = data !== null && models.length === 0;
+  // No cloud model on the server: MARYX and the Qwen models run in this browser.
+  const noServerModels = data !== null && !models.some((m) => !m.local && m.provider !== "maryx");
+  const localSupportState = useLocalSupport();
+  const localModel = current?.local ? (current.provider === "browser" ? current.id : autoModel(localSupportState)) : undefined;
+  const localBlocked = Boolean(current?.local && localSupportState && !localSupportState.ok);
+  const localLabel = models.find((m) => m.provider === "browser" && m.id === localModel);
+  /** What every send uses: the toggles, and the browser model when the chosen one runs here. */
+  const sendOptions = (extra: Partial<SendOptions> = {}): SendOptions => ({
+    deepThinking,
+    webSearch: webSearch && Boolean(current?.search),
+    ...extra,
+    ...(localModel ? { image: false, local: { model: localModel } } : {}),
+  });
   const disabledText =
     !app.ready || loading
       ? "Загружаю модели…"
-      : modelsError
+      : localBlocked
+        ? (localSupportState?.reason ?? "Этот браузер не умеет запускать ИИ на устройстве")
+        : modelsError
         ? "Не удалось загрузить список моделей — обновите страницу"
         : noProviders
           ? app.me?.admin
@@ -158,19 +175,20 @@ export function ChatView() {
                     : (text) => {
                         stickToBottom.current = true;
                         stopSpeaking();
-                        app.send(text, [], { deepThinking, webSearch: webSearch && Boolean(current?.search) }, choice);
+                        app.send(text, [], sendOptions(), choice);
                       }
                 }
                 onRegenerate={() =>
-                  app.regenerate(chat.id, {
-                    deepThinking,
-                    // Redraw a picture — also one that failed or was stopped (its model is an image model).
-                    image:
-                      m.generating === "image" ||
-                      Boolean(m.attachments?.length) ||
-                      Boolean(images.data?.models.some((x) => x.provider === m.provider && x.id === m.model)),
-                    webSearch: webSearch && Boolean(current?.search),
-                  })
+                  app.regenerate(
+                    chat.id,
+                    sendOptions({
+                      // Redraw a picture — also one that failed or was stopped (its model is an image model).
+                      image:
+                        m.generating === "image" ||
+                        Boolean(m.attachments?.length) ||
+                        Boolean(images.data?.models.some((x) => x.provider === m.provider && x.id === m.model)),
+                    }),
+                  )
                 }
               />
             ))}
@@ -195,16 +213,18 @@ export function ChatView() {
               </div>
             </div>
 
-            {noProviders && (
+            {(noProviders || noServerModels) && (noProviders || app.me?.admin) && (
               <div className="empty-notice mb-5 w-full rounded-2xl border p-4 text-xs text-zinc-300">
                 <div className="mb-2 flex items-center gap-2 font-medium">
-                  <KeyRound className="size-4" /> Модели ещё не подключены
+                  <KeyRound className="size-4" />
+                  {noProviders ? "Модели ещё не подключены" : "Работает бесплатный Qwen в браузере"}
                 </div>
                 {app.me?.admin ? (
                   <>
                     <p className="mb-3 text-zinc-400">
-                      На сервере не задан ни один ключ нейросетей. В Vercel откройте Settings → Environment
-                      Variables, добавьте OPENROUTER_API_KEY (для Production) и сделайте Redeploy.
+                      MARYX отвечает моделью Qwen прямо на устройстве посетителя — бесплатно, но она слабее облачных.
+                      Для Claude, GPT, Gemini, Qwen Max, картинок и видео добавьте OPENROUTER_API_KEY в Vercel
+                      (Settings → Environment Variables, для Production) и сделайте Redeploy.
                     </p>
                     <a href="/api/health" target="_blank" rel="noreferrer" className="font-medium text-violet-200 underline">
                       Проверить настройку сервера →
@@ -213,9 +233,11 @@ export function ChatView() {
                 ) : (
                   <p className="text-zinc-400">Сервис настраивается. Загляните чуть позже.</p>
                 )}
+              </div>
+            )}
             <div className="home-actions">
               {SUGGESTIONS.slice(0, 2).map((s, index) => (
-                <button key={s.title} type="button" disabled={!current || noProviders} onClick={() => app.send(s.text, [], { deepThinking, webSearch: webSearch && Boolean(current?.search) }, choice)} className={`home-action-card home-action-${index}`}>
+                <button key={s.title} type="button" disabled={!current || noProviders} onClick={() => app.send(s.text, [], sendOptions(), choice)} className={`home-action-card home-action-${index}`}>
                   <div className="home-action-top"><span className="home-action-icon"><s.icon className="size-6" /></span><ArrowUpRight className="size-4" /></div>
                   <h2>{s.title}</h2>
                   <p className="line-clamp-3">{s.text}</p>
@@ -234,7 +256,7 @@ export function ChatView() {
             <div className="home-extra-prompts">
               <span>Ещё идеи:</span>
               {SUGGESTIONS.slice(2).map(s => (
-                <button key={s.title} type="button" title={s.text} disabled={!current || noProviders} onClick={() => app.send(s.text, [], { deepThinking, webSearch: webSearch && Boolean(current?.search) }, choice)}><s.icon className="size-3.5" />{s.title}</button>
+                <button key={s.title} type="button" title={s.text} disabled={!current || noProviders} onClick={() => app.send(s.text, [], sendOptions(), choice)}><s.icon className="size-3.5" />{s.title}</button>
               ))}
             </div>
 
@@ -248,9 +270,6 @@ export function ChatView() {
               </div>
               <p className="mt-2 text-[10px] text-zinc-500">Готовые шаблоны — настройте под себя в разделе ассистентов.</p>
             </section>
-
-              </div>
-            )}
           </div>
         )}
       </div>
@@ -258,8 +277,9 @@ export function ChatView() {
       <div className="shrink-0 px-4 pb-4 pt-2 md:px-8 md:pb-5">
         <Composer
           model={current}
-          disabled={!choice || noProviders || !app.ready}
+          disabled={!choice || noProviders || !app.ready || localBlocked}
           disabledText={disabledText}
+          allowFiles={!current?.local}
           streaming={streaming}
           deepThinking={deepThinking}
           onDeepThinkingChange={setDeepThinking}
@@ -275,12 +295,7 @@ export function ChatView() {
             stickToBottom.current = true;
             stopSpeaking();
             speakNext.current = viaVoice && voiceMode && voice?.speak ? (chat?.id ?? "new") : null;
-            app.send(
-              text,
-              attachments,
-              { deepThinking, image: imageMode && canDraw, webSearch: webSearch && Boolean(current?.search) },
-              choice,
-            );
+            app.send(text, attachments, sendOptions({ image: imageMode && canDraw }), choice);
           }}
           onStop={() => {
             speakNext.current = null;
@@ -288,7 +303,9 @@ export function ChatView() {
           }}
         />
         <p className="mt-2 text-center text-[11px] text-zinc-600">
-          ИИ может ошибаться. Проверяйте важную информацию.
+          {current?.local && !localBlocked
+            ? `Бесплатно: отвечает ${localLabel?.label ?? "Qwen"} прямо на вашем устройстве, сообщения никуда не уходят. В первый раз модель скачается (≈${((localLabel?.downloadMB ?? 1000) / 1000).toFixed(1).replace(".", ",")} ГБ).`
+            : "ИИ может ошибаться. Проверяйте важную информацию."}
         </p>
       </div>
     </div>

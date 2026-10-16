@@ -12,6 +12,8 @@ export type ProviderId =
   | "ollama"
   /** Our own OpenAI-compatible server (vLLM, SGLang, LM Studio…), e.g. open Qwen weights on a GPU. */
   | "custom"
+  /** Open Qwen models that run in the visitor's browser (WebGPU): free, no keys. */
+  | "browser"
   | "replicate"
   /** Our own AI: picks the best real model for each message. */
   | "maryx";
@@ -32,6 +34,10 @@ export interface ModelInfo {
   reasoning?: boolean;
   /** Can look things up on the web while answering. */
   search?: boolean;
+  /** Runs in the visitor's browser instead of on a server (MARYX when no keys are set). */
+  local?: boolean;
+  /** One-time download for a browser model, in MB. */
+  downloadMB?: number;
 }
 
 export interface ProviderStatus {
@@ -100,6 +106,8 @@ export interface ChatMessage {
   unsent?: boolean;
   /** Browser only: what the pending answer is busy with (drawing, searching). */
   generating?: "image" | "search";
+  /** Browser only: progress of a model running on this device (download, start). */
+  status?: string;
   createdAt: number;
 }
 
@@ -135,6 +143,8 @@ export interface SendOptions {
   image?: boolean;
   /** Let the model search the web. */
   webSearch?: boolean;
+  /** Answer with this model in the browser (see client/local-ai.ts) instead of the server. */
+  local?: { model: string };
 }
 
 /** Browser → /api/chat. The server loads the history itself. */

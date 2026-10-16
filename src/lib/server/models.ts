@@ -1,4 +1,4 @@
-import { FEATURED_MODELS, MARYX_MODEL, PROVIDERS } from "@/lib/catalog";
+import { BROWSER_MODELS, FEATURED_MODELS, MARYX_MODEL, PROVIDERS } from "@/lib/catalog";
 import type { Capability, ModelInfo, ModelsResponse, ProviderId } from "@/lib/types";
 import { ADAPTIVE_THINKING } from "./chat/anthropic";
 import { THINKING_LEVEL_MODELS } from "./chat/google";
@@ -196,6 +196,7 @@ function classify(provider: ProviderId, m: LiveModel): Capability | null {
       return "chat";
     case "replicate":
     case "maryx":
+    case "browser":
       return null;
   }
 }
@@ -281,9 +282,21 @@ export async function listModels(capability: Capability | null): Promise<ModelsR
         .map((c) => modelsFor(p.id, c)),
     );
   const models = (await Promise.all(jobs)).flat();
-  // MARYX is available whenever there's at least one real chat model to route to.
-  if (capabilities.includes("chat") && models.some((m) => m.capability === "chat")) {
-    models.unshift({ ...MARYX_MODEL, search: isConfigured("openrouter") || undefined });
+  if (capabilities.includes("chat")) {
+    // MARYX routes to the real chat models on the server; with none set up it
+    // runs in the visitor's browser on an open Qwen model, free and without keys.
+    const onServer = models.some((m) => m.capability === "chat");
+    models.unshift(
+      onServer
+        ? { ...MARYX_MODEL, search: isConfigured("openrouter") || undefined }
+        : {
+            ...MARYX_MODEL,
+            description: "Наш ИИ: работает прямо в вашем браузере на Qwen — бесплатно",
+            vision: false,
+            local: true,
+          },
+    );
+    models.push(...BROWSER_MODELS);
   }
   return { providers, models };
 }

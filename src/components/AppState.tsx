@@ -14,6 +14,7 @@ import {
 import { api, ApiError, errorOf } from "@/lib/client/api";
 import { authClient } from "@/lib/client/auth";
 import { useStoredJson } from "@/lib/client/useStored";
+import { buildMessages, generateLocal, localSystemPrompt, personalInstructions } from "@/lib/client/local-ai";
 import { readNdjson, uid } from "@/lib/client/util";
 import type {
   Assistant,
@@ -219,6 +220,79 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
       try {
         const { message } = options;
+        if (options.local) {
+          // ----- A model in this browser: the server only stores the turn. -----
+          const local = options.local;
+          const maryx = chat.provider === "maryx";
+          const save = async (payload: Record<string, unknown>, signal?: AbortSignal) => {
+            const res = await fetch("/api/chat/local", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ chatId, provider: chat.provider, model: chat.model, ...payload }),
+              signal,
+            });
+            if (!res.ok) throw await errorOf(res);
+          };
+          try {
+            await save(
+              message
+                ? { create: chat.saved ? undefined : { assistantId: chat.assistantId }, message: { id: message.id, content: message.content } }
+                : { replyTo: chat.messages.findLast((m) => m.role === "user")?.id },
+              controller.signal,
+            );
+          } catch (err) {
+            if (message) patchMessage(chatId, message.id, { unsent: true });
+            throw err;
+          }
+          if (message) {
+            update(chatId, (c) => ({
+              ...c,
+              saved: true,
+              messages: c.messages.map((m) => (m.id === message.id ? { ...m, unsent: undefined } : m)),
+            }));
+          }
+          drawnBy = { provider: "browser", model: local.model };
+          patchMessage(chatId, answerId, { ...drawnBy, via: maryx ? "maryx" : undefined });
+
+          const { about, style } = await personalInstructions();
+          const assistant = assistantsRef.current.find((a) => a.id === chat.assistantId);
+          const history = (chatsRef.current.get(chatId)?.messages ?? [])
+            .filter((m) => m.id !== answerId && !m.error && (m.role === "user" || m.content))
+            .map((m) => ({
+              role: m.role,
+              content: m.attachments?.length && m.role === "user" ? `${m.content}\n[К сообщению были приложены файлы — модель в браузере их не видит]` : m.content,
+            }));
+          const messages = buildMessages(
+            localSystemPrompt({ model: local.model, maryx, assistantPrompt: assistant?.systemPrompt, about, style }),
+            history,
+            options.deepThinking,
+          );
+          let error: string | undefined;
+          try {
+            for await (const part of generateLocal({
+              model: local.model,
+              messages,
+              deep: options.deepThinking,
+              signal: controller.signal,
+              onStatus: (status) => patchMessage(chatId, answerId, { status }),
+            })) {
+              text = part.text;
+              reasoning = part.reasoning;
+              if (part.truncated) notice = "Ответ обрезан: модель в браузере пишет за раз не так много. Попросите продолжить.";
+              flush();
+            }
+          } catch (err) {
+            if (controller.signal.aborted) notice = notice ? `${notice}\nГенерация остановлена.` : "Генерация остановлена.";
+            else error = err instanceof Error ? err.message : String(err);
+          }
+          patchMessage(chatId, answerId, { status: undefined, error });
+          flush(true);
+          // Saved like server answers, also when stopped or failed.
+          await save({ answer: { id: answerId, content: text, reasoning, notice, error, model: local.model } }).catch((e) =>
+            console.error("Не удалось сохранить ответ", e),
+          );
+          return;
+        }
         const body: ChatSendRequest = {
           chatId,
           // A chat the server doesn't have yet is created with its (first accepted) message.

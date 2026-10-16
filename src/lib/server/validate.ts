@@ -3,7 +3,7 @@ import type { AspectRatio, ChatSendRequest, GenerateRequest, InlineFile, Provide
 import { isDocumentMime } from "./documents";
 import { isValidId } from "./http";
 
-const PROVIDER_IDS = new Set<string>([...PROVIDERS.map((p) => p.id), "maryx"]);
+const PROVIDER_IDS = new Set<string>([...PROVIDERS.map((p) => p.id), "maryx", "browser"]);
 const ASPECT_RATIOS = new Set<string>(["1:1", "16:9", "9:16", "4:3", "3:4"]);
 const IMAGE_MIME = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 const MAX_ATTACHMENTS = 4;
@@ -30,6 +30,8 @@ export function parseChatSendRequest(body: unknown): ChatSendRequest | string {
   if (!isValidId(chatId) || !isValidId(answerId)) return "Неверный идентификатор";
   if (replyTo !== undefined && !isValidId(replyTo)) return "Неверный идентификатор";
   if (!isProvider(provider)) return "Неизвестный провайдер";
+  // Browser models answer on the visitor's device and save through /api/chat/local.
+  if (provider === "browser") return "Эта модель работает в браузере — обновите страницу";
   if (typeof model !== "string" || !model || model.length > 200) return "Не выбрана модель";
 
   let assistantId: string | undefined;

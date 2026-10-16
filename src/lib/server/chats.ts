@@ -1,5 +1,6 @@
 import { and, asc, desc, eq } from "drizzle-orm";
-import type { Assistant, Chat, ChatMessage, ChatSummary, ProviderId } from "@/lib/types";
+import type { Assistant, Chat, ChatMessage, ChatSummary, InlineFile, ProviderId } from "@/lib/types";
+import { isDocumentMime } from "./documents";
 import { getDb, schema } from "./db";
 import { deleteFiles, fileUrl } from "./storage";
 
@@ -17,6 +18,13 @@ function toSummary(row: ChatRow): ChatSummary {
     createdAt: row.createdAt.getTime(),
     updatedAt: row.updatedAt.getTime(),
   };
+}
+
+/** A new chat's name from its first message (a smarter one may come later). */
+export function titleFrom(text: string, files: InlineFile[] = []): string {
+  const clean = text.replace(/\s+/g, " ").trim();
+  if (!clean) return files.find((f) => f.name && isDocumentMime(f.mime))?.name ?? (files.length ? "Изображение" : "Новый чат");
+  return clean.length > 60 ? `${clean.slice(0, 57)}…` : clean;
 }
 
 /** Every storage key behind attachments: the files and documents' extracted text. */
