@@ -14,7 +14,7 @@ import {
 import { api, ApiError, errorOf } from "@/lib/client/api";
 import { authClient } from "@/lib/client/auth";
 import { useStoredJson } from "@/lib/client/useStored";
-import { buildMessages, generateLocal, localSystemPrompt, personalInstructions } from "@/lib/client/local-ai";
+import { buildMessages, generateLocal, localSupport, localSystemPrompt, personalInstructions } from "@/lib/client/local-ai";
 import { readNdjson, uid } from "@/lib/client/util";
 import type {
   Assistant,
@@ -103,6 +103,18 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const [assistants, setAssistants] = useState<Assistant[]>([]);
   const assistantsRef = useRef<Assistant[]>([]);
   const controllers = useRef(new Map<string, AbortController>());
+  // Answers being written in this browser, to save if the tab is closed meanwhile.
+  const pendingLocal = useRef(new Map<string, () => Record<string, unknown>>());
+
+  useEffect(() => {
+    const onHide = () => {
+      for (const body of pendingLocal.current.values()) {
+        navigator.sendBeacon("/api/chat/local", new Blob([JSON.stringify(body())], { type: "application/json" }));
+      }
+    };
+    window.addEventListener("pagehide", onHide);
+    return () => window.removeEventListener("pagehide", onHide);
+  }, []);
   const [streaming, setStreaming] = useState<ReadonlySet<string>>(new Set());
 
   const syncChats = useCallback(() => {
@@ -224,25 +236,29 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           // ----- A model in this browser: the server only stores the turn. -----
           const local = options.local;
           const maryx = chat.provider === "maryx";
-          const save = async (payload: Record<string, unknown>, signal?: AbortSignal) => {
-            const res = await fetch("/api/chat/local", {
+          const questionId = message?.id ?? chat.messages.findLast((m) => m.role === "user")?.id;
+          const post = (payload: Record<string, unknown>) =>
+            fetch("/api/chat/local", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ chatId, provider: chat.provider, model: chat.model, ...payload }),
-              signal,
             });
-            if (!res.ok) throw await errorOf(res);
-          };
-          try {
-            await save(
-              message
-                ? { create: chat.saved ? undefined : { assistantId: chat.assistantId }, message: { id: message.id, content: message.content } }
-                : { replyTo: chat.messages.findLast((m) => m.role === "user")?.id },
-              controller.signal,
-            );
-          } catch (err) {
+          // Nothing is stored for a browser that can't run the model.
+          const support = await localSupport();
+          if (!support.ok) {
             if (message) patchMessage(chatId, message.id, { unsent: true });
-            throw err;
+            throw new Error(support.reason);
+          }
+          // 1. The question, or (regenerate) a check that it is still the last one. Stop
+          // doesn't cancel this request: the server may already have stored the question.
+          const first = await post(
+            message
+              ? { create: chat.saved ? undefined : { assistantId: chat.assistantId }, message: { id: message.id, content: message.content } }
+              : { replyTo: questionId },
+          );
+          if (!first.ok) {
+            if (message) patchMessage(chatId, message.id, { unsent: true });
+            throw await errorOf(first);
           }
           if (message) {
             update(chatId, (c) => ({
@@ -254,31 +270,67 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           drawnBy = { provider: "browser", model: local.model };
           patchMessage(chatId, answerId, { ...drawnBy, via: maryx ? "maryx" : undefined });
 
-          const { about, style } = await personalInstructions();
-          const assistant = assistantsRef.current.find((a) => a.id === chat.assistantId);
-          const history = (chatsRef.current.get(chatId)?.messages ?? [])
-            .filter((m) => m.id !== answerId && !m.error && (m.role === "user" || m.content))
-            .map((m) => ({
-              role: m.role,
-              content: m.attachments?.length && m.role === "user" ? `${m.content}\n[К сообщению были приложены файлы — модель в браузере их не видит]` : m.content,
-            }));
-          const messages = buildMessages(
-            localSystemPrompt({ model: local.model, maryx, assistantPrompt: assistant?.systemPrompt, about, style }),
-            history,
-            options.deepThinking,
-          );
           let error: string | undefined;
+          const answer = (extra?: string) => ({
+            answer: {
+              id: answerId,
+              // The same limits as the server's.
+              content: text.slice(0, 30_000),
+              reasoning: reasoning.slice(0, 30_000),
+              notice: [notice, extra].filter(Boolean).join("\n").slice(0, 1000),
+              error: error?.slice(0, 1000),
+              model: local.model,
+              replyTo: questionId,
+              // A regenerated answer replaces the previous one only once it exists.
+              replace: !message,
+            },
+          });
+          // Closing the tab mid-answer still keeps what was written so far.
+          pendingLocal.current.set(chatId, () => ({
+            chatId,
+            provider: chat.provider,
+            model: chat.model,
+            ...answer("Ответ прерван: вкладка была закрыта."),
+          }));
+
+          // 2. The answer, written on this device.
           try {
+            if (controller.signal.aborted) throw new DOMException("Остановлено", "AbortError");
+            const { about, style } = await personalInstructions();
+            const assistant = assistantsRef.current.find((a) => a.id === chat.assistantId);
+            const history = (chatsRef.current.get(chatId)?.messages ?? [])
+              .filter((m) => m.id !== answerId && !m.error && (m.role === "user" || m.content))
+              .map((m) => ({
+                role: m.role,
+                content:
+                  m.role === "user"
+                    ? m.attachments?.length
+                      ? `${m.content}\n[К сообщению были приложены файлы — модель в браузере их не видит]`
+                      : m.content
+                    : m.attachments?.length
+                      ? "[Здесь была картинка, нарисованная другой моделью. Модель в браузере рисовать не умеет.]"
+                      : m.content,
+              }));
+            const built = buildMessages(
+              localSystemPrompt({ model: local.model, maryx, assistantPrompt: assistant?.systemPrompt, about, style }),
+              history,
+              options.deepThinking,
+            );
+            if (built.cut) notice = "Сообщение длинное — модель в браузере видит только его начало и конец.";
             for await (const part of generateLocal({
               model: local.model,
-              messages,
+              messages: built.messages,
               deep: options.deepThinking,
               signal: controller.signal,
               onStatus: (status) => patchMessage(chatId, answerId, { status }),
             })) {
               text = part.text;
               reasoning = part.reasoning;
-              if (part.truncated) notice = "Ответ обрезан: модель в браузере пишет за раз не так много. Попросите продолжить.";
+              if (part.truncated) {
+                notice = text
+                  ? "Ответ обрезан: модель в браузере пишет за раз не так много. Попросите продолжить."
+                  : "Модель не успела додумать до ответа. Выключите «Думать глубже» или упростите вопрос.";
+              }
               flush();
             }
           } catch (err) {
@@ -287,10 +339,22 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           }
           patchMessage(chatId, answerId, { status: undefined, error });
           flush(true);
-          // Saved like server answers, also when stopped or failed.
-          await save({ answer: { id: answerId, content: text, reasoning, notice, error, model: local.model } }).catch((e) =>
-            console.error("Не удалось сохранить ответ", e),
-          );
+
+          // 3. Saved like server answers, also when stopped or failed; one retry.
+          pendingLocal.current.delete(chatId);
+          let stored = false;
+          for (let attempt = 0; attempt < 2 && !stored; attempt++) {
+            const res = await post(answer()).catch(() => null);
+            if (res?.ok) stored = true;
+            else if (res && res.status !== 429 && res.status < 500) break;
+            else await new Promise((r) => setTimeout(r, 1000));
+          }
+          if (!stored) {
+            notice = [notice, "Ответ не сохранился на сервере — скопируйте его: после обновления страницы он пропадёт."]
+              .filter(Boolean)
+              .join("\n");
+            flush(true);
+          }
           return;
         }
         const body: ChatSendRequest = {

@@ -96,8 +96,10 @@ export function Composer({
 
   // Documents work with any model; pictures need one that can see.
   const canAttach = !imageMode && allowFiles;
+  /** Files stay in the composer but don't go with this message (drawing, or a text-only model). */
+  const keepFiles = imageMode || !allowFiles;
   const canSeeImages = model?.vision !== false;
-  const canSend = !disabled && !streaming && (imageMode ? text.trim() !== "" : text.trim() !== "" || attachments.length > 0);
+  const canSend = !disabled && !streaming && (keepFiles ? text.trim() !== "" : text.trim() !== "" || attachments.length > 0);
 
   const addFiles = async (files: File[]) => {
     setError(null);
@@ -142,10 +144,10 @@ export function Composer({
 
   const submit = () => {
     if (!canSend) return;
-    onSend(text.trim(), imageMode ? [] : attachments);
+    onSend(text.trim(), keepFiles ? [] : attachments);
     setText("");
-    // A picture prompt doesn't take the files along; they stay for the next message.
-    if (!imageMode) setAttachments([]);
+    // A picture prompt (or a text-only model) doesn't take the files along; they stay for later.
+    if (!keepFiles) setAttachments([]);
     setError(null);
     if (textarea.current) textarea.current.style.height = "auto";
   };
@@ -173,8 +175,8 @@ export function Composer({
       return;
     }
     if (voiceMode && !disabled && !streaming) {
-      onSend(spoken, imageMode ? [] : attachments, true);
-      if (!imageMode) setAttachments([]);
+      onSend(spoken, keepFiles ? [] : attachments, true);
+      if (!keepFiles) setAttachments([]);
       return;
     }
     setText((t) => (t.trim() ? `${t.trimEnd()} ${spoken}` : spoken));
@@ -253,11 +255,15 @@ export function Composer({
   return (
     <div className="mx-auto w-full max-w-3xl">
       <div className="composer-panel rounded-3xl border p-3 transition-colors">
-        {attachments.length > 0 && imageMode && (
-          <p className="px-2 pt-1 text-xs text-zinc-500">В режиме «Картинка» файлы не отправляются — они останутся для следующего сообщения.</p>
+        {attachments.length > 0 && keepFiles && (
+          <p className="px-2 pt-1 text-xs text-zinc-500">
+            {imageMode
+              ? "В режиме «Картинка» файлы не отправляются — они останутся для следующего сообщения."
+              : "Модель в браузере читает только текст — файлы не отправятся и останутся для другой модели."}
+          </p>
         )}
         {attachments.length > 0 && (
-          <div className={`flex flex-wrap gap-2 p-2 ${imageMode ? "opacity-40" : ""}`}>
+          <div className={`flex flex-wrap gap-2 p-2 ${keepFiles ? "opacity-40" : ""}`}>
             {attachments.map((a, i) => (
               <div key={i} className="relative">
                 {isDocumentAttachment(a) ? (

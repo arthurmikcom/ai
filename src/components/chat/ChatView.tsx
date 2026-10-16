@@ -69,7 +69,8 @@ export function ChatView() {
   const noServerModels = data !== null && !models.some((m) => !m.local && m.provider !== "maryx");
   const localSupportState = useLocalSupport();
   const localModel = current?.local ? (current.provider === "browser" ? current.id : autoModel(localSupportState)) : undefined;
-  const localBlocked = Boolean(current?.local && localSupportState && !localSupportState.ok);
+  // A browser model can't be used until this browser is checked, nor where it can't run.
+  const localBlocked = Boolean(current?.local && (!localSupportState || !localSupportState.ok));
   const localLabel = models.find((m) => m.provider === "browser" && m.id === localModel);
   /** What every send uses: the toggles, and the browser model when the chosen one runs here. */
   const sendOptions = (extra: Partial<SendOptions> = {}): SendOptions => ({
@@ -82,14 +83,16 @@ export function ChatView() {
     !app.ready || loading
       ? "Загружаю модели…"
       : localBlocked
-        ? (localSupportState?.reason ?? "Этот браузер не умеет запускать ИИ на устройстве")
+        ? (localSupportState?.reason ?? "Проверяю, умеет ли браузер запускать ИИ на устройстве…")
         : modelsError
         ? "Не удалось загрузить список моделей — обновите страницу"
         : noProviders
           ? app.me?.admin
             ? "Нейросети не подключены: нужен ключ OPENROUTER_API_KEY на сервере"
             : "Нейросети пока не подключены — загляните чуть позже"
-          : "Выберите модель вверху";
+          : choice
+            ? "Модель этого чата недоступна — выберите другую вверху"
+            : "Выберите модель вверху";
 
   // Follow the answer while it streams, unless the user scrolled up to read.
   const lastMessage = chat?.messages[chat.messages.length - 1];
@@ -170,7 +173,7 @@ export function ChatView() {
                 isLast={i === chat.messages.length - 1}
                 streaming={streaming && i === chat.messages.length - 1}
                 onSuggest={
-                  noProviders
+                  noProviders || localBlocked
                     ? undefined
                     : (text) => {
                         stickToBottom.current = true;
@@ -178,7 +181,7 @@ export function ChatView() {
                         app.send(text, [], sendOptions(), choice);
                       }
                 }
-                onRegenerate={() =>
+                onRegenerate={localBlocked ? undefined : () =>
                   app.regenerate(
                     chat.id,
                     sendOptions({
@@ -237,7 +240,7 @@ export function ChatView() {
             )}
             <div className="home-actions">
               {SUGGESTIONS.slice(0, 2).map((s, index) => (
-                <button key={s.title} type="button" disabled={!current || noProviders} onClick={() => app.send(s.text, [], sendOptions(), choice)} className={`home-action-card home-action-${index}`}>
+                <button key={s.title} type="button" disabled={!current || noProviders || localBlocked} onClick={() => app.send(s.text, [], sendOptions(), choice)} className={`home-action-card home-action-${index}`}>
                   <div className="home-action-top"><span className="home-action-icon"><s.icon className="size-6" /></span><ArrowUpRight className="size-4" /></div>
                   <h2>{s.title}</h2>
                   <p className="line-clamp-3">{s.text}</p>
@@ -256,7 +259,7 @@ export function ChatView() {
             <div className="home-extra-prompts">
               <span>Ещё идеи:</span>
               {SUGGESTIONS.slice(2).map(s => (
-                <button key={s.title} type="button" title={s.text} disabled={!current || noProviders} onClick={() => app.send(s.text, [], sendOptions(), choice)}><s.icon className="size-3.5" />{s.title}</button>
+                <button key={s.title} type="button" title={s.text} disabled={!current || noProviders || localBlocked} onClick={() => app.send(s.text, [], sendOptions(), choice)}><s.icon className="size-3.5" />{s.title}</button>
               ))}
             </div>
 
@@ -277,7 +280,7 @@ export function ChatView() {
       <div className="shrink-0 px-4 pb-4 pt-2 md:px-8 md:pb-5">
         <Composer
           model={current}
-          disabled={!choice || noProviders || !app.ready || localBlocked}
+          disabled={!choice || !current || noProviders || !app.ready || loading || localBlocked}
           disabledText={disabledText}
           allowFiles={!current?.local}
           streaming={streaming}
@@ -285,8 +288,8 @@ export function ChatView() {
           onDeepThinkingChange={setDeepThinking}
           webSearch={webSearch && Boolean(current?.search)}
           onWebSearchChange={setWebSearch}
-          canDraw={canDraw}
-          imageMode={imageMode && canDraw}
+          canDraw={canDraw && !current?.local}
+          imageMode={imageMode && canDraw && !current?.local}
           onImageModeChange={setImageMode}
           voiceInput={voiceInput}
           voiceMode={voiceMode && Boolean(voice?.speak)}
@@ -295,7 +298,7 @@ export function ChatView() {
             stickToBottom.current = true;
             stopSpeaking();
             speakNext.current = viaVoice && voiceMode && voice?.speak ? (chat?.id ?? "new") : null;
-            app.send(text, attachments, sendOptions({ image: imageMode && canDraw }), choice);
+            app.send(text, attachments, sendOptions({ image: imageMode && canDraw && !current?.local }), choice);
           }}
           onStop={() => {
             speakNext.current = null;
@@ -304,7 +307,7 @@ export function ChatView() {
         />
         <p className="mt-2 text-center text-[11px] text-zinc-600">
           {current?.local && !localBlocked
-            ? `Бесплатно: отвечает ${localLabel?.label ?? "Qwen"} прямо на вашем устройстве, сообщения никуда не уходят. В первый раз модель скачается (≈${((localLabel?.downloadMB ?? 1000) / 1000).toFixed(1).replace(".", ",")} ГБ).`
+            ? `Бесплатно: отвечает ${localLabel?.label ?? "Qwen"} прямо на вашем устройстве, без сторонних ИИ-сервисов; история чата хранится в вашем аккаунте. В первый раз модель скачается (≈${((localLabel?.downloadMB ?? 1000) / 1000).toFixed(1).replace(".", ",")} ГБ).`
             : "ИИ может ошибаться. Проверяйте важную информацию."}
         </p>
       </div>

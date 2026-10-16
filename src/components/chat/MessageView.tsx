@@ -106,6 +106,16 @@ export function MessageView({ message, models, streaming, isLast, onRegenerate, 
             {message.content}
           </div>
         )}
+        {/* A question left without an answer (e.g. the tab was closed mid-answer) can be asked again. */}
+        {isLast && !streaming && onRegenerate && (
+          <button
+            type="button"
+            onClick={onRegenerate}
+            className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-zinc-500 hover:bg-white/5 hover:text-zinc-200"
+          >
+            <RefreshCw className="size-3.5" /> Ответить
+          </button>
+        )}
       </div>
     );
   }

@@ -45,7 +45,10 @@ export function localSupport(): Promise<LocalSupport> {
       const adapter = await gpu.requestAdapter({ powerPreference: "high-performance" });
       if (!adapter) return { ok: false, f16: false, weak: true, reason: NO_GPU };
       const memory = (navigator as unknown as { deviceMemory?: number }).deviceMemory;
+      // iPadOS reports a desktop "Macintosh" user agent; touch support gives it away.
+      const tablet = /Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1;
       const weak =
+        tablet ||
         /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) ||
         (memory !== undefined && memory <= 4) ||
         adapter.limits.maxBufferSize < 1024 ** 3;
@@ -87,37 +90,91 @@ function labelOf(model: string): string {
 // ---------- Engine ----------
 
 let engine: Promise<WebWorkerMLCEngine> | null = null;
+let worker: Worker | null = null;
 let loadedId: string | null = null;
-let chain: Promise<unknown> = Promise.resolve();
+/** A model is being downloaded or started right now. */
+let loading = false;
 let onProgress: ((report: InitProgressReport) => void) | null = null;
 
-/** Loads (or switches to) a model; one load at a time. */
-function ensureModel(id: string): Promise<WebWorkerMLCEngine> {
-  const job = chain.then(async () => {
-    if (!engine) {
-      const webllm = await import("@mlc-ai/web-llm");
-      const worker = new Worker(new URL("./local-ai.worker.ts", import.meta.url), { type: "module" });
-      engine = webllm
-        .CreateWebWorkerMLCEngine(worker, id, { initProgressCallback: (r) => onProgress?.(r) })
-        .catch((err) => {
-          worker.terminate();
-          engine = null;
-          loadedId = null;
-          throw err;
-        });
-      loadedId = id;
-      return engine;
+/** Drops the engine (and its download, if one is running); the next request starts afresh. */
+function resetEngine(): void {
+  worker?.terminate();
+  worker = null;
+  engine = null;
+  loadedId = null;
+}
+
+/** Loads (or switches to) a model. Only called by the holder of the queue below. */
+async function loadModel(id: string): Promise<WebWorkerMLCEngine> {
+  loading = true;
+  try {
+    return await startModel(id);
+  } finally {
+    loading = false;
+  }
+}
+
+async function startModel(id: string): Promise<WebWorkerMLCEngine> {
+  if (!engine) {
+    const webllm = await import("@mlc-ai/web-llm");
+    const w = new Worker(new URL("./local-ai.worker.ts", import.meta.url), { type: "module" });
+    worker = w;
+    // A worker that fails to start would otherwise leave the load hanging forever.
+    const failed = new Promise<never>((_, reject) =>
+      w.addEventListener("error", (e) => reject(new Error(`Worker: ${e.message || "не запустился"}`)), { once: true }),
+    );
+    engine = Promise.race([
+      webllm.CreateWebWorkerMLCEngine(w, id, { initProgressCallback: (r) => onProgress?.(r) }),
+      failed,
+    ]);
+    loadedId = id;
+    try {
+      return await engine;
+    } catch (err) {
+      resetEngine();
+      throw err;
     }
-    const current = await engine;
-    if (loadedId !== id) {
-      loadedId = null;
-      await current.reload(id);
-      loadedId = id;
-    }
-    return current;
+  }
+  const current = await engine;
+  if (loadedId !== id) {
+    loadedId = null;
+    await current.reload(id);
+    loadedId = id;
+  }
+  return current;
+}
+
+/**
+ * One browser answer at a time: answers in two chats would share one engine
+ * (a stop in one would cut the other; switching models would unload it).
+ */
+let queue: Promise<void> = Promise.resolve();
+
+async function takeTurn(signal: AbortSignal, onWait: () => void): Promise<() => void> {
+  let release!: () => void;
+  const mine = new Promise<void>((r) => (release = r));
+  const before = queue;
+  queue = before.then(() => mine);
+  let waiting = true;
+  void before.then(() => (waiting = false));
+  await Promise.resolve();
+  if (waiting) onWait();
+  try {
+    await Promise.race([before, abortion(signal)]);
+  } catch (err) {
+    // Stopped while waiting: pass the turn on as soon as it would have been ours.
+    void before.then(release);
+    throw err;
+  }
+  return release;
+}
+
+function abortion(signal: AbortSignal): Promise<never> {
+  return new Promise<never>((_, reject) => {
+    const fail = () => reject(new DOMException("Остановлено", "AbortError"));
+    if (signal.aborted) fail();
+    else signal.addEventListener("abort", fail, { once: true });
   });
-  chain = job.catch(() => {});
-  return job;
 }
 
 /** Russian status text for WebLLM's per-phase progress. */
@@ -139,27 +196,60 @@ export interface LocalMessage {
   content: string;
 }
 
+/** Rough token count for Qwen: ~3 letters per token, but every digit is a token. */
+export function estimateTokens(text: string): number {
+  const digits = text.match(/\p{N}/gu)?.length ?? 0;
+  const marks = text.match(/[^\p{L}\p{N}\s]/gu)?.length ?? 0;
+  return Math.ceil(digits + marks * 0.7 + (text.length - digits - marks) / 3);
+}
+
+/** The model's whole context (WebLLM's Qwen builds), answer included. */
+const CONTEXT_TOKENS = 4096;
+export const MAX_ANSWER_TOKENS = { normal: 1024, deep: 2048 };
+
+/** Keeps the start and the end of a text within about `tokens`. */
+function clip(text: string, tokens: number): string {
+  if (estimateTokens(text) <= tokens) return text;
+  const ratio = text.length / estimateTokens(text);
+  const chars = Math.max(200, Math.floor(tokens * ratio));
+  return `${text.slice(0, Math.floor(chars * 0.7))}\n…\n${text.slice(-Math.floor(chars * 0.3))}`;
+}
+
 /**
- * The conversation for a small context window (4096 tokens, answer included):
- * the system prompt, then the newest turns that fit, opening with the user.
+ * The conversation for a small context window: the system prompt, then the
+ * newest turns that fit (an older turn that only partly fits keeps its end),
+ * opening with the user. `cut` tells that the last message itself was shortened.
  */
-export function buildMessages(system: string, history: { role: "user" | "assistant"; content: string }[], deep: boolean): LocalMessage[] {
-  const budget = deep ? 3500 : 6000;
+export function buildMessages(
+  system: string,
+  history: { role: "user" | "assistant"; content: string }[],
+  deep: boolean,
+): { messages: LocalMessage[]; cut: boolean } {
+  let left = CONTEXT_TOKENS - MAX_ANSWER_TOKENS[deep ? "deep" : "normal"] - estimateTokens(system) - 150;
   const turns: { role: "user" | "assistant"; content: string }[] = [];
-  let used = 0;
-  for (let i = history.length - 1; i >= 0; i--) {
+  let cut = false;
+  for (let i = history.length - 1; i >= 0 && left > 0; i--) {
     const h = history[i];
     let content = h.content.trim();
     if (!content) continue;
-    if (i === history.length - 1 && content.length > budget) content = `${content.slice(0, budget - 300)}\n…\n${content.slice(-300)}`;
-    if (used + content.length > budget && turns.length) break;
-    used += content.length;
+    const size = estimateTokens(content);
+    if (size > left) {
+      if (turns.length === 0) {
+        content = clip(content, left);
+        cut = true;
+      } else if (left >= 150) {
+        // The end of an earlier answer usually matters most for a follow-up ("продолжи").
+        const ratio = content.length / size;
+        content = `…${content.slice(-Math.floor(left * ratio))}`;
+      } else break;
+    }
+    left -= estimateTokens(content);
     const prev = turns[0];
     if (prev && prev.role === h.role) prev.content = `${content}\n\n${prev.content}`;
     else turns.unshift({ role: h.role, content });
   }
   while (turns.length && turns[0].role !== "user") turns.shift();
-  return [{ role: "system", content: system }, ...turns];
+  return { messages: [{ role: "system", content: system }, ...turns], cut };
 }
 
 /** Reasoning and answer from the raw stream (Qwen writes its thinking in <think> tags). */
@@ -178,8 +268,12 @@ function friendlyError(err: unknown): string {
     return "Не хватило памяти видеокарты. Выберите модель поменьше (Qwen 3 0.6B) и попробуйте снова.";
   }
   if (/ContextWindowSizeExceeded|context window/i.test(msg)) {
-    return "Диалог стал слишком длинным для модели в браузере — начните новый чат.";
+    return "Сообщение слишком длинное для модели в браузере — сократите его.";
   }
+  if (/ModelNotLoaded|lost|disposed/i.test(msg)) {
+    return "Модель в браузере сбросилась (видеокарта перезапустилась). Попробуйте ещё раз.";
+  }
+  if (/^Worker:/.test(msg)) return "Не удалось запустить модель в браузере. Обновите страницу и попробуйте снова.";
   if (/fetch|network|Failed to load|NetworkError|404/i.test(msg)) {
     return "Не удалось скачать модель. Проверьте интернет и попробуйте ещё раз.";
   }
@@ -200,22 +294,26 @@ export async function* generateLocal(input: {
   onStatus: (status: string | undefined) => void;
 }): AsyncGenerator<{ reasoning: string; text: string; truncated: boolean }> {
   const { model, messages, deep, signal, onStatus } = input;
-  const aborted = () => new DOMException("Остановлено", "AbortError");
   const label = labelOf(model);
   const sizeMB = BROWSER_MODELS.find((m) => m.id === model)?.downloadMB;
 
   const f = fake();
   if (f) {
-    onStatus(`Подключаю ${label}…`);
-    await new Promise((r) => setTimeout(r, f.delayMs ?? 30));
-    onStatus(undefined);
-    const reply = f.reply(messages, { deep });
-    let raw = "";
-    for (const word of reply.split(/(?<=\s)/)) {
-      if (signal.aborted) throw aborted();
-      raw += word;
+    const release = await takeTurn(signal, () => onStatus("Жду, пока модель закончит ответ в другом чате…"));
+    try {
+      onStatus(`Подключаю ${label}…`);
       await new Promise((r) => setTimeout(r, f.delayMs ?? 30));
-      yield { ...split(raw), truncated: false };
+      onStatus(undefined);
+      const reply = f.reply(messages, { deep });
+      let raw = "";
+      for (const word of reply.split(/(?<=\s)/)) {
+        if (signal.aborted) throw new DOMException("Остановлено", "AbortError");
+        raw += word;
+        await new Promise((r) => setTimeout(r, f.delayMs ?? 30));
+        yield { ...split(raw), truncated: false };
+      }
+    } finally {
+      release();
     }
     return;
   }
@@ -224,53 +322,60 @@ export async function* generateLocal(input: {
   if (!s.ok) throw new Error(s.reason ?? NO_WEBGPU);
   const id = `${model}-${s.f16 ? "q4f16_1" : "q4f32_1"}-MLC`;
 
-  onStatus(`Подключаю ${label}…`);
-  onProgress = (r) => onStatus(statusText(r, label, sizeMB));
-  let eng: WebWorkerMLCEngine;
+  const release = await takeTurn(signal, () => onStatus("Жду, пока модель закончит ответ в другом чате…"));
   try {
-    // The download can't be cancelled, but the user doesn't have to wait for it.
-    eng = await Promise.race([
-      ensureModel(id),
-      new Promise<never>((_, reject) => {
-        if (signal.aborted) reject(aborted());
-        signal.addEventListener("abort", () => reject(aborted()), { once: true });
-      }),
-    ]);
-  } catch (err) {
-    if (signal.aborted) throw aborted();
-    throw new Error(friendlyError(err));
-  } finally {
-    onProgress = null;
-  }
-  onStatus(undefined);
-  if (signal.aborted) throw aborted();
-
-  const stop = () => eng.interruptGenerate();
-  signal.addEventListener("abort", stop);
-  let raw = "";
-  let truncated = false;
-  try {
-    const stream = await eng.chat.completions.create({
-      messages,
-      stream: true,
-      temperature: deep ? 0.6 : 0.7,
-      top_p: deep ? 0.95 : 0.8,
-      max_tokens: deep ? 2048 : 1024,
-      extra_body: { enable_thinking: deep },
-    });
-    for await (const chunk of stream) {
-      const choice = chunk.choices[0];
-      raw += choice?.delta?.content ?? "";
-      if (choice?.finish_reason === "length") truncated = true;
-      yield { ...split(raw), truncated };
+    onStatus(`Подключаю ${label}…`);
+    onProgress = (r) => onStatus(statusText(r, label, sizeMB));
+    let eng: WebWorkerMLCEngine;
+    try {
+      eng = await Promise.race([loadModel(id), abortion(signal)]);
+    } catch (err) {
+      // Stopped during the download: cancel it (shards already fetched stay cached).
+      if (signal.aborted) {
+        if (loading) resetEngine();
+        throw err;
+      }
+      resetEngine();
+      throw new Error(friendlyError(err));
+    } finally {
+      onProgress = null;
     }
-  } catch (err) {
-    if (signal.aborted) throw aborted();
-    throw new Error(friendlyError(err));
+    onStatus(undefined);
+    if (signal.aborted) throw new DOMException("Остановлено", "AbortError");
+
+    const stop = () => eng.interruptGenerate();
+    signal.addEventListener("abort", stop);
+    let raw = "";
+    let truncated = false;
+    try {
+      const stream = await eng.chat.completions.create({
+        messages,
+        stream: true,
+        temperature: deep ? 0.6 : 0.7,
+        top_p: deep ? 0.95 : 0.8,
+        max_tokens: MAX_ANSWER_TOKENS[deep ? "deep" : "normal"],
+        extra_body: { enable_thinking: deep },
+      });
+      for await (const chunk of stream) {
+        // Leaving the loop closes the stream in the worker and frees the model.
+        if (signal.aborted) break;
+        const choice = chunk.choices[0];
+        raw += choice?.delta?.content ?? "";
+        if (choice?.finish_reason === "length") truncated = true;
+        yield { ...split(raw), truncated };
+      }
+    } catch (err) {
+      if (signal.aborted) throw new DOMException("Остановлено", "AbortError");
+      // A lost GPU device unloads the model behind our back: start afresh next time.
+      resetEngine();
+      throw new Error(friendlyError(err));
+    } finally {
+      signal.removeEventListener("abort", stop);
+    }
+    if (signal.aborted) throw new DOMException("Остановлено", "AbortError");
   } finally {
-    signal.removeEventListener("abort", stop);
+    release();
   }
-  if (signal.aborted) throw aborted();
 }
 
 // ---------- Prompt ----------
@@ -302,7 +407,7 @@ export function localSystemPrompt(input: {
   const lines = [
     input.assistantPrompt?.slice(0, 1500) ||
       (input.maryx
-        ? `Ты — MARYX, собственный ИИ платформы MARYX Ai. Сейчас ты работаешь прямо в браузере пользователя на открытой модели ${labelOf(input.model)}: бесплатно, сообщения никуда не отправляются.`
+        ? `Ты — MARYX, собственный ИИ платформы MARYX Ai. Сейчас ты работаешь прямо в браузере пользователя на открытой модели ${labelOf(input.model)}: бесплатно, без сторонних ИИ-сервисов.`
         : "Ты — полезный ассистент."),
     "Отвечай на языке пользователя, по делу. Используй Markdown, когда это помогает. Если не уверен — так и скажи, не выдумывай факты.",
     `Сегодня ${date}.`,

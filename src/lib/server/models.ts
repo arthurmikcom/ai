@@ -285,7 +285,9 @@ export async function listModels(capability: Capability | null): Promise<ModelsR
   if (capabilities.includes("chat")) {
     // MARYX routes to the real chat models on the server; with none set up it
     // runs in the visitor's browser on an open Qwen model, free and without keys.
-    const onServer = models.some((m) => m.capability === "chat");
+    // Decided by configuration, so a model server that is briefly down doesn't
+    // move visitors to a big download on their own devices.
+    const onServer = providers.some((p) => p.configured && p.capabilities.includes("chat"));
     models.unshift(
       onServer
         ? { ...MARYX_MODEL, search: isConfigured("openrouter") || undefined }
