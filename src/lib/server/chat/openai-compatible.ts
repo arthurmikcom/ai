@@ -39,7 +39,10 @@ export async function* streamOpenAICompatible(
   signal: AbortSignal,
 ): AsyncGenerator<ChatStreamEvent> {
   const client = openAIClient(req.provider, req.apiKey);
-  const deep = req.deepThinking && req.provider === "openai" && OPENAI_REASONING.test(req.model);
+  const reasons = req.provider === "openai" && OPENAI_REASONING.test(req.model);
+  // "Think deeper" thinks hard; small jobs and answers short of budget think little.
+  // (-pro models take only "high".)
+  const openAIEffort = reasons && req.deepThinking ? "high" : reasons && req.light && !/-pro\b/.test(req.model) ? "low" : undefined;
   // OpenRouter takes one reasoning setting for every model and maps it to
   // each provider's own (models without reasoning ignore it).
   const mode: Effort = req.deepThinking ? "deep" : req.light ? "light" : "normal";
@@ -68,7 +71,7 @@ export async function* streamOpenAICompatible(
       // OpenAI's reasoning models take only max_completion_tokens; the others take max_tokens.
       ...(req.maxTokens ? (req.provider === "openai" ? { max_completion_tokens: req.maxTokens } : { max_tokens: req.maxTokens }) : {}),
       ...(req.provider === "openrouter" && req.endUser ? { user: req.endUser } : {}),
-      ...(deep ? { reasoning_effort: "high" as const } : {}),
+      ...(openAIEffort ? { reasoning_effort: openAIEffort } : {}),
       ...(effort ? ({ reasoning: { effort } } as object) : {}),
       ...(req.provider === "qwen" ? qwenThinking(req.model, mode) : {}),
       ...(req.provider === "custom" ? selfHostedThinking(req.model, mode) : {}),

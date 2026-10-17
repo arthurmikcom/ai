@@ -54,7 +54,8 @@ export async function* streamAnthropic(
       // Summarized thinking lets the UI show what the model is reasoning about
       // instead of a long silent pause before the answer.
       ...(adaptive ? { thinking: { type: "adaptive", display: "summarized" } } : {}),
-      ...(adaptive && req.deepThinking ? { output_config: { effort: "high" } } : {}),
+      // "Think deeper" thinks hard; small jobs and answers short of budget think little.
+      ...(adaptive && (req.deepThinking || req.light) ? { output_config: { effort: req.deepThinking ? "high" : "low" } } : {}),
       ...(SERVER_FALLBACK.has(req.model)
         ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" }
         : {}),

@@ -32,7 +32,7 @@ import {
   type MaryxPlan,
 } from "@/lib/server/maryx";
 import { endUserId, ownKey, ownKeyInfo } from "@/lib/server/own-key";
-import { answerTokens, chatHold, mediaCost } from "@/lib/server/pricing";
+import { answerLimits, chatHold, mediaCost } from "@/lib/server/pricing";
 import { chatEntry, requestChars, type CostEntry, type Meter } from "@/lib/server/spend";
 import {
   charge,
@@ -411,18 +411,35 @@ export async function POST(request: Request) {
     if (!plan && req.provider === "openrouter") await loadOpenRouterChatModels(Boolean(bill.key));
     const endUser = endUserId(user.id);
     const deep = Boolean(req.deepThinking);
+    const paid = bill.paidBy !== "byok" && bill.paidBy !== "admin";
+    /** What a model call may still spend: what the budget or credits had left for this request, less earlier attempts. */
+    const leftAfter = (spent: number) => (paid && bill.room !== undefined ? bill.room - spent : undefined);
+    const holdOf = (call: ChatRequest) => chatHold(call.provider, call.model, requestChars(call), deep, Boolean(call.webSearch));
     // MARYX may switch to a fallback model, so its request is built per model. A request the
-    // site or credits pay for may write only what was held for it: the full-size answer, or
-    // what the budget or credits had left (bill.allowance).
-    const requestFor = (m?: ModelInfo): ChatRequest => {
+    // site or credits pay for is limited to what they had left for it, when that is less than
+    // a full-length answer: it may then think less, so there's room for the answer itself.
+    const requestFor = (m: ModelInfo | undefined, spent: number): { call: ChatRequest; limited: boolean } => {
       const call = baseRequest(m);
-      const paid = bill.paidBy !== "byok" && bill.paidBy !== "admin";
+      const limits = paid
+        ? answerLimits(call.provider, call.model, requestChars(call), deep, leftAfter(spent), Boolean(call.webSearch))
+        : undefined;
+      const effort =
+        limits?.effort === "light" ? { deepThinking: false, light: true } : deep && limits?.effort === "normal" ? { deepThinking: false } : {};
       return {
-        ...call,
-        apiKey: call.provider === "openrouter" ? bill.key : undefined,
-        endUser,
-        maxTokens: paid ? answerTokens(call.provider, call.model, requestChars(call), deep, bill.allowance) : undefined,
+        limited: Boolean(limits?.limited),
+        call: {
+          ...call,
+          ...effort,
+          apiKey: call.provider === "openrouter" ? bill.key : undefined,
+          endUser,
+          maxTokens: limits?.maxTokens,
+        },
       };
+    };
+    /** A fallback that what's left can't pay even a short answer of isn't tried. */
+    const affordable = (m: ModelInfo, spent: number) => {
+      const left = leftAfter(spent);
+      return left === undefined || left >= holdOf(baseRequest(m)).least;
     };
     const baseRequest = (m?: ModelInfo): ChatRequest =>
       m && plan
@@ -462,10 +479,7 @@ export async function POST(request: Request) {
 
     // Now the model and the input are known: hold what the answer may cost while it runs.
     const firstCall = baseRequest(candidates[0]);
-    const refused = await reserve(bill, chatHold(firstCall.provider, firstCall.model, requestChars(firstCall), deep), {
-      provider: firstCall.provider,
-      model: firstCall.model,
-    });
+    const refused = await reserve(bill, holdOf(firstCall), { provider: firstCall.provider, model: firstCall.model });
     if (refused) {
       await undoMessage();
       await refundCharge(bill);
@@ -542,11 +556,15 @@ export async function POST(request: Request) {
         let sent = 0;
         let produced = 0;
         let callStarted = 0;
+        let callLimit: number | undefined;
+        // The answer had to be limited to what the budget or credits had left.
+        let limitedCall = false;
         // Model calls actually made; one stopped before any started costs nothing and is refunded.
         let calls = 0;
+        const spentSoFar = () => costs.reduce((sum, e) => sum + e.usd, 0);
         // `complete`: the call ran to its end, so the usage it reported is final (else only a lower bound).
         const tally = (complete: boolean) => {
-          const stopped = signal.aborted ? { seconds: (Date.now() - callStarted) / 1000 } : undefined;
+          const stopped = signal.aborted ? { seconds: (Date.now() - callStarted) / 1000, maxTokens: callLimit } : undefined;
           const entry = chatEntry("chat", provider, model, usage, { input: sent, output: produced }, stopped, !complete);
           if (entry) costs.push(entry);
           usage = undefined;
@@ -562,7 +580,9 @@ export async function POST(request: Request) {
             if (plan) send({ type: "route", provider, model, search: plan.webSearch || undefined, retry: attempt > 0 || undefined });
             // The browser clears the failed attempt on "retry", then shows why the model changed.
             if (attempt > 0) send({ type: "notice", text: notices[0] });
-            const call = requestFor(current);
+            const { call, limited } = requestFor(current, spentSoFar());
+            limitedCall = limited;
+            callLimit = call.maxTokens;
             sent = requestChars(call);
             callStarted = Date.now();
             if (signal.aborted) {
@@ -579,7 +599,7 @@ export async function POST(request: Request) {
                   continue; // for the ledger only
                 }
                 // An answer cut short because the budget or credits had little left: say why.
-                if (event.type === "notice" && event.text === LENGTH_NOTICE && bill.allowance !== undefined) {
+                if (event.type === "notice" && event.text === LENGTH_NOTICE && limitedCall) {
                   event = { type: "notice", text: SHORT_NOTICE };
                 }
                 if (event.type === "text") {
@@ -606,7 +626,7 @@ export async function POST(request: Request) {
               // might not finish before the function's time limit.
               const next =
                 current && !text && !signal.aborted && Date.now() - started < FALLBACK_WINDOW_MS
-                  ? nextCandidate(candidates, attempt, err)
+                  ? nextCandidate(candidates, attempt, err, (m) => affordable(m, spentSoFar()))
                   : -1;
               if (next < 0) throw err;
               console.warn("[chat] MARYX falls back from", provider, model, err instanceof Error ? err.message : err);
@@ -637,9 +657,11 @@ export async function POST(request: Request) {
         }
 
         try {
-          // A provider failure that produced nothing doesn't count toward the limit
-          // (its cost, if any, is still recorded). Otherwise credits pay for what it cost.
-          await settleCharge(bill, costs, calls === 0 || Boolean(error && !text));
+          // A provider failure that produced nothing, or an answer that ran out of length while
+          // still thinking, doesn't count toward the limit (its cost is still recorded).
+          // Otherwise credits pay for what it cost.
+          const cutBeforeAnswer = !text && notices.some((n) => n === LENGTH_NOTICE || n === SHORT_NOTICE);
+          await settleCharge(bill, costs, calls === 0 || Boolean(error && !text) || cutBeforeAnswer);
           answered = !error && text.length > 0;
           await db.insert(schema.message).values({
             id: req.answerId,
@@ -702,14 +724,15 @@ export async function POST(request: Request) {
 
 /**
  * The next model to try after `failed` broke, or -1. A rejected key or an empty
- * balance affects the whole provider account, so that provider is skipped.
+ * balance affects the whole provider account, so that provider is skipped; so
+ * is a model the request can't `afford`.
  */
-function nextCandidate(candidates: ModelInfo[], failed: number, err: unknown): number {
+function nextCandidate(candidates: ModelInfo[], failed: number, err: unknown, afford: (m: ModelInfo) => boolean): number {
   const status = statusOf(err);
   // OpenRouter answers 403 when one model's moderation flags the input: another model may still answer.
   const account = status === 401 || status === 402 || (status === 403 && candidates[failed].provider !== "openrouter");
   for (let i = failed + 1; i < candidates.length; i++) {
-    if (!account || candidates[i].provider !== candidates[failed].provider) return i;
+    if ((!account || candidates[i].provider !== candidates[failed].provider) && afford(candidates[i])) return i;
   }
   return -1;
 }

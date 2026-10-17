@@ -2,7 +2,7 @@ import { ThinkingLevel, type Content, type Part } from "@google/genai";
 import type { ChatRequest, ChatStreamEvent } from "@/lib/types";
 import { googleClient } from "../config";
 
-const THINKING_MODELS = /^gemini-(2\.5|3)/;
+export const THINKING_MODELS = /^gemini-(2\.5|3)/;
 export const THINKING_LEVEL_MODELS = /^gemini-3/;
 
 function toContents(req: ChatRequest): Content[] {
@@ -33,9 +33,15 @@ export async function* streamGoogle(
         ? {
             thinkingConfig: {
               includeThoughts: true,
-              ...(req.deepThinking && THINKING_LEVEL_MODELS.test(req.model)
-                ? { thinkingLevel: ThinkingLevel.HIGH }
-                : {}),
+              ...(THINKING_LEVEL_MODELS.test(req.model)
+                ? req.deepThinking
+                  ? { thinkingLevel: ThinkingLevel.HIGH }
+                  : req.light
+                    ? { thinkingLevel: ThinkingLevel.LOW }
+                    : {}
+                : req.light && !/lite/.test(req.model) // Flash-Lite doesn't think unless asked to
+                  ? { thinkingBudget: 1024 }
+                  : {}),
             },
           }
         : {}),

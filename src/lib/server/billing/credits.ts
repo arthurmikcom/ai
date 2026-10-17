@@ -74,8 +74,8 @@ export function findPack(id: unknown): PackDef | undefined {
   return typeof id === "string" ? creditPacks().find((p) => p.id === id) : undefined;
 }
 
-export async function creditBalance(userId: string): Promise<number> {
-  const db = await getDb();
+export async function creditBalance(userId: string, tx?: Tx): Promise<number> {
+  const db = tx ?? (await getDb());
   const [row] = await db
     .select({ balance: schema.creditBalance.balance })
     .from(schema.creditBalance)
@@ -120,7 +120,8 @@ export async function holdUpTo(userId: string, n: number): Promise<number> {
 
 /**
  * Charges a cost worth a fraction of a credit (MARYX's titles and follow-ups):
- * fractions add up, and a whole credit is taken each time they reach one.
+ * fractions add up, and a whole credit is taken each time they reach one —
+ * never into debt (what the balance can't pay waits for the next top-up).
  * Returns the whole credits taken now.
  */
 export async function takeFraction(userId: string, credits: number): Promise<number> {
@@ -128,13 +129,13 @@ export async function takeFraction(userId: string, credits: number): Promise<num
   const db = await getDb();
   return db.transaction(async (tx) => {
     const [row] = await tx
-      .select({ carry: schema.creditBalance.carry })
+      .select({ carry: schema.creditBalance.carry, balance: schema.creditBalance.balance })
       .from(schema.creditBalance)
       .where(eq(schema.creditBalance.userId, userId))
       .for("update");
     if (!row) return 0;
     const total = row.carry + credits;
-    const whole = Math.floor(total + 1e-9);
+    const whole = Math.min(Math.floor(total + 1e-9), Math.max(0, row.balance));
     await tx
       .update(schema.creditBalance)
       .set({ balance: sql`${schema.creditBalance.balance} - ${whole}`, carry: total - whole, updatedAt: new Date() })

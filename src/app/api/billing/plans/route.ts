@@ -1,6 +1,6 @@
 import { creditsFor, MIN_CREDITS } from "@/lib/server/billing/credits";
 import { sellablePacks } from "@/lib/server/billing/packs";
-import { FEATURED_MODELS } from "@/lib/catalog";
+import { listModels } from "@/lib/server/models";
 import { mediaCost } from "@/lib/server/pricing";
 import { planDailyUsd } from "@/lib/server/spend";
 import { planLimit } from "@/lib/server/billing/plans";
@@ -9,8 +9,10 @@ import { yookassaConfigured, yookassaPriceLabel } from "@/lib/server/billing/yoo
 import { requireUser } from "@/lib/server/http";
 import { USAGE_KINDS, type BillingOptions, type PlanId, type UsageKind } from "@/lib/types";
 
-function cheapest(kind: "image" | "video"): number {
-  const prices = FEATURED_MODELS.filter((m) => m.capability === kind).map((m) => creditsFor(kind, mediaCost(kind, m.id)));
+/** The cheapest picture or clip among the models this site offers, at their default size. */
+async function cheapest(kind: "image" | "video"): Promise<number> {
+  const { models } = await listModels(kind).catch(() => ({ models: [] }));
+  const prices = models.map((m) => creditsFor(kind, mediaCost(kind, m.id)));
   return prices.length ? Math.min(...prices) : MIN_CREDITS[kind];
 }
 
@@ -47,18 +49,12 @@ export async function GET(request: Request) {
         .filter((p) => p.rub || p.usd)
       : [];
 
+  const [image, video] = await Promise.all([cheapest("image"), cheapest("video")]);
   const body: BillingOptions = {
     limits: { free: limits("free"), pro: limits("pro") },
     budget: { free: planDailyUsd("free"), pro: planDailyUsd("pro") },
-    // "From N credits": the cheapest picture and clip among the models on offer, at their default size.
-    credits: {
-      packs,
-      min: {
-        ...MIN_CREDITS,
-        image: cheapest("image"),
-        video: cheapest("video"),
-      },
-    },
+    // "From N credits": the cheapest picture and clip among the models on offer.
+    credits: { packs, min: { ...MIN_CREDITS, image, video } },
     methods: {
       yookassa: yookassaConfigured() ? { price: yookassaPriceLabel() } : null,
       stripe,

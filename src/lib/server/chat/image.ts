@@ -66,9 +66,17 @@ export async function generateChatImage(
   );
   // Most image models answer right away; a few (e.g. on Replicate) run as a job.
   while (result.status === "pending") {
-    if (Date.now() - started > GIVE_UP_AFTER_MS) throw new Error("Картинка рисуется слишком долго. Попробуйте ещё раз.");
-    await sleep(POLL_EVERY_MS, signal);
-    result = await checkGeneration(model.provider, "image", result.jobId, call);
+    try {
+      if (Date.now() - started > GIVE_UP_AFTER_MS) throw new Error("Картинка рисуется слишком долго. Попробуйте ещё раз.");
+      await sleep(POLL_EVERY_MS, signal);
+      result = await checkGeneration(model.provider, "image", result.jobId, call);
+    } catch (err) {
+      // Stopped or given up: the job still runs at the provider, which bills it.
+      throw Object.assign(err instanceof Error ? err : new Error(String(err)), {
+        billed: mediaCost("image", model.id),
+        reported: false,
+      });
+    }
   }
   if (result.status === "failed") throw new Error(result.error);
 

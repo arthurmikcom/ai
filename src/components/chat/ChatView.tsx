@@ -74,7 +74,8 @@ export function ChatView() {
   const localLabel = models.find((m) => m.provider === "browser" && m.id === localModel);
   /** What every send uses: the toggles, and the browser model when the chosen one runs here. */
   const sendOptions = (extra: Partial<SendOptions> = {}): SendOptions => ({
-    deepThinking,
+    // Kept while switching models, but sent only to one that can think.
+    deepThinking: deepThinking && Boolean(current?.reasoning),
     webSearch: webSearch && Boolean(current?.search),
     ...extra,
     ...(localModel ? { image: false, local: { model: localModel } } : {}),

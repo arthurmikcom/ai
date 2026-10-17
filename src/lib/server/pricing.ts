@@ -4,6 +4,9 @@
 // list prices. Those are estimates: rows made from them are marked so.
 
 import type { ChatUsage, ProviderId } from "@/lib/types";
+import { ADAPTIVE_THINKING } from "./chat/anthropic";
+import { THINKING_MODELS } from "./chat/google";
+import { OPENAI_REASONING } from "./chat/openai-compatible";
 
 /** USD per token, as OpenRouter lists them (from /models, see listModels). */
 interface TokenPrice {
@@ -21,12 +24,40 @@ export function rememberPrice(model: string, price: TokenPrice, maxOutput?: numb
   else openRouterLimits.delete(model);
 }
 
-/** The most a model can write in one answer, where it's lower than our caps (or unknown: undefined). */
-function outputLimit(provider: ProviderId, model: string): number | undefined {
-  if (provider === "openrouter") return openRouterLimits.get(model);
-  if (provider === "deepseek") return 8192;
-  return undefined;
+/**
+ * The most a model can write in one answer (thinking included), where we know
+ * it; undefined for models whose limit we don't know, which then get no limit
+ * sent unless the budget or credits require one (see answerTokens).
+ */
+function knownLimit(provider: ProviderId, model: string): number | undefined {
+  switch (provider) {
+    case "openrouter":
+      return openRouterLimits.get(model);
+    case "anthropic":
+      // The adapter's own maximum, which every Claude model takes.
+      return ADAPTIVE_THINKING.test(model) ? 64_000 : 8192;
+    case "google":
+      return THINKING_MODELS.test(model) || /^gemini-(flash|pro)(-lite)?-latest/.test(model) ? 65_536 : 8192;
+    case "openai":
+      if (/^gpt-5.*chat/.test(model)) return 16_384;
+      if (OPENAI_REASONING.test(model)) return 100_000;
+      if (/gpt-4\.1/.test(model)) return 32_768;
+      if (/gpt-4o|chatgpt-4o/.test(model)) return 16_384;
+      if (/gpt-4-turbo|gpt-3\.5/.test(model)) return 4096;
+      if (/^gpt-4/.test(model)) return 8192;
+      return undefined;
+    case "deepseek":
+      // max_tokens includes the reasoner's chain of thought.
+      return /reasoner/.test(model) ? 64_000 : 8192;
+    case "qwen":
+      return /^qwen-(max|plus|turbo)/.test(model) ? 8192 : undefined;
+    default:
+      return undefined;
+  }
 }
+
+/** A limit every chat model accepts, for an answer that must be limited when the model's own isn't known. */
+const SAFE_LIMIT = 8192;
 
 const M = 1_000_000;
 
@@ -101,41 +132,106 @@ export function tokensOf(chars: number): number {
 /**
  * The most a chat answer may write (thinking included) when it's paid by the
  * site's plans or by credits: plenty for any answer, and the bound that keeps
- * one request from costing more than was held for it.
+ * one request from costing much more than was held for it.
  */
 export function answerCap(deep: boolean, provider?: ProviderId, model?: string): number {
   const cap = deep ? 32_000 : 16_000;
-  const limit = provider && model ? outputLimit(provider, model) : undefined;
+  const limit = provider && model ? knownLimit(provider, model) : undefined;
   return limit ? Math.min(cap, limit) : cap;
 }
 
-/** The least output an answer is allowed: below this the request is refused rather than cut to nothing. */
-export const MIN_ANSWER_TOKENS = 300;
+/** Output a typical answer writes (thinking included): what is held for it while it runs. */
+const TYPICAL_ANSWER = { normal: 2000, deep: 8000 };
 
 /**
- * What a chat call may cost before it runs: `most` with a full-length answer
- * (the hold, when the budget or credits allow it), `least` with the shortest
- * answer worth running (when they don't, the answer is limited to what they cover).
+ * The least output an answer is allowed: below this the request is refused
+ * rather than cut to nothing. A limited answer thinks less (see the chat
+ * route), so this leaves room for the answer itself.
  */
-export function chatHold(provider: ProviderId, model: string, inputChars: number, deep: boolean): { most: number; least: number } {
+export const MIN_ANSWER_TOKENS = 2000;
+
+/** OpenRouter's web search: up to 2 searches of ~$0.007, their results read as ~10k tokens of input. */
+const SEARCH = { usd: 0.014, tokens: 10_000 };
+
+/**
+ * Thinking that Qwen 3.8 on Alibaba's own API does on top of max_tokens,
+ * which bounds only the reply there.
+ */
+function unboundedThinking(provider: ProviderId, model: string, effort: "normal" | "deep" | "light"): number {
+  if (provider !== "qwen" || !/^qwen3\.8/.test(model)) return 0;
+  return effort === "deep" ? 32_000 : effort === "light" ? 2000 : 8000;
+}
+
+/** Cost of a chat call's input, web search and Qwen's extra thinking: everything but its answer. */
+function callBase(provider: ProviderId, model: string, inputChars: number, effort: "normal" | "deep" | "light", search?: boolean): number {
   const price = tokenPrice(provider, model);
-  const input = tokensOf(inputChars) * price.input;
-  return { most: input + answerCap(deep, provider, model) * price.output, least: input + MIN_ANSWER_TOKENS * price.output };
+  const searching = search && provider === "openrouter" ? SEARCH.usd + SEARCH.tokens * price.input : 0;
+  return tokensOf(inputChars) * price.input + searching + unboundedThinking(provider, model, effort) * price.output;
 }
 
 /**
- * The most a paid answer may write: the cap, or what `usd` (the budget or
- * credits left for it) pays for after the input, but never below the
- * shortest answer worth running. Undefined for models on the owner's own
- * hardware, which cost nothing (and whose limits we don't know).
+ * What a chat call may cost before it runs: `expected` with a typical answer
+ * (held while it runs), `most` with a full-length one (if the budget or credits
+ * can't cover it, the answer is limited to what they do cover) and `least`
+ * with the shortest answer worth running (below that the request is refused).
  */
-export function answerTokens(provider: ProviderId, model: string, inputChars: number, deep: boolean, usd?: number): number | undefined {
-  const price = tokenPrice(provider, model);
-  if (price.output <= 0) return undefined;
+export function chatHold(
+  provider: ProviderId,
+  model: string,
+  inputChars: number,
+  deep: boolean,
+  search?: boolean,
+): { expected: number; most: number; least: number } {
+  const out = tokenPrice(provider, model).output;
   const cap = answerCap(deep, provider, model);
-  if (usd === undefined) return cap;
-  const room = (usd - tokensOf(inputChars) * price.input) / price.output;
-  return Math.max(MIN_ANSWER_TOKENS, Math.min(cap, Math.floor(room)));
+  const base = callBase(provider, model, inputChars, deep ? "deep" : "normal", search);
+  return {
+    expected: base + Math.min(cap, deep ? TYPICAL_ANSWER.deep : TYPICAL_ANSWER.normal) * out,
+    most: base + cap * out,
+    // A limited answer thinks lightly (see the chat route).
+    least: callBase(provider, model, inputChars, "light", search) + Math.min(cap, MIN_ANSWER_TOKENS) * out,
+  };
+}
+
+/** How hard an answer thinks: as asked ("deep" with "think deeper"), or lighter when it must be limited. */
+export type AnswerEffort = "deep" | "normal" | "light";
+
+/**
+ * How a paid answer runs: the output limit to send and how hard it thinks.
+ * With `usd` (what the budget or credits have left for it) below its
+ * full-length price, it is `limited` to what `usd` pays for after its input,
+ * never below the shortest answer worth running, and thinks less when that is
+ * too little for its usual thinking ("deep" keeps a typical deep answer's room,
+ * "normal" twice the shortest answer's). For a model whose own limit we don't
+ * know, nothing is sent unless the answer is limited, so a cap above its limit
+ * can't get the request rejected. No limit either for models on the owner's
+ * own hardware, which cost nothing.
+ */
+export function answerLimits(
+  provider: ProviderId,
+  model: string,
+  inputChars: number,
+  deep: boolean,
+  usd?: number,
+  search?: boolean,
+): { maxTokens?: number; effort: AnswerEffort; limited: boolean } {
+  const asked: AnswerEffort = deep ? "deep" : "normal";
+  const price = tokenPrice(provider, model);
+  if (price.output <= 0) return { effort: asked, limited: false };
+  const known = knownLimit(provider, model) !== undefined;
+  if (usd === undefined || usd >= chatHold(provider, model, inputChars, deep, search).most) {
+    return { maxTokens: known ? answerCap(deep, provider, model) : undefined, effort: asked, limited: false };
+  }
+  const efforts: AnswerEffort[] = deep ? ["deep", "normal", "light"] : ["normal", "light"];
+  const room = (effort: AnswerEffort) => Math.floor((usd - callBase(provider, model, inputChars, effort, search)) / price.output);
+  const effort =
+    efforts.find((e) => room(e) >= (e === "deep" ? TYPICAL_ANSWER.deep : e === "normal" ? 2 * MIN_ANSWER_TOKENS : 0)) ?? "light";
+  const cap = answerCap(effort === "deep", provider, model);
+  return {
+    maxTokens: Math.max(Math.min(cap, MIN_ANSWER_TOKENS), Math.min(known ? cap : SAFE_LIMIT, room(effort))),
+    effort,
+    limited: true,
+  };
 }
 
 const IMAGE_PRICES: [RegExp, number][] = [

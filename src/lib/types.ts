@@ -176,7 +176,7 @@ export interface ChatRequest {
   model: string;
   system?: string;
   deepThinking?: boolean;
-  /** A small background job (title, suggestions, memory): think as little as possible. */
+  /** Think as little as possible: a small background job (title, suggestions, memory), or an answer short of budget. */
   light?: boolean;
   webSearch?: boolean;
   messages: { role: "user" | "assistant"; content: string; attachments?: InlineImage[] }[];

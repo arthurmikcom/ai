@@ -2,7 +2,7 @@
 // paid. It drives the per-user daily budgets, the site-wide budget for free
 // requests and the admin's cost dashboard.
 
-import { and, eq, gte, inArray, ne, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, ne, or, sql } from "drizzle-orm";
 import type { ChatRequest, ChatUsage, CostKind, CostReport, PaidBy, PlanId, ProviderId } from "@/lib/types";
 import { getDb, schema, type DB } from "./db";
 import { chatCost, tokensOf } from "./pricing";
@@ -37,14 +37,15 @@ export function requestChars(req: ChatRequest): number {
 }
 
 /** Hidden reasoning a model may bill while nothing is streamed yet, per second of waiting (conservative). */
-const HIDDEN_TOKENS_PER_SECOND = 20;
+const HIDDEN_TOKENS_PER_SECOND = 40;
 
 /**
  * The cost of one chat call: from the usage the provider reported, or, when the
  * call ended before reporting it, estimated from the characters sent and
  * received. A call that was stopped (by the user or the time limit) is billed
  * by the provider for what it read and thought so far, so it gets at least the
- * input plus a time-based allowance for hidden reasoning. `partial`: the call
+ * input plus a time-based allowance for hidden reasoning (no more than the
+ * call's output limit, when it had one). `partial`: the call
  * didn't run to its end, so usage it reported along the way (Anthropic and
  * Gemini report as they go) is only a lower bound. Null for a call that failed
  * before producing anything (the provider refused it).
@@ -55,7 +56,7 @@ export function chatEntry(
   model: string,
   usage: ChatUsage | undefined,
   chars: { input: number; output: number },
-  stopped?: { seconds: number },
+  stopped?: { seconds: number; maxTokens?: number },
   partial = false,
 ): CostEntry | null {
   const exact = usage && (!partial || usage.cost !== undefined);
@@ -64,7 +65,7 @@ export function chatEntry(
     used = usage;
   } else {
     if (!usage && chars.output === 0 && !stopped) return null;
-    const hidden = stopped ? Math.round(stopped.seconds * HIDDEN_TOKENS_PER_SECOND) : 0;
+    const hidden = stopped ? Math.min(Math.round(stopped.seconds * HIDDEN_TOKENS_PER_SECOND), stopped.maxTokens ?? Infinity) : 0;
     used = {
       inputTokens: Math.max(usage?.inputTokens ?? 0, tokensOf(chars.input)),
       outputTokens: Math.max(usage?.outputTokens ?? 0, tokensOf(chars.output), hidden),
@@ -162,6 +163,39 @@ export async function insertReservation(
     .onConflictDoNothing();
 }
 
+/** Drops a request's reservation without recording a cost (its cost couldn't be written). */
+export async function dropReservation(chargeId: string): Promise<void> {
+  const db = await getDb();
+  await db.delete(schema.aiCost).where(and(eq(schema.aiCost.id, chargeId), eq(schema.aiCost.pending, true)));
+}
+
+/**
+ * A chat answer or dictation can't run longer than its function's time limit
+ * (5 minutes): a reservation older than this was never replaced (the function
+ * was killed) and no longer holds anything. Pictures and video are held until
+ * the provider's job is done, which can take longer.
+ */
+const STALE_AFTER_MS = 6 * 60_000;
+
+/** Ledger rows that count toward today's spending: costs, and reservations of requests still running. */
+function counted(opts: { settled?: boolean }) {
+  const c = schema.aiCost;
+  if (opts.settled) return eq(c.pending, false);
+  return or(eq(c.pending, false), gte(c.at, new Date(Date.now() - STALE_AFTER_MS)), inArray(c.kind, ["image", "video"]));
+}
+
+/** Whether a request of the user's paid with credits is running (and holding some). */
+export async function hasPendingCredits(userId: string, except?: string): Promise<boolean> {
+  const db = await getDb();
+  const c = schema.aiCost;
+  const rows = await db
+    .select({ id: c.id })
+    .from(c)
+    .where(and(eq(c.userId, userId), eq(c.pending, true), eq(c.paidBy, "credits"), gte(c.at, new Date(Date.now() - STALE_AFTER_MS)), ...(except ? [ne(c.id, except)] : [])))
+    .limit(1);
+  return rows.length > 0;
+}
+
 /** Kinds the per-user daily budget applies to; pictures and video are governed by their daily counts. */
 export const BUDGETED: CostKind[] = ["chat", "voice", "background"];
 
@@ -169,8 +203,9 @@ export const BUDGETED: CostKind[] = ["chat", "voice", "background"];
  * Today's spending (finished and still running) on a user's chat, dictation and
  * MARYX's jobs that the plan pays for: requests paid with credits or with the
  * user's own key, and pictures and video, don't use up the plan's budget.
+ * `settled`: only what was actually spent, not what running requests hold.
  */
-export async function userSpendToday(userId: string, conn?: Conn): Promise<number> {
+export async function userSpendToday(userId: string, conn?: Conn, opts: { settled?: boolean } = {}): Promise<number> {
   const db = conn ?? (await getDb());
   const [row] = await db
     .select({ usd: sql<number>`coalesce(sum(${schema.aiCost.costUsd}), 0)` })
@@ -181,6 +216,7 @@ export async function userSpendToday(userId: string, conn?: Conn): Promise<numbe
         gte(schema.aiCost.at, startOfDay()),
         inArray(schema.aiCost.paidBy, ["free", "pro", "admin"]),
         inArray(schema.aiCost.kind, BUDGETED),
+        counted(opts),
       ),
     );
   return Number(row?.usd ?? 0);
@@ -207,7 +243,7 @@ export async function freeSpendToday(conn?: Conn): Promise<number> {
   const [row] = await db
     .select({ usd: sql<number>`coalesce(sum(${schema.aiCost.costUsd}), 0)` })
     .from(schema.aiCost)
-    .where(and(gte(schema.aiCost.at, startOfDay()), eq(schema.aiCost.paidBy, "free")));
+    .where(and(gte(schema.aiCost.at, startOfDay()), eq(schema.aiCost.paidBy, "free"), counted({})));
   return Number(row?.usd ?? 0);
 }
 

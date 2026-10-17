@@ -16,7 +16,9 @@ import { sellablePacks } from "./billing/packs";
 import { getDb, schema } from "./db";
 import {
   BUDGETED,
+  dropReservation,
   freeSpendToday,
+  hasPendingCredits,
   insertReservation,
   planDailyUsd,
   recordCosts,
@@ -116,10 +118,10 @@ export async function usageSummary(user: SessionUser): Promise<UsageSummary> {
  *
  * It happens in two steps: charge() before the request is prepared (counts,
  * and the least credits it can take), then reserve() with its estimated cost
- * once the model and input are known. The estimate is held while the request
- * runs — in the ledger as a pending row, and from the credit balance — so
- * parallel requests can't slip past a budget or spend credits twice.
- * settleCharge() replaces it with the real cost.
+ * once the model and input are known. The expected cost is held while the
+ * request runs — in the ledger as a pending row, and from the credit balance —
+ * so parallel requests see each other in the budgets and can't spend credits
+ * twice. settleCharge() replaces it with the real cost.
  */
 export interface Charge {
   /** Also the id of the pending ledger row holding the estimate. */
@@ -136,10 +138,11 @@ export interface Charge {
   /** Credits the request was estimated to need, when there weren't enough. */
   need?: number;
   /**
-   * USD the request may spend, when the budget or credits cover less than its
-   * full price: a chat answer is limited to what this pays for.
+   * USD the request may spend in all: what the budget or credits had left for
+   * it when it was reserved (undefined: nothing bounds it). A chat answer is
+   * limited to what this pays for when it is less than its full price.
    */
-  allowance?: number;
+  room?: number;
   /** Settled or refunded already; later calls do nothing. */
   done?: boolean;
 }
@@ -147,10 +150,11 @@ export interface Charge {
 /**
  * Why a request was refused: the plan's count limit, the user's daily budget
  * (used up, or not enough left for this request), the site's budget for free
- * requests, not enough credits for this request, or the daily count for
- * one's own key.
+ * requests, not enough credits for this request, the daily count for one's
+ * own key, or the user's other requests still running and holding what's
+ * left (it comes back when they end).
  */
-export type Denial = "limit" | "spend" | "expensive" | "budget" | "credits" | "ownKey";
+export type Denial = "limit" | "spend" | "expensive" | "budget" | "credits" | "ownKey" | "busy";
 
 /** Requests a day with one's own key: no cost to the site, but the server still does the work. */
 const OWN_KEY_DAILY = 3000;
@@ -169,41 +173,47 @@ export async function charge(user: SessionUser, kind: UsageKind, ownKey?: string
   const { plan } = await currentPlan(user.id);
   const budget = budgeted(kind) ? planDailyUsd(plan) : null;
   let denied: Denial;
-  if (budget !== null && (await userSpendToday(user.id)) >= budget) denied = "spend";
-  else if (plan === "free" && (await siteBudgetSpent())) denied = "budget";
+  if (budget !== null && (await userSpendToday(user.id)) >= budget) {
+    // What's held for the user's running requests comes back when they end: wait for them, not for midnight.
+    if ((await userSpendToday(user.id, undefined, { settled: true })) < budget) return { denied: "busy" };
+    denied = "spend";
+  } else if (plan === "free" && (await siteBudgetSpent())) denied = "budget";
   else if (await bump(user.id, kind, planLimit(plan, kind))) return { ...base, paidBy: plan };
   else denied = "limit";
 
   const need = MIN_CREDITS[kind];
   if (await holdCredits(user.id, need)) return { ...base, paidBy: "credits", held: need };
-  return { denied };
+  return { denied: (await hasPendingCredits(user.id)) ? "busy" : denied };
 }
 
 /**
- * Holds what a request may cost (USD) while it runs. `most` is its price at
- * full size; `least` (for a chat answer, its input plus a short answer) is
- * the smallest it is worth running at. When the plan's budget, the site's
- * budget or the credits can't cover `most`, the request runs within what they
- * do cover — `c.allowance` says how much, so the answer is limited to it — or,
- * below `least`, it is refused. A plan-paid request over a budget switches to
- * credits if the user has some. Returns the reason when refused (the charge is
- * then still to be refunded by the caller).
+ * Holds what a request is expected to cost (USD) while it runs. `most` is its
+ * price at full size, `least` (for a chat answer, its input plus a short
+ * answer) the smallest it is worth running at; a number is an exact price.
+ * When the plan's budget, the site's budget or the credits can't cover `most`,
+ * the request runs within what they do cover (`c.room`; a chat answer is
+ * limited to it, and all of it is held) or, below `least`, it is refused.
+ * A plan-paid request that its budget can't cover in full switches to
+ * credits when they cover it. Returns the reason when refused (the
+ * charge is then still to be refunded by the caller).
  */
 export async function reserve(
   c: Charge,
-  cost: number | { most: number; least: number },
+  cost: number | { expected: number; most: number; least: number },
   call: { provider: string; model: string },
 ): Promise<Denial | null> {
   if (c.done || c.paidBy === "byok" || c.paidBy === "admin") return null;
   const clean = (v: number) => (Number.isFinite(v) && v > 0 ? v : 0);
-  const most = clean(typeof cost === "number" ? cost : cost.most);
-  const least = Math.min(most, clean(typeof cost === "number" ? cost : cost.least));
+  const [e, m, l] = typeof cost === "number" ? [cost, cost, cost] : [cost.expected, cost.most, cost.least];
+  const most = clean(m);
+  const least = Math.min(most, clean(l));
+  const expected = Math.min(most, Math.max(least, clean(e)));
   const row = { id: c.id, userId: c.userId, kind: c.kind, provider: call.provider, model: call.model };
 
   if (c.paidBy !== "credits") {
-    const verdict = await reservePlan(c.paidBy, { ...row, most, least }, c);
-    if (!verdict) return null;
-    // Over a budget: credits can still pay, and the plan's use is given back.
+    const verdict = await reservePlan(c.paidBy, { ...row, expected, most, least }, c);
+    if (!verdict || verdict === "busy") return verdict;
+    // Over a budget, or short of a full answer: credits can pay, and the plan's use is given back.
     const balance = await creditBalance(c.userId);
     if (balance < creditsFor(c.kind, least)) return verdict;
     await refund(c.userId, c.kind, c.day);
@@ -211,29 +221,35 @@ export async function reserve(
     c.held = 0;
   }
 
-  // Credits: hold the full price if the balance has it, else whatever it has, if that's enough.
-  const want = creditsFor(c.kind, most);
+  // Credits: if the balance covers the full price, hold the expected one; else the request
+  // is limited to the whole balance, if that's enough.
+  const value = creditValueUsd();
+  const available = c.held + Math.max(0, await creditBalance(c.userId));
+  const full = available * value >= most;
+  const want = full ? creditsFor(c.kind, expected) : available;
   if (want > c.held) c.held += await holdUpTo(c.userId, want - c.held);
-  const need = creditsFor(c.kind, least);
-  if (c.held < need) {
-    c.need = need;
-    return "credits";
+  const room = full ? available * value : c.held * value;
+  if (room < least) {
+    c.need = creditsFor(c.kind, least);
+    // Credits held by the user's running requests come back when they end.
+    return (await hasPendingCredits(c.userId, c.id)) ? "busy" : "credits";
   }
-  const covered = c.held * creditValueUsd();
-  if (covered < most) c.allowance = covered;
-  await insertReservation(await getDb(), { ...row, usd: Math.min(most, covered), paidBy: "credits" });
+  c.room = room;
+  await insertReservation(await getDb(), { ...row, usd: full ? expected : room, paidBy: "credits" });
   return null;
 }
 
 /**
  * Checks a plan-paid request against the plan's and the site's budgets and
- * reserves what fits (`most`, or what's left of the budgets if that is at
- * least `least`). One request of a user at a time (and, with a site budget,
- * one free request at a time), so parallel ones see each other.
+ * holds its expected cost — or, when what's left of the budgets covers less
+ * than `most` (but at least `least`), all of that. Short of `most` it is
+ * refused instead when the user's credits pay for all of it, so they take over.
+ * One request of a user at a time (and, with a site budget, one free request
+ * at a time), so parallel ones see each other.
  */
 async function reservePlan(
   plan: "free" | "pro",
-  row: { id: string; userId: string; kind: UsageKind; provider: string; model: string; most: number; least: number },
+  row: { id: string; userId: string; kind: UsageKind; provider: string; model: string; expected: number; most: number; least: number },
   c: Charge,
 ): Promise<Denial | null> {
   const site = plan === "free" ? siteDailyBudget() : null;
@@ -245,9 +261,12 @@ async function reservePlan(
     let room = Infinity;
     let short: Denial = "expensive";
     if (budget !== null) {
-      const spent = await userSpendToday(row.userId, tx);
-      room = budget - spent;
-      if (room <= 0) return "spend";
+      room = budget - (await userSpendToday(row.userId, tx));
+      if (room < row.least) {
+        // Held by the user's running requests, it comes back when they end.
+        const settled = budget - (await userSpendToday(row.userId, tx, { settled: true }));
+        return settled >= row.least ? "busy" : room <= 0 ? "spend" : "expensive";
+      }
     }
     if (site !== null) {
       const siteRoom = site - (await freeSpendToday(tx));
@@ -258,9 +277,11 @@ async function reservePlan(
       }
     }
     if (room < row.least) return short;
-    const usd = Math.min(row.most, room);
-    if (usd < row.most) c.allowance = usd;
-    await insertReservation(tx, { ...row, usd, paidBy: plan });
+    const limited = room < row.most;
+    // The user's credits pay for the full answer: they take over, and the budget stays for later.
+    if (limited && Math.max(0, await creditBalance(row.userId, tx)) * creditValueUsd() >= row.most) return short;
+    c.room = Number.isFinite(room) ? room : undefined;
+    await insertReservation(tx, { ...row, usd: limited ? room : row.expected, paidBy: plan });
     return null;
   });
 }
@@ -280,8 +301,8 @@ export async function refundCharge(c: Charge): Promise<void> {
 export async function settleCharge(c: Charge, costs: CostEntry[], failed = false): Promise<void> {
   if (c.done) return;
   c.done = true;
+  let credits = 0;
   try {
-    let credits = 0;
     if (failed) {
       if (c.paidBy === "credits") await releaseCredits(c.userId, c.held);
       else await refund(c.userId, c.paidBy === "byok" ? "byok" : c.kind, c.day);
@@ -291,9 +312,16 @@ export async function settleCharge(c: Charge, costs: CostEntry[], failed = false
       else await releaseCredits(c.userId, c.held - total);
       credits = total;
     }
-    await recordCosts(c.userId, c.paidBy, costs, credits, { chargeId: c.id, kind: c.kind });
   } catch (err) {
-    console.error("[usage] failed to settle a charge", c.paidBy, c.kind, err);
+    console.error("[usage] failed to settle a charge's credits", c.paidBy, c.kind, err);
+  }
+  const record = () => recordCosts(c.userId, c.paidBy, costs, credits, { chargeId: c.id, kind: c.kind });
+  try {
+    await record().catch(record);
+  } catch (err) {
+    console.error("[usage] failed to record a charge's cost", c.paidBy, c.kind, err);
+    // Its reservation mustn't keep holding the budget.
+    await dropReservation(c.id).catch(() => {});
   }
 }
 
@@ -335,6 +363,17 @@ export async function deniedResponse(
   ];
   const hint = `Чтобы продолжить сейчас, ${ways.join(", ").replace(/, ([^,]*)$/, " или $1")}.`;
   let error: string;
+  if (denied === "busy") {
+    return Response.json(
+      {
+        error:
+          "Ещё идёт ваш предыдущий запрос: пока он не закончится, за ним удержан остаток дневного бюджета или кредитов. " +
+          "Дождитесь ответа и попробуйте снова — неизрасходованное вернётся.",
+        code: "busy",
+      },
+      { status: 429 },
+    );
+  }
   if (denied === "spend") {
     error =
       (kind === "voice"
