@@ -256,7 +256,7 @@ export function ChatView() {
             )}
             <div className="home-actions">
               {SUGGESTIONS.slice(0, 2).map((s, index) => (
-                <button key={s.title} type="button" disabled={!current || noProviders || localBlocked} onClick={() => app.send(s.text, [], sendOptions(), choice)} className={`home-action-card home-action-${index}`}>
+                <button key={s.title} type="button" disabled={!app.ready || !current || noProviders || localBlocked} onClick={() => app.send(s.text, [], sendOptions(), choice)} className={`home-action-card home-action-${index}`}>
                   <div className="home-action-top"><span className="home-action-icon"><s.icon className="size-6" /></span><ArrowUpRight className="size-4" /></div>
                   <h2>{s.title}</h2>
                   <p className="line-clamp-3">{s.text}</p>
@@ -275,7 +275,7 @@ export function ChatView() {
             <div className="home-extra-prompts">
               <span>Ещё идеи:</span>
               {SUGGESTIONS.slice(2).map(s => (
-                <button key={s.title} type="button" title={s.text} disabled={!current || noProviders || localBlocked} onClick={() => app.send(s.text, [], sendOptions(), choice)}><s.icon className="size-3.5" />{s.title}</button>
+                <button key={s.title} type="button" title={s.text} disabled={!app.ready || !current || noProviders || localBlocked} onClick={() => app.send(s.text, [], sendOptions(), choice)}><s.icon className="size-3.5" />{s.title}</button>
               ))}
             </div>
 

@@ -6,7 +6,7 @@ import type { StoredFile } from "./db/schema";
 import { describeAiError, maryxOnly, publicError } from "./brand";
 import { statusOf } from "./errors";
 import { checkGeneration, downloadOutput, type OpenRouterCall } from "./media";
-import { endUserId, ownKey } from "./own-key";
+import { endUserId, savedOwnKey } from "./own-key";
 import { mediaCost } from "./pricing";
 import { deleteFiles, fileUrl, newKey, putFile } from "./storage";
 import { settleCharge, today, type Charge } from "./usage";
@@ -182,8 +182,8 @@ export async function refreshMedia(userId: string, id: string): Promise<MediaIte
     const stale = Date.now() - row.createdAt.getTime() > ORPHAN_AFTER_MS;
     return toItem(stale ? await fail(row, "Генерация прервалась. Попробуйте ещё раз.") : row);
   }
-  // A video paid with the user's own key is checked and downloaded with it.
-  const key = row.paidBy === "byok" ? await ownKey(userId) : undefined;
+  // A video paid with the user's own key is checked and downloaded with it (also once own keys are off).
+  const key = row.paidBy === "byok" ? await savedOwnKey(userId) : undefined;
   if (row.paidBy === "byok" && !key) {
     return toItem(await fail(row, `Ваш ключ${maryxOnly() ? "" : " OpenRouter"} удалён из настроек — узнать, готово ли видео, больше нельзя.`));
   }

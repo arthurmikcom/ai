@@ -72,11 +72,12 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
 
   const custom = replicateReady ? customModel.trim() : "";
   const target: ModelChoice | null = custom ? { provider: "replicate", model: custom } : choice;
-  const canGenerate = Boolean(target && prompt.trim());
+  // Not before the profile says which mode the site is in (it decides the model).
+  const canGenerate = Boolean(me && target && prompt.trim());
 
   // Each click queues a job; its card in the gallery shows the progress.
   const submit = () => {
-    if (!target || !prompt.trim()) return;
+    if (!canGenerate || !target) return;
     void generate({ kind, ...target, prompt: prompt.trim(), aspectRatio: ratio });
   };
 

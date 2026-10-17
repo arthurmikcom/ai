@@ -1,6 +1,6 @@
 import { PROVIDERS } from "@/lib/catalog";
 import { getAuth, vercelHosts } from "@/lib/server/auth";
-import { isConfigured } from "@/lib/server/config";
+import { isConfigured, maryxOnly } from "@/lib/server/config";
 import { sellablePacks } from "@/lib/server/billing/packs";
 import { stripeConfigured, stripeCreditsConfigured } from "@/lib/server/billing/stripe";
 import { yookassaConfigured } from "@/lib/server/billing/yookassa";
@@ -85,7 +85,12 @@ export async function GET(request: Request) {
   }
 
   const providers = PROVIDERS.filter((p) => isConfigured(p.id)).map((p) => p.name);
-  if (providers.length) checks["Нейросети"] = `✓ ${providers.join(", ")}`;
+  // The page is public: in MARYX-only mode it names no provider behind MARYX either.
+  if (maryxOnly()) {
+    checks["Нейросети"] = providers.length
+      ? `✓ облачный ИИ подключён (MARYX). Режим «только MARYX»; выбор всех моделей — SHOW_ALL_MODELS=true`
+      : `⚠ облачный ИИ не подключён — MARYX работает бесплатно в браузере посетителя. Для облачного ИИ, картинок и видео добавьте OPENROUTER_API_KEY: ${SETTINGS}`;
+  } else if (providers.length) checks["Нейросети"] = `✓ ${providers.join(", ")}`;
   else {
     // The site still works: MARYX runs on a free Qwen model in each visitor's browser.
     checks["Нейросети"] =

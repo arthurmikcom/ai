@@ -135,13 +135,13 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (onLoginPage) return;
-    Promise.all([
-      api<MeResponse>("/api/me"),
-      api<ChatSummary[]>("/api/chats"),
-      api<Assistant[]>("/api/assistants"),
-    ])
-      .then(([profile, list, saved]) => {
-        setMe(profile);
+    // The profile also says which mode the site is in: loaded on its own, so it arrives even if the rest fails.
+    const profile = api<MeResponse>("/api/me").then((p) => {
+      setMe(p);
+      return p;
+    });
+    Promise.all([profile, api<ChatSummary[]>("/api/chats"), api<Assistant[]>("/api/assistants")])
+      .then(([, list, saved]) => {
         for (const c of list) {
           if (!chatsRef.current.has(c.id)) chatsRef.current.set(c.id, { ...c, messages: [], loaded: false, saved: true });
         }

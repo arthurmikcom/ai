@@ -43,7 +43,14 @@ const KEY_PATTERN = /^sk-or-[A-Za-z0-9_-]{20,200}$/;
  * key stays, and works again with SHOW_ALL_MODELS=true).
  */
 export async function ownKey(userId: string): Promise<string | undefined> {
-  if (maryxOnly()) return undefined;
+  return maryxOnly() ? undefined : savedOwnKey(userId);
+}
+
+/**
+ * The saved key in any mode: a job the user already started with it (a video
+ * still rendering when the site switched to MARYX-only) is finished with it.
+ */
+export async function savedOwnKey(userId: string): Promise<string | undefined> {
   const db = await getDb();
   const [row] = await db.select({ secret: schema.userKey.secret }).from(schema.userKey).where(eq(schema.userKey.userId, userId));
   return row ? ((await decrypt(row.secret)) ?? undefined) : undefined;
