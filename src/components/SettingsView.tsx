@@ -94,7 +94,7 @@ function Providers() {
 function BudgetMeter({ used, limit }: { used: number; limit: number }) {
   const share = limit > 0 ? Math.min(100, (used / limit) * 100) : 100;
   return (
-    <div className="rounded-xl border border-white/5 bg-black/15 p-4" title="Дорогие модели, большие файлы и видео расходуют бюджет быстрее">
+    <div className="rounded-xl border border-white/5 bg-black/15 p-4" title="Дорогие модели, «Думать глубже» и большие файлы расходуют бюджет быстрее">
       <div className="text-xs text-zinc-500">Бюджет на ИИ</div>
       <div className="mt-1 text-sm text-zinc-200">израсходовано {Math.round(share)}%</div>
       <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">

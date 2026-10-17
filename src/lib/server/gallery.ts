@@ -184,13 +184,16 @@ export async function refreshMedia(userId: string, id: string): Promise<MediaIte
   if (row.paidBy === "byok" && !key) {
     return toItem(await fail(row, "Ваш ключ OpenRouter удалён из настроек — узнать, готово ли видео, больше нельзя."));
   }
-  if (Date.now() - row.createdAt.getTime() > GIVE_UP_AFTER_MS) {
-    // The provider may have billed it; the estimate stays in the ledger, the user gets the use back.
-    return toItem(await fail(row, "Видео так и не было готово. Попробуйте ещё раз.", row.paidBy === "byok" ? [] : [costOf(row)]));
-  }
+  // Still not done (or not answering) after hours: give up. The provider may have billed it,
+  // so the estimate stays in the ledger, and the user gets the use back.
+  const tooOld = Date.now() - row.createdAt.getTime() > GIVE_UP_AFTER_MS;
+  const giveUp = async () =>
+    toItem(await fail(row, "Видео так и не было готово. Попробуйте ещё раз.", row.paidBy === "byok" ? [] : [costOf(row)]));
   const call = { key, endUser: endUserId(userId) };
   try {
-    return await applyResult(row, await checkGeneration(row.provider, row.kind, row.jobId, call), call);
+    const result = await checkGeneration(row.provider, row.kind, row.jobId, call);
+    if (result.status === "pending" && tooOld) return await giveUp();
+    return await applyResult(row, result, call);
   } catch (err) {
     // With the user's own key, a rejected key or a job that belongs to another
     // account won't get better: stop polling.
@@ -198,6 +201,7 @@ export async function refreshMedia(userId: string, id: string): Promise<MediaIte
     if (row.paidBy === "byok" && (status === 401 || status === 403 || status === 404)) {
       return toItem(await fail(row, describeError(err, row.provider, true)));
     }
+    if (tooOld) return giveUp();
     // Transient provider/network errors: keep the job and let the next poll retry.
     console.error("[media] status check failed", row.provider, row.jobId, err);
     return toItem(row);

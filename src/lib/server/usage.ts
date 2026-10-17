@@ -1,10 +1,18 @@
 import { and, eq, sql } from "drizzle-orm";
 import { USAGE_KINDS, type PaidBy, type UsageKind, type UsageSummary } from "@/lib/types";
 import { isAdmin, type SessionUser } from "./auth";
-import { creditBalance, creditsFor, holdCredits, MIN_CREDITS, releaseCredits, takeCredits } from "./billing/credits";
+import {
+  creditBalance,
+  creditsFor,
+  creditValueUsd,
+  holdCredits,
+  holdUpTo,
+  MIN_CREDITS,
+  releaseCredits,
+  takeCredits,
+} from "./billing/credits";
 import { currentPlan, planLimit } from "./billing/plans";
-import { stripeCreditsConfigured } from "./billing/stripe";
-import { yookassaConfigured } from "./billing/yookassa";
+import { sellablePacks } from "./billing/packs";
 import { getDb, schema } from "./db";
 import {
   BUDGETED,
@@ -127,6 +135,11 @@ export interface Charge {
   day: string;
   /** Credits the request was estimated to need, when there weren't enough. */
   need?: number;
+  /**
+   * USD the request may spend, when the budget or credits cover less than its
+   * full price: a chat answer is limited to what this pays for.
+   */
+  allowance?: number;
   /** Settled or refunded already; later calls do nothing. */
   done?: boolean;
 }
@@ -167,50 +180,61 @@ export async function charge(user: SessionUser, kind: UsageKind, ownKey?: string
 }
 
 /**
- * Holds a request's estimated cost (USD) while it runs. A plan-paid request
- * that would go past the plan's or the site's budget switches to credits if
- * the user has enough, else it is refused. A credit-paid one tops its hold up
- * to the estimate. Returns the reason when refused (the charge is then still
- * to be refunded by the caller).
+ * Holds what a request may cost (USD) while it runs. `most` is its price at
+ * full size; `least` (for a chat answer, its input plus a short answer) is
+ * the smallest it is worth running at. When the plan's budget, the site's
+ * budget or the credits can't cover `most`, the request runs within what they
+ * do cover — `c.allowance` says how much, so the answer is limited to it — or,
+ * below `least`, it is refused. A plan-paid request over a budget switches to
+ * credits if the user has some. Returns the reason when refused (the charge is
+ * then still to be refunded by the caller).
  */
 export async function reserve(
   c: Charge,
-  usd: number,
+  cost: number | { most: number; least: number },
   call: { provider: string; model: string },
 ): Promise<Denial | null> {
   if (c.done || c.paidBy === "byok" || c.paidBy === "admin") return null;
-  const estimate = Number.isFinite(usd) && usd > 0 ? usd : 0;
-  const row = { id: c.id, userId: c.userId, kind: c.kind, provider: call.provider, model: call.model, usd: estimate };
-  const need = creditsFor(c.kind, estimate);
-  if (c.paidBy === "credits") {
-    if (need > c.held) {
-      if (!(await holdCredits(c.userId, need - c.held))) {
-        c.need = need;
-        return "credits";
-      }
-      c.held = need;
-    }
-  } else {
-    const verdict = await reservePlan(c.paidBy, row);
+  const clean = (v: number) => (Number.isFinite(v) && v > 0 ? v : 0);
+  const most = clean(typeof cost === "number" ? cost : cost.most);
+  const least = Math.min(most, clean(typeof cost === "number" ? cost : cost.least));
+  const row = { id: c.id, userId: c.userId, kind: c.kind, provider: call.provider, model: call.model };
+
+  if (c.paidBy !== "credits") {
+    const verdict = await reservePlan(c.paidBy, { ...row, most, least }, c);
     if (!verdict) return null;
     // Over a budget: credits can still pay, and the plan's use is given back.
-    if (!(await holdCredits(c.userId, need))) return verdict;
+    const balance = await creditBalance(c.userId);
+    if (balance < creditsFor(c.kind, least)) return verdict;
     await refund(c.userId, c.kind, c.day);
     c.paidBy = "credits";
-    c.held = need;
+    c.held = 0;
   }
-  await insertReservation(await getDb(), { ...row, paidBy: "credits" });
+
+  // Credits: hold the full price if the balance has it, else whatever it has, if that's enough.
+  const want = creditsFor(c.kind, most);
+  if (want > c.held) c.held += await holdUpTo(c.userId, want - c.held);
+  const need = creditsFor(c.kind, least);
+  if (c.held < need) {
+    c.need = need;
+    return "credits";
+  }
+  const covered = c.held * creditValueUsd();
+  if (covered < most) c.allowance = covered;
+  await insertReservation(await getDb(), { ...row, usd: Math.min(most, covered), paidBy: "credits" });
   return null;
 }
 
 /**
- * Checks a plan-paid request's estimate against the plan's and the site's
- * budgets and reserves it. One request of a user at a time (and, with a site
- * budget, one free request at a time), so parallel ones see each other.
+ * Checks a plan-paid request against the plan's and the site's budgets and
+ * reserves what fits (`most`, or what's left of the budgets if that is at
+ * least `least`). One request of a user at a time (and, with a site budget,
+ * one free request at a time), so parallel ones see each other.
  */
 async function reservePlan(
   plan: "free" | "pro",
-  row: { id: string; userId: string; kind: UsageKind; provider: string; model: string; usd: number },
+  row: { id: string; userId: string; kind: UsageKind; provider: string; model: string; most: number; least: number },
+  c: Charge,
 ): Promise<Denial | null> {
   const site = plan === "free" ? siteDailyBudget() : null;
   const budget = budgeted(row.kind) ? planDailyUsd(plan) : null;
@@ -218,12 +242,25 @@ async function reservePlan(
   return db.transaction(async (tx): Promise<Denial | null> => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`maryx-spend:${row.userId}`}))`);
     if (site !== null) await tx.execute(sql`select pg_advisory_xact_lock(hashtext('maryx-spend:site-free'))`);
+    let room = Infinity;
+    let short: Denial = "expensive";
     if (budget !== null) {
       const spent = await userSpendToday(row.userId, tx);
-      if (spent + row.usd > budget) return spent >= budget ? "spend" : "expensive";
+      room = budget - spent;
+      if (room <= 0) return "spend";
     }
-    if (site !== null && (await freeSpendToday(tx)) + row.usd > site) return "budget";
-    await insertReservation(tx, { ...row, paidBy: plan });
+    if (site !== null) {
+      const siteRoom = site - (await freeSpendToday(tx));
+      if (siteRoom <= 0) return "budget";
+      if (siteRoom < room) {
+        room = siteRoom;
+        short = "budget";
+      }
+    }
+    if (room < row.least) return short;
+    const usd = Math.min(row.most, room);
+    if (usd < row.most) c.allowance = usd;
+    await insertReservation(tx, { ...row, usd, paidBy: plan });
     return null;
   });
 }
@@ -290,7 +327,7 @@ export async function deniedResponse(
   const { plan } = await currentPlan(user.id);
   // Only what this site can actually offer: credits need a payment method.
   const ways = [
-    ...(yookassaConfigured() || stripeCreditsConfigured() ? ["купите кредиты"] : []),
+    ...(sellablePacks().length ? ["купите кредиты"] : []),
     ...(plan === "free" ? ["оформите Pro"] : []),
     opts.ownKey
       ? "выберите MARYX или модель OpenRouter — запрос пойдёт по вашему ключу"
@@ -300,12 +337,16 @@ export async function deniedResponse(
   let error: string;
   if (denied === "spend") {
     error =
-      "Дневной бюджет вашего тарифа на ИИ израсходован: дорогие модели и большие файлы тратят его быстрее. " +
+      (kind === "voice"
+        ? "Дневной бюджет вашего тарифа на ИИ израсходован. "
+        : "Дневной бюджет вашего тарифа на ИИ израсходован: дорогие модели и большие файлы тратят его быстрее. ") +
       `Он обновится в полночь по UTC. ${hint}`;
   } else if (denied === "expensive") {
     error =
-      "Этот запрос дороже, чем осталось в дневном бюджете вашего тарифа: дорогая модель, «Думать глубже» или большие файлы. " +
-      `Выберите модель попроще (например MARYX) или сократите файлы. ${hint}`;
+      kind === "voice"
+        ? `Эта запись дороже, чем осталось в дневном бюджете вашего тарифа. Запишите фрагмент покороче. ${hint}`
+        : "Этот запрос слишком большой для того, что осталось в дневном бюджете вашего тарифа: длинная переписка или большие файлы. " +
+          `Начните новый чат, уберите файлы или выберите модель попроще. ${hint}`;
   } else if (denied === "credits") {
     const balance = await creditBalance(user.id);
     const need = opts.charge?.need;

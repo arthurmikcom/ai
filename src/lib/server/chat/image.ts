@@ -6,6 +6,7 @@ import { NotConfiguredError } from "../config";
 import type { StoredFile } from "../db/schema";
 import { checkGeneration, downloadOutput, startGeneration, type OpenRouterCall } from "../media";
 import { listModels } from "../models";
+import { mediaCost } from "../pricing";
 import { deleteFiles, newKey, putFile } from "../storage";
 
 const POLL_EVERY_MS = 2500;
@@ -81,7 +82,11 @@ export async function generateChatImage(
     }
   } catch (err) {
     await deleteFiles(files.map((f) => f.key)).catch(() => {});
-    throw err;
+    // The provider made (and billed) the picture; only storing it failed.
+    throw Object.assign(err instanceof Error ? err : new Error(String(err)), {
+      billed: result.cost ?? mediaCost("image", model.id),
+      reported: result.cost !== undefined,
+    });
   }
   return { files, cost: result.cost };
 }

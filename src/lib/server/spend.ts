@@ -44,8 +44,10 @@ const HIDDEN_TOKENS_PER_SECOND = 20;
  * call ended before reporting it, estimated from the characters sent and
  * received. A call that was stopped (by the user or the time limit) is billed
  * by the provider for what it read and thought so far, so it gets at least the
- * input plus a time-based allowance for hidden reasoning. Null for a call that
- * failed before producing anything (the provider refused it).
+ * input plus a time-based allowance for hidden reasoning. `partial`: the call
+ * didn't run to its end, so usage it reported along the way (Anthropic and
+ * Gemini report as they go) is only a lower bound. Null for a call that failed
+ * before producing anything (the provider refused it).
  */
 export function chatEntry(
   kind: CostKind,
@@ -54,15 +56,22 @@ export function chatEntry(
   usage: ChatUsage | undefined,
   chars: { input: number; output: number },
   stopped?: { seconds: number },
+  partial = false,
 ): CostEntry | null {
-  let used = usage;
-  if (!used) {
-    if (chars.output === 0 && !stopped) return null;
+  const exact = usage && (!partial || usage.cost !== undefined);
+  let used: ChatUsage;
+  if (exact) {
+    used = usage;
+  } else {
+    if (!usage && chars.output === 0 && !stopped) return null;
     const hidden = stopped ? Math.round(stopped.seconds * HIDDEN_TOKENS_PER_SECOND) : 0;
-    used = { inputTokens: tokensOf(chars.input), outputTokens: Math.max(tokensOf(chars.output), hidden) };
+    used = {
+      inputTokens: Math.max(usage?.inputTokens ?? 0, tokensOf(chars.input)),
+      outputTokens: Math.max(usage?.outputTokens ?? 0, tokensOf(chars.output), hidden),
+    };
   }
   const { usd, estimated } = chatCost(provider, model, used);
-  return { kind, provider, model, inputTokens: used.inputTokens, outputTokens: used.outputTokens, usd, estimated: estimated || !usage };
+  return { kind, provider, model, inputTokens: used.inputTokens, outputTokens: used.outputTokens, usd, estimated: estimated || !exact };
 }
 
 /** Start of the current UTC day; the daily limits reset at the same time. */

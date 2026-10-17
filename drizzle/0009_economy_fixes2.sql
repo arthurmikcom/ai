@@ -1,0 +1,1 @@
+ALTER TABLE "credit_balance" ADD COLUMN "carry" double precision DEFAULT 0 NOT NULL;

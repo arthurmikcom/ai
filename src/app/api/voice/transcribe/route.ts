@@ -40,7 +40,13 @@ export async function POST(request: Request) {
   if ("denied" in paid) return deniedResponse(user, "voice", paid.denied, { ownKey: Boolean(key) });
   // At 32 kbps a second of audio is about 4 KB.
   const length = seconds ?? bytes.length / 4000;
-  const refused = await reserve(paid, transcriptionCost("whisper", length), { provider: "openrouter", model: "transcription" });
+  let refused;
+  try {
+    refused = await reserve(paid, transcriptionCost("whisper", length), { provider: "openrouter", model: "transcription" });
+  } catch (err) {
+    await refundCharge(paid);
+    throw err;
+  }
   if (refused) {
     await refundCharge(paid);
     return deniedResponse(user, "voice", refused, { ownKey: Boolean(key), charge: paid });

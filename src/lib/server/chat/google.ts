@@ -27,6 +27,7 @@ export async function* streamGoogle(
     contents: toContents(req),
     config: {
       abortSignal: signal,
+      ...(req.maxTokens ? { maxOutputTokens: req.maxTokens } : {}),
       ...(req.system ? { systemInstruction: req.system } : {}),
       ...(thinking
         ? {

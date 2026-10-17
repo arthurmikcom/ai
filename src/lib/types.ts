@@ -182,6 +182,8 @@ export interface ChatRequest {
   messages: { role: "user" | "assistant"; content: string; attachments?: InlineImage[] }[];
   /** The user's own OpenRouter key (BYOK) to send this request with. Set on the server only. */
   apiKey?: string;
+  /** The most the answer may write, thinking included (what the user's budget or credits cover). Server only. */
+  maxTokens?: number;
   /** End-user id passed to OpenRouter for abuse tracking (a hash, not the account id). */
   endUser?: string;
 }

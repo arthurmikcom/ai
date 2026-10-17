@@ -10,7 +10,7 @@ import { streamChat } from "./chat";
 import { isConfigured } from "./config";
 import { getDb, schema } from "./db";
 import { listModels } from "./models";
-import { creditValueUsd, takeCredits } from "./billing/credits";
+import { creditValueUsd, takeFraction } from "./billing/credits";
 import { endUserId } from "./own-key";
 import { chatEntry, recordCosts, requestChars, type Meter } from "./spend";
 
@@ -184,6 +184,7 @@ async function quickText(system: string, user: string, timeoutMs: number, meter:
     if (!model) break;
     let out = "";
     let usage: ChatUsage | undefined;
+    let complete = false;
     const request: ChatRequest = {
       provider: model.provider,
       model: model.id,
@@ -192,22 +193,33 @@ async function quickText(system: string, user: string, timeoutMs: number, meter:
       messages: [{ role: "user", content: user }],
       apiKey: model.provider === "openrouter" ? ownKey : undefined,
       endUser: endUserId(meter.userId),
+      // Titles, follow-ups and memory notes are short.
+      maxTokens: model.provider === "ollama" || model.provider === "custom" ? undefined : 4000,
     };
     try {
       for await (const event of streamChat(request, signal)) {
         if (event.type === "text") out += event.text;
         else if (event.type === "usage") usage = event.usage;
       }
+      complete = true;
       // A self-hosted server without a reasoning parser leaves the model's thinking in the text.
       return out.replace(/^[\s\S]*<\/think>/, "").trim();
     } catch (err) {
       if (model === second || !second || signal.aborted) throw err;
     } finally {
-      const entry = chatEntry("background", model.provider, model.id, usage, { input: requestChars(request), output: out.length });
+      const entry = chatEntry(
+        "background",
+        model.provider,
+        model.id,
+        usage,
+        { input: requestChars(request), output: out.length },
+        undefined,
+        !complete,
+      );
       if (entry) {
         try {
-          // On credits these jobs are paid with credits too, for the whole credits they cost.
-          const credits = meter.paidBy === "credits" ? await takeCredits(meter.userId, Math.floor(entry.usd / creditValueUsd())) : 0;
+          // On credits these jobs are paid with credits too; their small costs add up to whole credits.
+          const credits = meter.paidBy === "credits" ? await takeFraction(meter.userId, entry.usd / creditValueUsd()) : 0;
           await recordCosts(meter.userId, meter.paidBy, [entry], credits);
         } catch (err) {
           console.error("[maryx] cost not recorded", err);

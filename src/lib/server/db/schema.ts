@@ -376,6 +376,8 @@ export const creditBalance = pgTable("credit_balance", {
     .primaryKey()
     .references(() => user.id, { onDelete: "cascade" }),
   balance: integer("balance").default(0).notNull(),
+  /** Fractions of a credit owed for tiny costs (MARYX's own jobs), taken once they add up to whole credits. */
+  carry: doublePrecision("carry").default(0).notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 

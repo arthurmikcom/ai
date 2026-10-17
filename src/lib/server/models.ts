@@ -34,6 +34,7 @@ interface OpenRouterModel {
   supported_parameters?: string[] | Record<string, unknown>;
   /** USD per token, as strings. */
   pricing?: { prompt?: string; completion?: string };
+  top_provider?: { max_completion_tokens?: number | null };
   reasoning?: {
     mandatory?: boolean;
     default_enabled?: boolean;
@@ -80,7 +81,8 @@ async function openRouterList(capability: Capability): Promise<LiveModel[]> {
       if (typeof m.id !== "string") continue;
       const input = Number.parseFloat(m.pricing?.prompt ?? "");
       const output = Number.parseFloat(m.pricing?.completion ?? "");
-      if (input >= 0 && output >= 0) rememberPrice(m.id, { input, output });
+      const limit = m.top_provider?.max_completion_tokens;
+      if (input >= 0 && output >= 0) rememberPrice(m.id, { input, output }, typeof limit === "number" && limit > 0 ? limit : undefined);
       if (!m.reasoning) continue;
       rememberReasoning(m.id, {
         mandatory: m.reasoning.mandatory === true,

@@ -1,6 +1,7 @@
 import { PROVIDERS } from "@/lib/catalog";
 import { getAuth, vercelHosts } from "@/lib/server/auth";
 import { isConfigured } from "@/lib/server/config";
+import { sellablePacks } from "@/lib/server/billing/packs";
 import { stripeConfigured, stripeCreditsConfigured } from "@/lib/server/billing/stripe";
 import { yookassaConfigured } from "@/lib/server/billing/yookassa";
 import { getDb, schema } from "@/lib/server/db";
@@ -109,6 +110,10 @@ export async function GET(request: Request) {
   }
   if (stripeCreditsConfigured()) {
     payments.push(stripeConfigured() ? "Stripe: Pro и кредиты" : "Stripe: только кредиты (для Pro добавьте STRIPE_PRICE_PRO)");
+  }
+  if (payments.length && !sellablePacks().length) {
+    paymentsWarn = true;
+    payments.push("в CREDIT_PACKS нет цен для подключённых способов оплаты — кредиты не продаются");
   }
   checks["Оплата"] = payments.length
     ? `${paymentsWarn ? "⚠" : "✓"} ${payments.join("; ")}`

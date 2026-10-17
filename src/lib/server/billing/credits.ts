@@ -94,6 +94,55 @@ export async function holdCredits(userId: string, n: number): Promise<boolean> {
   return rows.length > 0;
 }
 
+/**
+ * Takes up to `n` credits, as many as the balance has (none from a debt).
+ * Atomic. Returns how many were taken.
+ */
+export async function holdUpTo(userId: string, n: number): Promise<number> {
+  if (n <= 0) return 0;
+  const db = await getDb();
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({ balance: schema.creditBalance.balance })
+      .from(schema.creditBalance)
+      .where(eq(schema.creditBalance.userId, userId))
+      .for("update");
+    const taken = Math.min(n, Math.max(0, row?.balance ?? 0));
+    if (taken > 0) {
+      await tx
+        .update(schema.creditBalance)
+        .set({ balance: sql`${schema.creditBalance.balance} - ${taken}`, updatedAt: new Date() })
+        .where(eq(schema.creditBalance.userId, userId));
+    }
+    return taken;
+  });
+}
+
+/**
+ * Charges a cost worth a fraction of a credit (MARYX's titles and follow-ups):
+ * fractions add up, and a whole credit is taken each time they reach one.
+ * Returns the whole credits taken now.
+ */
+export async function takeFraction(userId: string, credits: number): Promise<number> {
+  if (!(credits > 0)) return 0;
+  const db = await getDb();
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({ carry: schema.creditBalance.carry })
+      .from(schema.creditBalance)
+      .where(eq(schema.creditBalance.userId, userId))
+      .for("update");
+    if (!row) return 0;
+    const total = row.carry + credits;
+    const whole = Math.floor(total + 1e-9);
+    await tx
+      .update(schema.creditBalance)
+      .set({ balance: sql`${schema.creditBalance.balance} - ${whole}`, carry: total - whole, updatedAt: new Date() })
+      .where(eq(schema.creditBalance.userId, userId));
+    return whole;
+  });
+}
+
 /** Gives held credits back (the request failed before producing anything). */
 export async function releaseCredits(userId: string, n: number): Promise<void> {
   if (n <= 0) return;

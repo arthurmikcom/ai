@@ -65,6 +65,8 @@ export async function* streamOpenAICompatible(
       messages: toMessages(req),
       stream: true,
       ...(usage ? { stream_options: { include_usage: true } } : {}),
+      // OpenAI's reasoning models take only max_completion_tokens; the others take max_tokens.
+      ...(req.maxTokens ? (req.provider === "openai" ? { max_completion_tokens: req.maxTokens } : { max_tokens: req.maxTokens }) : {}),
       ...(req.provider === "openrouter" && req.endUser ? { user: req.endUser } : {}),
       ...(deep ? { reasoning_effort: "high" as const } : {}),
       ...(effort ? ({ reasoning: { effort } } as object) : {}),

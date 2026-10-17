@@ -48,7 +48,7 @@ export async function* streamAnthropic(
   const stream = client.beta.messages.stream(
     {
       model: req.model,
-      max_tokens: adaptive ? 64000 : 8192,
+      max_tokens: Math.min(adaptive ? 64000 : 8192, req.maxTokens ?? Infinity),
       ...(req.system ? { system: req.system } : {}),
       messages: toMessages(req),
       // Summarized thinking lets the UI show what the model is reasoning about

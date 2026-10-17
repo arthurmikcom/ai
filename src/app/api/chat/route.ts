@@ -32,7 +32,7 @@ import {
   type MaryxPlan,
 } from "@/lib/server/maryx";
 import { endUserId, ownKey, ownKeyInfo } from "@/lib/server/own-key";
-import { estimateChat, mediaCost } from "@/lib/server/pricing";
+import { answerTokens, chatHold, mediaCost } from "@/lib/server/pricing";
 import { chatEntry, requestChars, type CostEntry, type Meter } from "@/lib/server/spend";
 import {
   charge,
@@ -73,6 +73,10 @@ const FALLBACK_WINDOW_MS = 90_000;
  */
 const ANSWER_DEADLINE_MS = (maxDuration - 20) * 1000;
 const CUT_OFF = "Ответ обрезан: модель отвечала дольше 5 минут. Попросите продолжить или упростите задачу.";
+/** What the adapters say when an answer reached its length limit. */
+const LENGTH_NOTICE = "Ответ обрезан: достигнут лимит длины.";
+const SHORT_NOTICE =
+  "Ответ обрезан: на длинный ответ не хватило остатка дневного бюджета или кредитов. Пополните кредиты или продолжите завтра.";
 
 const DEFAULT_SYSTEM = `Ты — MARYX Ai, умный и дружелюбный ассистент.\n${ANSWER_STYLE}`;
 
@@ -88,6 +92,8 @@ function isUniqueViolation(err: unknown): boolean {
  * also when the user stops it or the provider fails.
  */
 export async function POST(request: Request) {
+  // The answer's deadline counts from here: preparing a big request takes part of maxDuration too.
+  const requestStarted = Date.now();
   const user = await requireUser(request);
   if (user instanceof Response) return user;
 
@@ -115,11 +121,18 @@ export async function POST(request: Request) {
   const chargeDrawing = async (): Promise<Charge | { denied: Denial; charge?: Charge }> => {
     const c = await charge(user, "image", key);
     if ("denied" in c) return c;
-    const picked = await chatImageModel(Boolean(c.key)).catch(() => null);
-    const refused = await reserve(c, mediaCost("image", picked?.id ?? ""), {
-      provider: picked?.provider ?? "openrouter",
-      model: picked?.id ?? "image",
-    });
+    let refused: Denial | null;
+    try {
+      // With no image model set up, drawInChat says so (and refunds); hold a typical picture meanwhile.
+      const picked = await chatImageModel(Boolean(c.key)).catch(() => null);
+      refused = await reserve(c, mediaCost("image", picked?.id ?? ""), {
+        provider: picked?.provider ?? "openrouter",
+        model: picked?.id ?? "image",
+      });
+    } catch (err) {
+      await refundCharge(c);
+      throw err;
+    }
     if (!refused) return c;
     await refundCharge(c);
     return { denied: refused, charge: c };
@@ -397,12 +410,20 @@ export async function POST(request: Request) {
     // How hard an OpenRouter model thinks depends on its listed settings (MARYX has loaded them already).
     if (!plan && req.provider === "openrouter") await loadOpenRouterChatModels(Boolean(bill.key));
     const endUser = endUserId(user.id);
-    // MARYX may switch to a fallback model, so its request is built per model.
-    const requestFor = (m?: ModelInfo): ChatRequest => ({
-      ...baseRequest(m),
-      apiKey: (m?.provider ?? req.provider) === "openrouter" ? bill.key : undefined,
-      endUser,
-    });
+    const deep = Boolean(req.deepThinking);
+    // MARYX may switch to a fallback model, so its request is built per model. A request the
+    // site or credits pay for may write only what was held for it: the full-size answer, or
+    // what the budget or credits had left (bill.allowance).
+    const requestFor = (m?: ModelInfo): ChatRequest => {
+      const call = baseRequest(m);
+      const paid = bill.paidBy !== "byok" && bill.paidBy !== "admin";
+      return {
+        ...call,
+        apiKey: call.provider === "openrouter" ? bill.key : undefined,
+        endUser,
+        maxTokens: paid ? answerTokens(call.provider, call.model, requestChars(call), deep, bill.allowance) : undefined,
+      };
+    };
     const baseRequest = (m?: ModelInfo): ChatRequest =>
       m && plan
         ? {
@@ -439,13 +460,12 @@ export async function POST(request: Request) {
     let provider = plan?.model.provider ?? req.provider;
     let model = plan?.model.id ?? req.model;
 
-    // Now the model and the input are known: hold the answer's estimated cost while it runs.
-    const firstCall = requestFor(candidates[0]);
-    const refused = await reserve(
-      bill,
-      estimateChat(firstCall.provider, firstCall.model, requestChars(firstCall), Boolean(req.deepThinking)),
-      { provider: firstCall.provider, model: firstCall.model },
-    );
+    // Now the model and the input are known: hold what the answer may cost while it runs.
+    const firstCall = baseRequest(candidates[0]);
+    const refused = await reserve(bill, chatHold(firstCall.provider, firstCall.model, requestChars(firstCall), deep), {
+      provider: firstCall.provider,
+      model: firstCall.model,
+    });
     if (refused) {
       await undoMessage();
       await refundCharge(bill);
@@ -514,7 +534,7 @@ export async function POST(request: Request) {
         const failed: string[] = [];
         const started = Date.now();
         // The answer stops when the user stops it, or just before the function's time limit.
-        const deadline = AbortSignal.timeout(ANSWER_DEADLINE_MS);
+        const deadline = AbortSignal.timeout(Math.max(1000, ANSWER_DEADLINE_MS - (Date.now() - requestStarted)));
         const signal = AbortSignal.any([request.signal, deadline]);
         // What each model call cost: reported by the provider, else estimated from what was sent and streamed.
         const costs: CostEntry[] = [];
@@ -522,12 +542,19 @@ export async function POST(request: Request) {
         let sent = 0;
         let produced = 0;
         let callStarted = 0;
-        const tally = () => {
+        // Model calls actually made; one stopped before any started costs nothing and is refunded.
+        let calls = 0;
+        // `complete`: the call ran to its end, so the usage it reported is final (else only a lower bound).
+        const tally = (complete: boolean) => {
           const stopped = signal.aborted ? { seconds: (Date.now() - callStarted) / 1000 } : undefined;
-          const entry = chatEntry("chat", provider, model, usage, { input: sent, output: produced }, stopped);
+          const entry = chatEntry("chat", provider, model, usage, { input: sent, output: produced }, stopped, !complete);
           if (entry) costs.push(entry);
           usage = undefined;
           produced = 0;
+        };
+        const cutOff = () => {
+          notices.push(CUT_OFF);
+          send({ type: "notice", text: CUT_OFF });
         };
         try {
           for (let attempt = 0; ; ) {
@@ -538,11 +565,22 @@ export async function POST(request: Request) {
             const call = requestFor(current);
             sent = requestChars(call);
             callStarted = Date.now();
+            if (signal.aborted) {
+              // Stopped while the request was still being prepared: no model was asked.
+              if (request.signal.aborted) notices.push("Генерация остановлена.");
+              else cutOff();
+              break;
+            }
+            calls++;
             try {
-              for await (const event of streamChat(call, signal)) {
+              for await (let event of streamChat(call, signal)) {
                 if (event.type === "usage") {
                   usage = event.usage;
                   continue; // for the ledger only
+                }
+                // An answer cut short because the budget or credits had little left: say why.
+                if (event.type === "notice" && event.text === LENGTH_NOTICE && bill.allowance !== undefined) {
+                  event = { type: "notice", text: SHORT_NOTICE };
                 }
                 if (event.type === "text") {
                   text += event.text;
@@ -555,13 +593,13 @@ export async function POST(request: Request) {
                 else if (event.type === "source") sources.push({ url: event.url, title: event.title });
                 send(event);
               }
-              tally();
+              tally(!signal.aborted);
               // Some SDKs end a stopped stream quietly instead of throwing.
               if (request.signal.aborted) notices.push("Генерация остановлена.");
-              else if (deadline.aborted) notices.push(CUT_OFF);
+              else if (deadline.aborted) cutOff();
               break;
             } catch (err) {
-              tally();
+              tally(false);
               if (current) failed.push(current.label);
               // MARYX: a model that fails before writing anything is replaced by the next best
               // one — unless so much time went by (e.g. long thinking) that another answer
@@ -585,7 +623,7 @@ export async function POST(request: Request) {
           if (request.signal.aborted) {
             notices.push("Генерация остановлена.");
           } else if (deadline.aborted) {
-            notices.push(CUT_OFF);
+            cutOff();
           } else {
             console.error("[chat]", provider, model, err);
             error = describeError(err, provider, Boolean(bill.key));
@@ -601,7 +639,7 @@ export async function POST(request: Request) {
         try {
           // A provider failure that produced nothing doesn't count toward the limit
           // (its cost, if any, is still recorded). Otherwise credits pay for what it cost.
-          await settleCharge(bill, costs, Boolean(error && !text));
+          await settleCharge(bill, costs, calls === 0 || Boolean(error && !text));
           answered = !error && text.length > 0;
           await db.insert(schema.message).values({
             id: req.answerId,
@@ -730,6 +768,8 @@ function drawInChat(
       const db = await getDb();
       let files: StoredFile[] = [];
       let cost: number | undefined;
+      // What the provider billed for a picture that couldn't be stored.
+      let billed: { usd: number; reported: boolean } | undefined;
       let model: { provider: ChatRequest["provider"]; id: string } | undefined;
       let text = "";
       let error: string | undefined;
@@ -748,6 +788,8 @@ function drawInChat(
         text = "Готово! Вот что получилось.";
         send({ type: "text", text });
       } catch (err) {
+        const lost = err as { billed?: number; reported?: boolean };
+        if (typeof lost.billed === "number") billed = { usd: lost.billed, reported: Boolean(lost.reported) };
         if (request.signal.aborted) {
           notice = "Генерация остановлена.";
         } else {
@@ -756,19 +798,12 @@ function drawInChat(
         }
       } finally {
         try {
+          // A picture that didn't reach the user is refunded; what the provider billed is still recorded.
+          const usd = files.length ? (cost ?? (model ? mediaCost("image", model.id) : 0)) : billed?.usd;
+          const estimated = files.length ? cost === undefined : !billed?.reported;
           await settleCharge(
             bill,
-            files.length && model
-              ? [
-                  {
-                    kind: "image",
-                    provider: model.provider,
-                    model: model.id,
-                    usd: cost ?? mediaCost("image", model.id),
-                    estimated: cost === undefined,
-                  },
-                ]
-              : [],
+            model && usd !== undefined ? [{ kind: "image", provider: model.provider, model: model.id, usd, estimated }] : [],
             !files.length,
           );
           await db.insert(schema.message).values({
