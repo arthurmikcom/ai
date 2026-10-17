@@ -75,7 +75,8 @@ export function openRouterEffort(model: string, effort: Effort): string | undefi
     const floor = fallback >= 0 ? Math.min(rank("high"), fallback) : rank("high");
     return pick !== undefined && rank(pick) >= floor ? pick : undefined;
   }
-  const thinksByDefault = Boolean(info && (info.mandatory || info.defaultEnabled));
+  // A listed default of "none" means reasoning is off by default.
+  const thinksByDefault = Boolean(info && (info.mandatory || (info.defaultEnabled && info.defaultEffort !== "none")));
   if (!thinksByDefault) return undefined;
   if (effort === "light") {
     // Only ever lower than the model's own default.

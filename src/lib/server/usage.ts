@@ -193,7 +193,8 @@ export async function charge(user: SessionUser, kind: UsageKind, ownKey?: string
  */
 async function creditsBusy(userId: string, need: number, opts: { except?: string; own?: number } = {}): Promise<boolean> {
   const held = Math.ceil((await heldFor(userId, ["credits"], { except: opts.except })) / creditValueUsd() - 1e-9);
-  return held > 0 && Math.max(0, await creditBalance(userId)) + (opts.own ?? 0) + held >= need;
+  // Credits that come back pay a debt down first.
+  return held > 0 && (await creditBalance(userId)) + (opts.own ?? 0) + held >= need;
 }
 
 /**
@@ -231,25 +232,34 @@ export async function reserve(
     c.held = 0;
   }
 
-  // Credits: if the balance covers the full price, hold the expected one (the full one while
-  // other requests of the user run, so parallel answers can't overdraw much); else the request
-  // is limited to the whole balance, if that's enough.
+  // Credits: if the balance covers the full price, hold the expected one — or, while other
+  // requests of the user run, the full one, and run within it, so parallel answers can't
+  // overdraw much. Else the request is limited to the whole balance, if that's enough. One
+  // reservation of a user at a time, so parallel ones see each other's holds.
   const value = creditValueUsd();
-  const available = c.held + Math.max(0, await creditBalance(c.userId));
-  const full = available * value >= most;
-  const hold = full && (await heldFor(c.userId, ["credits"], { except: c.id })) > 0 ? most : expected;
-  const want = full ? creditsFor(c.kind, hold) : available;
-  if (want > c.held) c.held += await holdUpTo(c.userId, want - c.held);
-  // A parallel request may have taken some meanwhile: then only what was held counts.
-  const whole = full && c.held >= want;
-  const room = whole ? available * value : c.held * value;
-  if (room < least) {
+  const db = await getDb();
+  const got = await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`maryx-spend:${c.userId}`}))`);
+    const available = c.held + Math.max(0, await creditBalance(c.userId, tx));
+    const full = available * value >= most;
+    const parallel = full && (await heldFor(c.userId, ["credits"], { conn: tx, except: c.id })) > 0;
+    const hold = parallel ? most : expected;
+    const want = full ? creditsFor(c.kind, hold) : available;
+    const held = c.held + (want > c.held ? await holdUpTo(c.userId, want - c.held, tx) : 0);
+    // Only what was actually held counts, should the balance have changed meanwhile.
+    const whole = full && held >= want;
+    const room = whole ? (parallel ? most : available * value) : held * value;
+    if (room < least) return { held };
+    await insertReservation(tx, { ...row, usd: whole ? hold : room, paidBy: "credits" });
+    return { held, room };
+  });
+  c.held = got.held;
+  if (got.room === undefined) {
     c.need = creditsFor(c.kind, least);
     // Credits held by the user's running requests come back when they end.
     return (await creditsBusy(c.userId, c.need, { except: c.id, own: c.held })) ? "busy" : "credits";
   }
-  c.room = room;
-  await insertReservation(await getDb(), { ...row, usd: whole ? hold : room, paidBy: "credits" });
+  c.room = got.room;
   return null;
 }
 
@@ -300,7 +310,8 @@ async function reservePlan(
     const limited = room < row.most;
     if (limited && (await takeOver(room))) return short;
     const full = !limited && (siteRoom < 20 * row.most || (await heldFor(row.userId, [plan], { conn: tx, except: row.id })) > 0);
-    c.room = Number.isFinite(room) ? room : undefined;
+    // Held at its full price, a request runs within it.
+    c.room = full ? row.most : Number.isFinite(room) ? room : undefined;
     await insertReservation(tx, { ...row, usd: limited ? room : full ? row.most : row.expected, paidBy: plan });
     return null;
   });

@@ -75,8 +75,11 @@ const ANSWER_DEADLINE_MS = (maxDuration - 20) * 1000;
 const CUT_OFF = "Ответ обрезан: модель отвечала дольше 5 минут. Попросите продолжить или упростите задачу.";
 /** What the adapters say when an answer reached its length limit. */
 const LENGTH_NOTICE = "Ответ обрезан: достигнут лимит длины.";
-const SHORT_NOTICE =
-  "Ответ обрезан: на длинный ответ не хватило остатка дневного бюджета или кредитов. Пополните кредиты или продолжите завтра.";
+/** An answer cut short because what the budget or credits had left paid for no more. */
+const SHORT_NOTICE = {
+  plan: "Ответ обрезан: на длинный ответ не хватило остатка дневного бюджета. Продолжите завтра или пополните кредиты.",
+  credits: "Ответ обрезан: на длинный ответ не хватило кредитов. Пополните их, чтобы получать ответы полной длины.",
+};
 
 const DEFAULT_SYSTEM = `Ты — MARYX Ai, умный и дружелюбный ассистент.\n${ANSWER_STYLE}`;
 
@@ -600,7 +603,7 @@ export async function POST(request: Request) {
                 }
                 // An answer cut short because the budget or credits had little left: say why.
                 if (event.type === "notice" && event.text === LENGTH_NOTICE && limitedCall) {
-                  event = { type: "notice", text: SHORT_NOTICE };
+                  event = { type: "notice", text: bill.paidBy === "credits" ? SHORT_NOTICE.credits : SHORT_NOTICE.plan };
                 }
                 if (event.type === "text") {
                   text += event.text;
@@ -663,7 +666,7 @@ export async function POST(request: Request) {
           // answer whose thinking was shown.
           const cutBeforeAnswer =
             !text &&
-            notices.some((n) => n === LENGTH_NOTICE || n === SHORT_NOTICE) &&
+            notices.some((n) => n === LENGTH_NOTICE || n === SHORT_NOTICE.plan || n === SHORT_NOTICE.credits) &&
             (bill.paidBy !== "credits" || !reasoning.trim());
           await settleCharge(bill, costs, calls === 0 || Boolean(error && !text) || cutBeforeAnswer);
           answered = !error && text.length > 0;

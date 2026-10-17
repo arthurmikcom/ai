@@ -41,8 +41,9 @@ export async function* streamOpenAICompatible(
   const client = openAIClient(req.provider, req.apiKey);
   const reasons = req.provider === "openai" && OPENAI_REASONING.test(req.model);
   // "Think deeper" thinks hard; small jobs and answers short of budget think little.
-  // (-pro models take only "high".)
-  const openAIEffort = reasons && req.deepThinking ? "high" : reasons && req.light && !/-pro\b/.test(req.model) ? "low" : undefined;
+  // (-pro models take only "high"; GPT-5.1 doesn't think by default, so "low" would add thinking.)
+  const lighter = reasons && req.light && !/-pro\b/.test(req.model) && !/^gpt-5\.1(?!\d)/.test(req.model);
+  const openAIEffort = reasons && req.deepThinking ? "high" : lighter ? "low" : undefined;
   // OpenRouter takes one reasoning setting for every model and maps it to
   // each provider's own (models without reasoning ignore it).
   const mode: Effort = req.deepThinking ? "deep" : req.light ? "light" : "normal";

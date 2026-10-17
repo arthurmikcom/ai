@@ -234,11 +234,10 @@ export function answerLimits(
   const effort =
     efforts.find((e) => room(e) >= (e === "deep" ? TYPICAL_ANSWER.deep : e === "normal" ? 2 * MIN_ANSWER_TOKENS : 0)) ?? "light";
   const cap = answerCap(effort === "deep", provider, model);
-  return {
-    maxTokens: Math.max(Math.min(cap, MIN_ANSWER_TOKENS), Math.min(known ? cap : SAFE_LIMIT, room(effort))),
-    effort,
-    limited: true,
-  };
+  const bound = known ? cap : SAFE_LIMIT;
+  const tokens = room(effort);
+  // `limited` means the money is what limits it (not SAFE_LIMIT).
+  return { maxTokens: Math.max(Math.min(cap, MIN_ANSWER_TOKENS), Math.min(bound, tokens)), effort, limited: tokens < bound };
 }
 
 const IMAGE_PRICES: [RegExp, number][] = [

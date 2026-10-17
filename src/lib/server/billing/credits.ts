@@ -96,12 +96,11 @@ export async function holdCredits(userId: string, n: number): Promise<boolean> {
 
 /**
  * Takes up to `n` credits, as many as the balance has (none from a debt).
- * Atomic. Returns how many were taken.
+ * Atomic (within `tx`, when given). Returns how many were taken.
  */
-export async function holdUpTo(userId: string, n: number): Promise<number> {
+export async function holdUpTo(userId: string, n: number, tx?: Tx): Promise<number> {
   if (n <= 0) return 0;
-  const db = await getDb();
-  return db.transaction(async (tx) => {
+  const run = async (tx: Tx) => {
     const [row] = await tx
       .select({ balance: schema.creditBalance.balance })
       .from(schema.creditBalance)
@@ -115,7 +114,10 @@ export async function holdUpTo(userId: string, n: number): Promise<number> {
         .where(eq(schema.creditBalance.userId, userId));
     }
     return taken;
-  });
+  };
+  if (tx) return run(tx);
+  const db = await getDb();
+  return db.transaction(run);
 }
 
 /**
