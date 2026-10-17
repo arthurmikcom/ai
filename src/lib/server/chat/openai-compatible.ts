@@ -3,8 +3,8 @@ import type { ChatRequest, ChatStreamEvent } from "@/lib/types";
 import { openAIClient } from "../config";
 import { openRouterEffort, qwenThinking, selfHostedThinking, type Effort } from "./reasoning";
 
-// OpenAI models that accept `reasoning_effort`.
-export const OPENAI_REASONING = /^(gpt-5|gpt-6|o\d)/;
+// OpenAI models that accept `reasoning_effort` (not the -chat snapshots).
+export const OPENAI_REASONING = /^(gpt-5|gpt-6|o\d)(?!.*-chat)/;
 
 function toMessages(req: ChatRequest): OpenAI.ChatCompletionMessageParam[] {
   const messages: OpenAI.ChatCompletionMessageParam[] = [];

@@ -59,6 +59,9 @@ function knownLimit(provider: ProviderId, model: string): number | undefined {
 /** A limit every chat model accepts, for an answer that must be limited when the model's own isn't known. */
 const SAFE_LIMIT = 8192;
 
+/** The longest answer assumed of a model whose limit we don't know: what its room must pay for to send no limit. */
+const UNKNOWN_LIMIT = 65_536;
+
 const M = 1_000_000;
 
 /**
@@ -203,7 +206,8 @@ export type AnswerEffort = "deep" | "normal" | "light";
  * never below the shortest answer worth running, and thinks less when that is
  * too little for its usual thinking ("deep" keeps a typical deep answer's room,
  * "normal" twice the shortest answer's). For a model whose own limit we don't
- * know, nothing is sent unless the answer is limited, so a cap above its limit
+ * know, no limit is sent when `usd` pays for a very long answer (or nothing
+ * bounds it), and at most SAFE_LIMIT otherwise, so a cap above its limit
  * can't get the request rejected. No limit either for models on the owner's
  * own hardware, which cost nothing.
  */
@@ -219,7 +223,10 @@ export function answerLimits(
   const price = tokenPrice(provider, model);
   if (price.output <= 0) return { effort: asked, limited: false };
   const known = knownLimit(provider, model) !== undefined;
-  if (usd === undefined || usd >= chatHold(provider, model, inputChars, deep, search).most) {
+  const full = known
+    ? chatHold(provider, model, inputChars, deep, search).most
+    : callBase(provider, model, inputChars, asked, search) + UNKNOWN_LIMIT * price.output;
+  if (usd === undefined || usd >= full) {
     return { maxTokens: known ? answerCap(deep, provider, model) : undefined, effort: asked, limited: false };
   }
   const efforts: AnswerEffort[] = deep ? ["deep", "normal", "light"] : ["normal", "light"];

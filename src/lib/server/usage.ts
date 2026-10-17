@@ -18,7 +18,7 @@ import {
   BUDGETED,
   dropReservation,
   freeSpendToday,
-  hasPendingCredits,
+  heldFor,
   insertReservation,
   planDailyUsd,
   recordCosts,
@@ -175,7 +175,7 @@ export async function charge(user: SessionUser, kind: UsageKind, ownKey?: string
   let denied: Denial;
   if (budget !== null && (await userSpendToday(user.id)) >= budget) {
     // What's held for the user's running requests comes back when they end: wait for them, not for midnight.
-    if ((await userSpendToday(user.id, undefined, { settled: true })) < budget) return { denied: "busy" };
+    if (budget - (await userSpendToday(user.id, undefined, { settled: true })) >= 0.001) return { denied: "busy" };
     denied = "spend";
   } else if (plan === "free" && (await siteBudgetSpent())) denied = "budget";
   else if (await bump(user.id, kind, planLimit(plan, kind))) return { ...base, paidBy: plan };
@@ -183,7 +183,17 @@ export async function charge(user: SessionUser, kind: UsageKind, ownKey?: string
 
   const need = MIN_CREDITS[kind];
   if (await holdCredits(user.id, need)) return { ...base, paidBy: "credits", held: need };
-  return { denied: (await hasPendingCredits(user.id)) ? "busy" : denied };
+  return { denied: (await creditsBusy(user.id, need)) ? "busy" : denied };
+}
+
+/**
+ * Whether credits held by the user's running requests (besides `except`)
+ * would cover `need` once they come back, with the balance and what this
+ * request holds already (`own`): then it's worth waiting for them.
+ */
+async function creditsBusy(userId: string, need: number, opts: { except?: string; own?: number } = {}): Promise<boolean> {
+  const held = Math.ceil((await heldFor(userId, ["credits"], { except: opts.except })) / creditValueUsd() - 1e-9);
+  return held > 0 && Math.max(0, await creditBalance(userId)) + (opts.own ?? 0) + held >= need;
 }
 
 /**
@@ -193,8 +203,8 @@ export async function charge(user: SessionUser, kind: UsageKind, ownKey?: string
  * When the plan's budget, the site's budget or the credits can't cover `most`,
  * the request runs within what they do cover (`c.room`; a chat answer is
  * limited to it, and all of it is held) or, below `least`, it is refused.
- * A plan-paid request that its budget can't cover in full switches to
- * credits when they cover it. Returns the reason when refused (the
+ * A plan-paid request that its budget can't pay a typical answer of switches
+ * to credits when they cover it in full. Returns the reason when refused (the
  * charge is then still to be refunded by the caller).
  */
 export async function reserve(
@@ -221,31 +231,36 @@ export async function reserve(
     c.held = 0;
   }
 
-  // Credits: if the balance covers the full price, hold the expected one; else the request
+  // Credits: if the balance covers the full price, hold the expected one (the full one while
+  // other requests of the user run, so parallel answers can't overdraw much); else the request
   // is limited to the whole balance, if that's enough.
   const value = creditValueUsd();
   const available = c.held + Math.max(0, await creditBalance(c.userId));
   const full = available * value >= most;
-  const want = full ? creditsFor(c.kind, expected) : available;
+  const hold = full && (await heldFor(c.userId, ["credits"], { except: c.id })) > 0 ? most : expected;
+  const want = full ? creditsFor(c.kind, hold) : available;
   if (want > c.held) c.held += await holdUpTo(c.userId, want - c.held);
-  const room = full ? available * value : c.held * value;
+  // A parallel request may have taken some meanwhile: then only what was held counts.
+  const whole = full && c.held >= want;
+  const room = whole ? available * value : c.held * value;
   if (room < least) {
     c.need = creditsFor(c.kind, least);
     // Credits held by the user's running requests come back when they end.
-    return (await hasPendingCredits(c.userId, c.id)) ? "busy" : "credits";
+    return (await creditsBusy(c.userId, c.need, { except: c.id, own: c.held })) ? "busy" : "credits";
   }
   c.room = room;
-  await insertReservation(await getDb(), { ...row, usd: full ? expected : room, paidBy: "credits" });
+  await insertReservation(await getDb(), { ...row, usd: whole ? hold : room, paidBy: "credits" });
   return null;
 }
 
 /**
  * Checks a plan-paid request against the plan's and the site's budgets and
- * holds its expected cost — or, when what's left of the budgets covers less
- * than `most` (but at least `least`), all of that. Short of `most` it is
- * refused instead when the user's credits pay for all of it, so they take over.
- * One request of a user at a time (and, with a site budget, one free request
- * at a time), so parallel ones see each other.
+ * holds its expected cost (its full price while other requests of the user
+ * run, or when the site's budget runs low) — or, when what's left of the
+ * budgets covers less than `most` (but at least `least`), all of that. When
+ * what's left doesn't pay for a typical answer, the user's credits take over
+ * if they pay for all of it. One request of a user at a time (and, with a
+ * site budget, one free request at a time), so parallel ones see each other.
  */
 async function reservePlan(
   plan: "free" | "pro",
@@ -258,18 +273,23 @@ async function reservePlan(
   return db.transaction(async (tx): Promise<Denial | null> => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`maryx-spend:${row.userId}`}))`);
     if (site !== null) await tx.execute(sql`select pg_advisory_xact_lock(hashtext('maryx-spend:site-free'))`);
+    // With `r` left, the user's credits take over: it doesn't pay for a typical answer, and they pay for all of it.
+    const takeOver = async (r: number) =>
+      r < row.expected && Math.max(0, await creditBalance(row.userId, tx)) * creditValueUsd() >= row.most;
     let room = Infinity;
     let short: Denial = "expensive";
     if (budget !== null) {
       room = budget - (await userSpendToday(row.userId, tx));
       if (room < row.least) {
-        // Held by the user's running requests, it comes back when they end.
+        // Held by the user's running requests, it comes back when they end (unless credits would take over then).
         const settled = budget - (await userSpendToday(row.userId, tx, { settled: true }));
-        return settled >= row.least ? "busy" : room <= 0 ? "spend" : "expensive";
+        if (settled >= row.least && !(await takeOver(settled))) return "busy";
+        return room <= 0 ? "spend" : "expensive";
       }
     }
+    let siteRoom = Infinity;
     if (site !== null) {
-      const siteRoom = site - (await freeSpendToday(tx));
+      siteRoom = site - (await freeSpendToday(tx));
       if (siteRoom <= 0) return "budget";
       if (siteRoom < room) {
         room = siteRoom;
@@ -278,10 +298,10 @@ async function reservePlan(
     }
     if (room < row.least) return short;
     const limited = room < row.most;
-    // The user's credits pay for the full answer: they take over, and the budget stays for later.
-    if (limited && Math.max(0, await creditBalance(row.userId, tx)) * creditValueUsd() >= row.most) return short;
+    if (limited && (await takeOver(room))) return short;
+    const full = !limited && (siteRoom < 20 * row.most || (await heldFor(row.userId, [plan], { conn: tx, except: row.id })) > 0);
     c.room = Number.isFinite(room) ? room : undefined;
-    await insertReservation(tx, { ...row, usd: limited ? room : row.expected, paidBy: plan });
+    await insertReservation(tx, { ...row, usd: limited ? room : full ? row.most : row.expected, paidBy: plan });
     return null;
   });
 }

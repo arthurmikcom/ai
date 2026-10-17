@@ -61,9 +61,10 @@ export type Effort = "normal" | "deep" | "light";
  * The `reasoning.effort` to send to OpenRouter, or undefined for the model's own
  * default. "Think deeper" asks for at least "high" (never below the model's
  * default). Models that think at their very top effort by default (Qwen 3.8 Max
- * always reasons at "xhigh") are asked for "medium" in normal messages and
- * "low" in small jobs, so they aren't slow and expensive. Reasoning that is off
- * by default is never switched on except by "think deeper".
+ * always reasons at "xhigh") are asked for "medium" in normal messages, so they
+ * aren't slow and expensive. Small jobs and answers short of budget ("light")
+ * ask any model that thinks by default for "low". Reasoning that is off by
+ * default is never switched on except by "think deeper".
  */
 export function openRouterEffort(model: string, effort: Effort): string | undefined {
   const info = known.get(model);
@@ -75,8 +76,13 @@ export function openRouterEffort(model: string, effort: Effort): string | undefi
     return pick !== undefined && rank(pick) >= floor ? pick : undefined;
   }
   const thinksByDefault = Boolean(info && (info.mandatory || info.defaultEnabled));
-  if (!thinksByDefault || fallback < rank("xhigh")) return undefined;
-  if (effort === "light") return nearest(info, "low", false);
+  if (!thinksByDefault) return undefined;
+  if (effort === "light") {
+    // Only ever lower than the model's own default.
+    const pick = nearest(info, "low", false);
+    return pick !== undefined && (fallback < 0 || rank(pick) < fallback) ? pick : undefined;
+  }
+  if (fallback < rank("xhigh")) return undefined;
   // At least "medium", and only if that is still below the model's own default.
   const pick = nearest(info, "medium", true);
   return pick !== undefined && rank(pick) < fallback ? pick : undefined;

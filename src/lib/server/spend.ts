@@ -99,10 +99,12 @@ export async function recordCosts(
   opts: { chargeId?: string; kind?: CostKind } = {},
 ): Promise<void> {
   const at = new Date();
+  // Rows of a charge get ids from it, so writing them again (a retry) adds nothing.
+  const rowId = (i: number) => (opts.chargeId ? `${opts.chargeId}:${i}` : crypto.randomUUID());
   const rows = entries
     .filter((e) => Number.isFinite(e.usd) && e.usd >= 0)
-    .map((e) => ({
-      id: crypto.randomUUID(),
+    .map((e, i) => ({
+      id: rowId(i),
       userId,
       at,
       kind: e.kind,
@@ -117,7 +119,7 @@ export async function recordCosts(
     }));
   if (!rows.length && credits > 0) {
     rows.push({
-      id: crypto.randomUUID(), userId, at, kind: opts.kind ?? "chat", provider: "-", model: "-",
+      id: rowId(0), userId, at, kind: opts.kind ?? "chat", provider: "-", model: "-",
       inputTokens: null, outputTokens: null, costUsd: 0, estimated: true, paidBy, credits: 0,
     });
   }
@@ -126,7 +128,7 @@ export async function recordCosts(
   const write = (values: typeof rows) =>
     db.transaction(async (tx) => {
       if (opts.chargeId) await tx.delete(schema.aiCost).where(and(eq(schema.aiCost.id, opts.chargeId), eq(schema.aiCost.pending, true)));
-      if (values.length) await tx.insert(schema.aiCost).values(values);
+      if (values.length) await tx.insert(schema.aiCost).values(values).onConflictDoNothing();
     });
   try {
     await write(rows);
@@ -184,16 +186,23 @@ function counted(opts: { settled?: boolean }) {
   return or(eq(c.pending, false), gte(c.at, new Date(Date.now() - STALE_AFTER_MS)), inArray(c.kind, ["image", "video"]));
 }
 
-/** Whether a request of the user's paid with credits is running (and holding some). */
-export async function hasPendingCredits(userId: string, except?: string): Promise<boolean> {
-  const db = await getDb();
+/** What the user's running requests paid by `paidBy` hold (USD), besides the one `except`. */
+export async function heldFor(userId: string, paidBy: PaidBy[], opts: { conn?: Conn; except?: string } = {}): Promise<number> {
+  const db = opts.conn ?? (await getDb());
   const c = schema.aiCost;
-  const rows = await db
-    .select({ id: c.id })
+  const [row] = await db
+    .select({ usd: sql<number>`coalesce(sum(${c.costUsd}), 0)` })
     .from(c)
-    .where(and(eq(c.userId, userId), eq(c.pending, true), eq(c.paidBy, "credits"), gte(c.at, new Date(Date.now() - STALE_AFTER_MS)), ...(except ? [ne(c.id, except)] : [])))
-    .limit(1);
-  return rows.length > 0;
+    .where(
+      and(
+        eq(c.userId, userId),
+        eq(c.pending, true),
+        inArray(c.paidBy, paidBy),
+        counted({}),
+        ...(opts.except ? [ne(c.id, opts.except)] : []),
+      ),
+    );
+  return Number(row?.usd ?? 0);
 }
 
 /** Kinds the per-user daily budget applies to; pictures and video are governed by their daily counts. */

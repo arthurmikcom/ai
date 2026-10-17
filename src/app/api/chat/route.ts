@@ -658,9 +658,13 @@ export async function POST(request: Request) {
 
         try {
           // A provider failure that produced nothing, or an answer that ran out of length while
-          // still thinking, doesn't count toward the limit (its cost is still recorded).
-          // Otherwise credits pay for what it cost.
-          const cutBeforeAnswer = !text && notices.some((n) => n === LENGTH_NOTICE || n === SHORT_NOTICE);
+          // still thinking, doesn't count toward the limit (its cost is still recorded, and on a
+          // plan still counts toward the budget). Credits pay for what it cost, also for such an
+          // answer whose thinking was shown.
+          const cutBeforeAnswer =
+            !text &&
+            notices.some((n) => n === LENGTH_NOTICE || n === SHORT_NOTICE) &&
+            (bill.paidBy !== "credits" || !reasoning.trim());
           await settleCharge(bill, costs, calls === 0 || Boolean(error && !text) || cutBeforeAnswer);
           answered = !error && text.length > 0;
           await db.insert(schema.message).values({
