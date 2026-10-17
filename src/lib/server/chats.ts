@@ -1,5 +1,6 @@
 import { and, asc, desc, eq } from "drizzle-orm";
 import type { Assistant, Chat, ChatMessage, ChatSummary, InlineFile, ProviderId } from "@/lib/types";
+import { isImageModel, maryxOnly, publicError, publicNotices } from "./brand";
 import { isDocumentMime } from "./documents";
 import { getDb, schema } from "./db";
 import { deleteFiles, fileUrl } from "./storage";
@@ -8,12 +9,15 @@ type ChatRow = typeof schema.chat.$inferSelect;
 type MessageRow = typeof schema.message.$inferSelect;
 type AssistantRow = typeof schema.assistant.$inferSelect;
 
+// In MARYX-only mode every chat and answer is MARYX's (the real model stays stored: routing and costs use it).
+
 function toSummary(row: ChatRow): ChatSummary {
+  const masked = maryxOnly();
   return {
     id: row.id,
     title: row.title,
-    provider: row.provider,
-    model: row.model,
+    provider: masked ? "maryx" : row.provider,
+    model: masked ? "maryx" : row.model,
     assistantId: row.assistantId ?? undefined,
     createdAt: row.createdAt.getTime(),
     updatedAt: row.updatedAt.getTime(),
@@ -33,16 +37,19 @@ export function storedKeys(files: { key: string; textKey?: string }[]): string[]
 }
 
 function toMessage(row: MessageRow): ChatMessage {
+  const masked = maryxOnly() && row.role === "assistant";
+  // A drawing (also one that failed) is told apart from an answer by its image model.
+  const drawn = Boolean(row.attachments?.length) || isImageModel(row.provider, row.model);
   return {
     id: row.id,
     role: row.role,
     content: row.content,
     reasoning: row.reasoning ?? undefined,
     attachments: row.attachments?.map((f) => ({ mime: f.mime, name: f.name, url: fileUrl(f.key) })),
-    provider: row.provider ?? undefined,
-    model: row.model ?? undefined,
-    error: row.error ?? undefined,
-    notice: row.notice ?? undefined,
+    provider: masked ? "maryx" : (row.provider ?? undefined),
+    model: masked ? (drawn ? "maryx-image" : "maryx") : (row.model ?? undefined),
+    error: row.error ? publicError(row.error) : undefined,
+    notice: row.notice ? publicNotices(row.notice) : undefined,
     sources: row.sources ?? undefined,
     via: row.via ?? undefined,
     suggestions: row.suggestions ?? undefined,
@@ -57,8 +64,8 @@ export function toAssistant(row: AssistantRow): Assistant {
     emoji: row.emoji,
     description: row.description,
     systemPrompt: row.systemPrompt,
-    provider: row.provider ?? undefined,
-    model: row.model ?? undefined,
+    provider: maryxOnly() ? undefined : (row.provider ?? undefined),
+    model: maryxOnly() ? undefined : (row.model ?? undefined),
     createdAt: row.createdAt.getTime(),
   };
 }
@@ -153,15 +160,14 @@ export async function findAssistant(userId: string, id: string): Promise<Assista
 }
 
 /** Creates or updates an assistant. Returns false if the id belongs to someone else. */
-export async function saveAssistant(userId: string, a: Assistant): Promise<boolean> {
+export async function saveAssistant(userId: string, a: Assistant, opts: { keepModel?: boolean } = {}): Promise<boolean> {
   const db = await getDb();
   const values = {
     name: a.name,
     emoji: a.emoji,
     description: a.description,
     systemPrompt: a.systemPrompt,
-    provider: a.provider ?? null,
-    model: a.model ?? null,
+    ...(opts.keepModel ? {} : { provider: a.provider ?? null, model: a.model ?? null }),
   };
   const rows = await db
     .insert(schema.assistant)

@@ -3,12 +3,13 @@
 import { ArrowRight, ArrowUpRight, Clapperboard, Code2, Compass, FileText, Image as ImageIcon, KeyRound, Lightbulb, LoaderCircle, Plus, Sparkles, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { BROWSER_MODELS } from "@/lib/catalog";
 import { autoModel, useLocalSupport } from "@/lib/client/local-ai";
 import { useModels } from "@/lib/client/useModels";
 import type { SendOptions } from "@/lib/types";
 import { speak, stopSpeaking, useVoiceSupport } from "@/lib/client/voice";
 import { useApp, type ModelChoice } from "../AppState";
-import { findModel, ModelPicker } from "../ModelPicker";
+import { findModel, MaryxBadge, ModelPicker } from "../ModelPicker";
 import { Composer } from "./Composer";
 import { MessageView } from "./MessageView";
 import { MaryxVisual } from "../Design";
@@ -52,13 +53,17 @@ export function ChatView() {
   const scroller = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
 
+  // Only MARYX is offered: every chat, old ones too, talks to it.
+  const only = app.maryxOnly;
+  const MARYX: ModelChoice = { provider: "maryx", model: "maryx" };
   // For a new chat: the saved choice if it is still available, else the first featured model.
   const fallback = models.find((m) => m.featured) ?? models[0];
-  const newChatModel: ModelChoice | null =
-    findModel(models, app.model) || !fallback
+  const newChatModel: ModelChoice | null = only
+    ? MARYX
+    : findModel(models, app.model) || !fallback
       ? app.model
       : { provider: fallback.provider, model: fallback.id };
-  const choice: ModelChoice | null = chat ? { provider: chat.provider, model: chat.model } : newChatModel;
+  const choice: ModelChoice | null = chat ? (only ? MARYX : { provider: chat.provider, model: chat.model }) : newChatModel;
   const current = findModel(models, choice);
   const streaming = chat ? app.isStreaming(chat.id) : false;
   const assistant = app.assistants.find(
@@ -66,12 +71,14 @@ export function ChatView() {
   );
   const noProviders = data !== null && models.length === 0;
   // No cloud model on the server: MARYX and the Qwen models run in this browser.
-  const noServerModels = data !== null && !models.some((m) => !m.local && m.provider !== "maryx");
+  const noServerModels =
+    data !== null &&
+    (only ? Boolean(models.find((m) => m.provider === "maryx")?.local) : !models.some((m) => !m.local && m.provider !== "maryx"));
   const localSupportState = useLocalSupport();
   const localModel = current?.local ? (current.provider === "browser" ? current.id : autoModel(localSupportState)) : undefined;
   // A browser model can't be used until this browser is checked, nor where it can't run.
   const localBlocked = Boolean(current?.local && (!localSupportState || !localSupportState.ok));
-  const localLabel = models.find((m) => m.provider === "browser" && m.id === localModel);
+  const localLabel = BROWSER_MODELS.find((m) => m.id === localModel);
   /** What every send uses: the toggles, and the browser model when the chosen one runs here. */
   const sendOptions = (extra: Partial<SendOptions> = {}): SendOptions => ({
     // Kept while switching models, but sent only to one that can think.
@@ -91,9 +98,11 @@ export function ChatView() {
           ? app.me?.admin
             ? "Нейросети не подключены: нужен ключ OPENROUTER_API_KEY на сервере"
             : "Нейросети пока не подключены — загляните чуть позже"
-          : choice
-            ? "Модель этого чата недоступна — выберите другую вверху"
-            : "Выберите модель вверху";
+          : only
+            ? "MARYX сейчас недоступен — обновите страницу"
+            : choice
+              ? "Модель этого чата недоступна — выберите другую вверху"
+              : "Выберите модель вверху";
 
   // Follow the answer while it streams, unless the user scrolled up to read.
   const lastMessage = chat?.messages[chat.messages.length - 1];
@@ -131,7 +140,7 @@ export function ChatView() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="chat-header flex shrink-0 items-center gap-2 px-4 md:px-8">
-        <ModelPicker models={models} value={choice} onChange={onPick} loading={loading} />
+        {only ? <MaryxBadge /> : <ModelPicker models={models} value={choice} onChange={onPick} loading={loading} />}
         <span className="ml-auto hidden items-center gap-2 text-[11px] text-zinc-500 lg:flex">Ваш личный диалог</span>
         <Link href="/settings" aria-label="Открыть профиль" className="profile-shortcut ml-auto lg:ml-3">{(app.me?.user.name || "M").slice(0, 1).toUpperCase()}</Link>
         {assistant && (
@@ -171,6 +180,7 @@ export function ChatView() {
                 key={m.id}
                 message={m}
                 models={allModels}
+                maryxOnly={only}
                 isLast={i === chat.messages.length - 1}
                 streaming={streaming && i === chat.messages.length - 1}
                 onSuggest={
@@ -203,10 +213,15 @@ export function ChatView() {
               <div className="home-intro">
                 <div className="section-label mb-4">{assistant ? "Ваш персональный ассистент" : "Добро пожаловать в"}</div>
                 <h1>{assistant ? <>{assistant.emoji} {assistant.name}</> : <>MARYX <span>Ai</span></>}</h1>
-                <p>{assistant?.description || <>Лучшие модели мира.<br />Безграничные возможности.</>}</p>
-                <div className="provider-pills" aria-label="Модели в MARYX Ai">
-                  {["GPT", "Claude", "Gemini", "Llama", "DeepSeek"].map(name => <span key={name}>{name}</span>)}
-                </div>
+                <p>
+                  {assistant?.description ||
+                    (only ? <>Ваш собственный ИИ.<br />Безграничные возможности.</> : <>Лучшие модели мира.<br />Безграничные возможности.</>)}
+                </p>
+                {!only && (
+                  <div className="provider-pills" aria-label="Модели в MARYX Ai">
+                    {["GPT", "Claude", "Gemini", "Llama", "DeepSeek"].map(name => <span key={name}>{name}</span>)}
+                  </div>
+                )}
               </div>
               <div className="home-art" aria-hidden="true">
                 <MaryxVisual />
@@ -308,7 +323,9 @@ export function ChatView() {
         />
         <p className="mt-2 text-center text-[11px] text-zinc-600">
           {current?.local && !localBlocked
-            ? `Бесплатно: отвечает ${localLabel?.label ?? "Qwen"} прямо на вашем устройстве, без сторонних ИИ-сервисов; история чата хранится в вашем аккаунте. В первый раз модель скачается (≈${((localLabel?.downloadMB ?? 1000) / 1000).toFixed(1).replace(".", ",")} ГБ).`
+            ? only
+              ? `Бесплатно: MARYX отвечает прямо на вашем устройстве; история чата хранится в вашем аккаунте. В первый раз он скачается (≈${((localLabel?.downloadMB ?? 1000) / 1000).toFixed(1).replace(".", ",")} ГБ).`
+              : `Бесплатно: отвечает ${localLabel?.label ?? "Qwen"} прямо на вашем устройстве, без сторонних ИИ-сервисов; история чата хранится в вашем аккаунте. В первый раз модель скачается (≈${((localLabel?.downloadMB ?? 1000) / 1000).toFixed(1).replace(".", ",")} ГБ).`
             : "ИИ может ошибаться. Проверяйте важную информацию."}
         </p>
       </div>

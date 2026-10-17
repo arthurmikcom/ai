@@ -1,6 +1,6 @@
 import { deleteChat, getChat, updateChat } from "@/lib/server/chats";
 import { jsonError, requireUser } from "@/lib/server/http";
-import { isProvider } from "@/lib/server/validate";
+import { isSelectable } from "@/lib/server/validate";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -20,7 +20,7 @@ export async function PATCH(request: Request, { params }: Context) {
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   const changes: Parameters<typeof updateChat>[2] = {};
   if (typeof body?.title === "string" && body.title.trim()) changes.title = body.title.trim().slice(0, 120);
-  if (isProvider(body?.provider) && typeof body?.model === "string" && body.model) {
+  if (isSelectable(body?.provider) && typeof body?.model === "string" && body.model) {
     changes.provider = body.provider;
     changes.model = body.model.slice(0, 200);
   }

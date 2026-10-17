@@ -32,6 +32,8 @@ interface Props {
   onRegenerate?: () => void;
   /** Sends one of MARYX's follow-up suggestions as the next message. */
   onSuggest?: (text: string) => void;
+  /** Only MARYX is offered: answers don't name the model behind it. */
+  maryxOnly?: boolean;
 }
 
 function Reasoning({ text, active }: { text: string; active: boolean }) {
@@ -56,7 +58,7 @@ function Reasoning({ text, active }: { text: string; active: boolean }) {
   );
 }
 
-export function MessageView({ message, models, streaming, isLast, onRegenerate, onSuggest }: Props) {
+export function MessageView({ message, models, streaming, isLast, onRegenerate, onSuggest, maryxOnly }: Props) {
   const [copied, setCopied] = useState(false);
   const speaking = useSpeaking() === message.id;
   const canSpeak = useVoiceSupport()?.speak ?? false;
@@ -120,9 +122,9 @@ export function MessageView({ message, models, streaming, isLast, onRegenerate, 
     );
   }
 
-  const modelLabel =
-    models.find((m) => m.provider === message.provider && m.id === message.model)?.label ??
-    message.model;
+  const modelLabel = maryxOnly
+    ? undefined
+    : (models.find((m) => m.provider === message.provider && m.id === message.model)?.label ?? message.model);
   const drawing = streaming && message.generating === "image" && !message.attachments?.length;
   const waiting = streaming && !drawing && !message.content && !message.reasoning;
 
@@ -135,7 +137,9 @@ export function MessageView({ message, models, streaming, isLast, onRegenerate, 
   return (
     <div className="group">
       <div className="mb-4 flex items-center gap-2.5 text-xs font-medium text-zinc-300"><BrandMark className="!size-7 !rounded-lg [&_svg]:!size-5" />
-        {message.via === "maryx" ? (
+        {maryxOnly ? (
+          "MARYX"
+        ) : message.via === "maryx" ? (
           <>
             MARYX
             {modelLabel && <span className="font-normal text-zinc-500">· {modelLabel}</span>}

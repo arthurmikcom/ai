@@ -1,5 +1,7 @@
 import { creditsFor, MIN_CREDITS } from "@/lib/server/billing/credits";
 import { sellablePacks } from "@/lib/server/billing/packs";
+import { maryxMediaModel } from "@/lib/server/chat/image";
+import { maryxOnly } from "@/lib/server/config";
 import { listModels } from "@/lib/server/models";
 import { mediaCost } from "@/lib/server/pricing";
 import { planDailyUsd } from "@/lib/server/spend";
@@ -9,9 +11,14 @@ import { yookassaConfigured, yookassaPriceLabel } from "@/lib/server/billing/yoo
 import { requireUser } from "@/lib/server/http";
 import { USAGE_KINDS, type BillingOptions, type PlanId, type UsageKind } from "@/lib/types";
 
-/** The cheapest picture or clip among the models this site offers, at their default size. */
+/**
+ * The cheapest picture or clip among the models this site offers, at their
+ * default size (in MARYX-only mode, of the one MARYX makes them with).
+ */
 async function cheapest(kind: "image" | "video"): Promise<number> {
-  const { models } = await listModels(kind).catch(() => ({ models: [] }));
+  const { models } = maryxOnly()
+    ? await maryxMediaModel(kind).then((m) => ({ models: [m] }), () => ({ models: [] }))
+    : await listModels(kind).catch(() => ({ models: [] }));
   const prices = models.map((m) => creditsFor(kind, mediaCost(kind, m.id)));
   return prices.length ? Math.min(...prices) : MIN_CREDITS[kind];
 }

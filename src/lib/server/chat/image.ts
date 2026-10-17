@@ -1,7 +1,7 @@
 // "Draw it right in the chat": generates an image from the user's message
 // with the best available image model and stores it as the answer's attachment.
 
-import type { ModelInfo } from "@/lib/types";
+import type { MediaKind, ModelInfo } from "@/lib/types";
 import { NotConfiguredError } from "../config";
 import type { StoredFile } from "../db/schema";
 import { checkGeneration, downloadOutput, startGeneration, type OpenRouterCall } from "../media";
@@ -12,27 +12,38 @@ import { deleteFiles, newKey, putFile } from "../storage";
 const POLL_EVERY_MS = 2500;
 const GIVE_UP_AFTER_MS = 150_000;
 
-/** Image models a chat may use; with the user's own key, only OpenRouter's (which it pays for). */
-async function imageModels(ownKey: boolean): Promise<ModelInfo[]> {
-  const { models } = await listModels("image", { ownKey });
+/** Image or video models MARYX may use; with the user's own key, only OpenRouter's (which it pays for). */
+async function mediaModels(kind: MediaKind, ownKey: boolean): Promise<ModelInfo[]> {
+  const { models } = await listModels(kind, { ownKey });
   return ownKey ? models.filter((m) => m.provider === "openrouter") : models;
 }
 
 /** Whether any image model is set up, so the chat can draw. */
 export async function canDrawInChat(ownKey = false): Promise<boolean> {
-  return (await imageModels(ownKey)).length > 0;
+  return (await mediaModels("image", ownKey)).length > 0;
 }
 
-/** The image model a chat uses: the first featured one among configured providers. */
-export async function chatImageModel(ownKey = false): Promise<ModelInfo> {
-  const models = await imageModels(ownKey);
+/**
+ * The model MARYX makes a picture or a clip with (in the chat, and in the
+ * studio when it's MARYX's choice): the first featured one among configured
+ * providers.
+ */
+export async function maryxMediaModel(kind: MediaKind, ownKey = false): Promise<ModelInfo> {
+  const models = await mediaModels(kind, ownKey);
   const pick = models.find((m) => m.featured) ?? models[0];
   if (!pick) {
     throw new NotConfiguredError(
-      "Генерация картинок не подключена: добавьте ключ OpenRouter, OpenAI, Google или Replicate.",
+      kind === "image"
+        ? "Генерация картинок не подключена: добавьте ключ OpenRouter, OpenAI, Google или Replicate."
+        : "Генерация видео не подключена: добавьте ключ OpenRouter, Google или Replicate.",
     );
   }
   return pick;
+}
+
+/** The image model a chat draws with. */
+export function chatImageModel(ownKey = false): Promise<ModelInfo> {
+  return maryxMediaModel("image", ownKey);
 }
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {

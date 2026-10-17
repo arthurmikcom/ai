@@ -98,6 +98,25 @@ export const PROVIDERS: ProviderDef[] = [
 ];
 
 /** Our own AI, shown first in the chat model picker (see server/maryx.ts). */
+/** MARYX in the studio and chat drawings: it picks the real image or video model itself (MARYX-only mode). */
+export const MARYX_IMAGE_MODEL: ModelInfo = {
+  provider: "maryx",
+  id: "maryx-image",
+  label: "MARYX",
+  description: "Наш ИИ сам подбирает лучший способ нарисовать",
+  capability: "image",
+  featured: true,
+};
+
+export const MARYX_VIDEO_MODEL: ModelInfo = {
+  provider: "maryx",
+  id: "maryx-video",
+  label: "MARYX",
+  description: "Наш ИИ сам подбирает лучший способ снять видео",
+  capability: "video",
+  featured: true,
+};
+
 export const MARYX_MODEL: ModelInfo = {
   provider: "maryx",
   id: "maryx",

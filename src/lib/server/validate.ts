@@ -1,5 +1,6 @@
 import { PROVIDERS } from "@/lib/catalog";
 import type { AspectRatio, ChatSendRequest, GenerateRequest, InlineFile, ProviderId } from "@/lib/types";
+import { maryxOnly } from "./config";
 import { isDocumentMime } from "./documents";
 import { isValidId } from "./http";
 
@@ -14,6 +15,14 @@ const MAX_TOTAL_BASE64 = 4_300_000;
 
 export function isProvider(value: unknown): value is ProviderId {
   return typeof value === "string" && PROVIDER_IDS.has(value);
+}
+
+/** Refusal of another model in MARYX-only mode (a tab opened before the switch still offers them). */
+export const ONLY_MARYX = "Доступен только MARYX — обновите страницу";
+
+/** A provider a user may pick for a chat or an assistant: only MARYX in MARYX-only mode. */
+export function isSelectable(value: unknown): value is ProviderId {
+  return isProvider(value) && (!maryxOnly() || value === "maryx");
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -33,6 +42,7 @@ export function parseChatSendRequest(body: unknown): ChatSendRequest | string {
   // Browser models answer on the visitor's device and save through /api/chat/local.
   if (provider === "browser") return "Эта модель работает в браузере — обновите страницу";
   if (typeof model !== "string" || !model || model.length > 200) return "Не выбрана модель";
+  if (maryxOnly() && (provider !== "maryx" || model !== "maryx")) return ONLY_MARYX;
 
   let assistantId: string | undefined;
   if (create !== undefined) {
@@ -90,7 +100,8 @@ export function parseGenerateRequest(body: unknown): GenerateRequest | string {
   if (!isObject(body)) return "Пустой запрос";
   const { kind, provider, model, prompt, aspectRatio } = body;
   if (kind !== "image" && kind !== "video") return "Неизвестный тип генерации";
-  if (!isProvider(provider)) return "Неизвестный провайдер";
+  if (!isProvider(provider) || provider === "browser") return "Неизвестный провайдер";
+  if (maryxOnly() && provider !== "maryx") return ONLY_MARYX;
   if (typeof model !== "string" || !model) return "Не выбрана модель";
   if (typeof prompt !== "string" || !prompt.trim()) return "Опишите, что нужно сгенерировать";
   if (typeof aspectRatio !== "string" || !ASPECT_RATIOS.has(aspectRatio)) return "Неверное соотношение сторон";

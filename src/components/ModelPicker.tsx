@@ -21,6 +21,16 @@ export function findModel(models: ModelInfo[], choice: ModelChoice | null): Mode
     : undefined;
 }
 
+/** In place of the picker when only MARYX is offered: our own AI, nothing to choose. */
+export function MaryxBadge({ label = "MARYX" }: { label?: string }) {
+  return (
+    <div className="flex max-w-full items-center gap-2.5 rounded-xl border border-white/5 bg-white/[0.025] px-3.5 py-2.5 text-[13px] font-medium text-zinc-100">
+      <Sparkles className="size-4 shrink-0 text-violet-300" aria-hidden="true" />
+      <span className="truncate">{label}</span>
+    </div>
+  );
+}
+
 export function ModelPicker({ models, value, onChange, loading, align = "left" }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");

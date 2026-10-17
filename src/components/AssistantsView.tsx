@@ -153,7 +153,8 @@ function Editor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
             />
           </label>
 
-          <div>
+          {/* Only MARYX is offered: an assistant always answers with it. */}
+          {!app.maryxOnly && <div>
             <span className="mb-1 block text-xs text-zinc-400">Модель</span>
             <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/30">
               <ModelPicker
@@ -174,7 +175,7 @@ function Editor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
                 <span className="text-xs text-zinc-500">не выбрана — будет использоваться текущая</span>
               )}
             </div>
-          </div>
+          </div>}
         </div>
 
         {error && <p className="mt-4 text-sm text-red-300">{error}</p>}
@@ -213,7 +214,7 @@ export function AssistantsView() {
   return (
     <div className="h-full overflow-y-auto">
       <div className="page-content">
-        <PageHeading number="04" eyebrow="Ваша персональная команда" title="Мои ассистенты" description="Для каждой задачи — свой подход. Задайте характер, знания и любимую модель вашему ИИ.">
+        <PageHeading number="04" eyebrow="Ваша персональная команда" title="Мои ассистенты" description={app.maryxOnly ? "Для каждой задачи — свой подход. Задайте характер и знания вашему ИИ." : "Для каждой задачи — свой подход. Задайте характер, знания и любимую модель вашему ИИ."}>
           <button
             type="button"
             onClick={() => setEditing(EMPTY)}

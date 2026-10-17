@@ -262,10 +262,13 @@ function split(raw: string): { reasoning: string; text: string } {
   return t.startsWith("<think>") ? { reasoning: body.trim(), text: "" } : { reasoning: "", text: t };
 }
 
-function friendlyError(err: unknown): string {
+/** `brand`: MARYX-only mode, where the model behind MARYX isn't named and can't be picked. */
+function friendlyError(err: unknown, brand: boolean): string {
   const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
   if (/DeviceLost|out of memory|OOM|allocation/i.test(msg)) {
-    return "Не хватило памяти видеокарты. Выберите модель поменьше (Qwen 3 0.6B) и попробуйте снова.";
+    return brand
+      ? "Не хватило памяти видеокарты. Закройте лишние вкладки и попробуйте снова."
+      : "Не хватило памяти видеокарты. Выберите модель поменьше (Qwen 3 0.6B) и попробуйте снова.";
   }
   if (/ContextWindowSizeExceeded|context window/i.test(msg)) {
     return "Сообщение слишком длинное для модели в браузере — сократите его.";
@@ -278,6 +281,10 @@ function friendlyError(err: unknown): string {
     return "Не удалось скачать модель. Проверьте интернет и попробуйте ещё раз.";
   }
   if (/WebGPU|GPU/i.test(msg)) return NO_WEBGPU;
+  if (brand) {
+    console.error("[local-ai]", err);
+    return "MARYX не смог ответить на этом устройстве. Попробуйте ещё раз.";
+  }
   return `Модель в браузере не смогла ответить: ${err instanceof Error ? err.message : msg}`;
 }
 
@@ -292,9 +299,12 @@ export async function* generateLocal(input: {
   deep: boolean;
   signal: AbortSignal;
   onStatus: (status: string | undefined) => void;
+  /** MARYX-only mode: the model is shown as MARYX. */
+  brand?: boolean;
 }): AsyncGenerator<{ reasoning: string; text: string; truncated: boolean }> {
   const { model, messages, deep, signal, onStatus } = input;
-  const label = labelOf(model);
+  const brand = input.brand ?? false;
+  const label = brand ? "MARYX" : labelOf(model);
   const sizeMB = BROWSER_MODELS.find((m) => m.id === model)?.downloadMB;
 
   const f = fake();
@@ -336,7 +346,7 @@ export async function* generateLocal(input: {
         throw err;
       }
       resetEngine();
-      throw new Error(friendlyError(err));
+      throw new Error(friendlyError(err, brand));
     } finally {
       onProgress = null;
     }
@@ -368,7 +378,7 @@ export async function* generateLocal(input: {
       if (signal.aborted) throw new DOMException("Остановлено", "AbortError");
       // A lost GPU device unloads the model behind our back: start afresh next time.
       resetEngine();
-      throw new Error(friendlyError(err));
+      throw new Error(friendlyError(err, brand));
     } finally {
       signal.removeEventListener("abort", stop);
     }
@@ -402,13 +412,20 @@ export function localSystemPrompt(input: {
   assistantPrompt?: string;
   about: string;
   style: string;
+  /** MARYX-only mode: MARYX doesn't name the model it runs on. */
+  brand?: boolean;
 }): string {
   const date = new Date().toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
   const lines = [
     input.assistantPrompt?.slice(0, 1500) ||
-      (input.maryx
-        ? `Ты — MARYX, собственный ИИ платформы MARYX Ai. Сейчас ты работаешь прямо в браузере пользователя на открытой модели ${labelOf(input.model)}: бесплатно, без сторонних ИИ-сервисов.`
-        : "Ты — полезный ассистент."),
+      (input.brand
+        ? "Ты — MARYX, собственный ИИ платформы MARYX Ai. Сейчас ты работаешь прямо в браузере пользователя, бесплатно."
+        : input.maryx
+          ? `Ты — MARYX, собственный ИИ платформы MARYX Ai. Сейчас ты работаешь прямо в браузере пользователя на открытой модели ${labelOf(input.model)}: бесплатно, без сторонних ИИ-сервисов.`
+          : "Ты — полезный ассистент."),
+    ...(input.brand
+      ? ["Не называй модели и компании, на которых работаешь. Если спросят, кто ты, отвечай, что ты MARYX — ИИ платформы MARYX Ai."]
+      : []),
     "Отвечай на языке пользователя, по делу. Используй Markdown, когда это помогает. Если не уверен — так и скажи, не выдумывай факты.",
     `Сегодня ${date}.`,
   ];

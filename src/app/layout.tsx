@@ -6,7 +6,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "MARYX Ai",
-  description: "Платформа искусственного интеллекта: чат с лучшими моделями, генерация изображений и видео, свои ассистенты.",
+  description: "MARYX Ai — собственный искусственный интеллект: чат, генерация изображений и видео, свои ассистенты.",
 };
 
 export const viewport: Viewport = {

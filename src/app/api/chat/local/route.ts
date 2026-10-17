@@ -2,9 +2,11 @@ import { and, eq, sql } from "drizzle-orm";
 import { BROWSER_MODELS } from "@/lib/catalog";
 import { isAdmin, type SessionUser } from "@/lib/server/auth";
 import { chatMessages, findAssistant, findChat, storedKeys, titleFrom } from "@/lib/server/chats";
+import { maryxOnly } from "@/lib/server/config";
 import { getDb, schema } from "@/lib/server/db";
 import { isValidId, jsonError, requireUser } from "@/lib/server/http";
 import { deleteFiles } from "@/lib/server/storage";
+import { ONLY_MARYX } from "@/lib/server/validate";
 import type { UsageKind } from "@/lib/types";
 
 /** Questions a user may put to browser models per day (they cost us only storage). */
@@ -54,6 +56,7 @@ export async function POST(request: Request) {
   if (!body || !isValidId(body.chatId)) return jsonError("Неверный идентификатор", 400);
   const provider = body.provider;
   if (provider !== "browser" && provider !== "maryx") return jsonError("Неизвестный провайдер", 400);
+  if (provider === "browser" && maryxOnly()) return jsonError(ONLY_MARYX, 400);
   const model = text(body.model, 200);
   if (!model || (provider === "browser" ? !BROWSER_IDS.has(model) : model !== "maryx")) {
     return jsonError("Неизвестная модель", 400);

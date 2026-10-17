@@ -12,6 +12,15 @@ function env(name: string): string | undefined {
   return value ? value : undefined;
 }
 
+/**
+ * Users see and use only our own AI, MARYX — no model picker and no names of
+ * the models and providers behind it (admin screens aside). SHOW_ALL_MODELS=true
+ * brings back the choice of every model.
+ */
+export function maryxOnly(): boolean {
+  return env("SHOW_ALL_MODELS")?.toLowerCase() !== "true";
+}
+
 export function apiKey(provider: ProviderId): string | undefined {
   switch (provider) {
     case "anthropic":

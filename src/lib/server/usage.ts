@@ -12,6 +12,7 @@ import {
   takeCredits,
 } from "./billing/credits";
 import { currentPlan, planLimit } from "./billing/plans";
+import { maryxOnly } from "./config";
 import { sellablePacks } from "./billing/packs";
 import { getDb, schema } from "./db";
 import {
@@ -384,15 +385,23 @@ export async function deniedResponse(
     );
   }
   const { plan } = await currentPlan(user.id);
-  // Only what this site can actually offer: credits need a payment method.
+  // Only what this site can actually offer: credits need a payment method, own keys the all-models mode.
+  const only = maryxOnly();
   const ways = [
     ...(sellablePacks().length ? ["купите кредиты"] : []),
     ...(plan === "free" ? ["оформите Pro"] : []),
-    opts.ownKey
-      ? "выберите MARYX или модель OpenRouter — запрос пойдёт по вашему ключу"
-      : "подключите свой ключ OpenRouter в настройках",
+    ...(only
+      ? []
+      : [
+          opts.ownKey
+            ? "выберите MARYX или модель OpenRouter — запрос пойдёт по вашему ключу"
+            : "подключите свой ключ OpenRouter в настройках",
+        ]),
   ];
-  const hint = `Чтобы продолжить сейчас, ${ways.join(", ").replace(/, ([^,]*)$/, " или $1")}.`;
+  const hint = ways.length ? `Чтобы продолжить сейчас, ${ways.join(", ").replace(/, ([^,]*)$/, " или $1")}.` : "";
+  // In MARYX-only mode there's no model to switch to: the request itself can be lighter.
+  const simpler = only ? "упростите запрос или отключите «Думать глубже»" : "выберите модель попроще";
+  const costlier = only ? "сложные задачи, «Думать глубже» и большие файлы" : "дорогие модели и большие файлы";
   let error: string;
   if (denied === "busy") {
     return Response.json(
@@ -409,21 +418,21 @@ export async function deniedResponse(
     error =
       (kind === "voice"
         ? "Дневной бюджет вашего тарифа на ИИ израсходован. "
-        : "Дневной бюджет вашего тарифа на ИИ израсходован: дорогие модели и большие файлы тратят его быстрее. ") +
+        : `Дневной бюджет вашего тарифа на ИИ израсходован: ${costlier} тратят его быстрее. `) +
       `Он обновится в полночь по UTC. ${hint}`;
   } else if (denied === "expensive") {
     error =
       kind === "voice"
         ? `Эта запись дороже, чем осталось в дневном бюджете вашего тарифа. Запишите фрагмент покороче. ${hint}`
         : "Этот запрос слишком большой для того, что осталось в дневном бюджете вашего тарифа: длинная переписка или большие файлы. " +
-          `Начните новый чат, уберите файлы или выберите модель попроще. ${hint}`;
+          `Начните новый чат, уберите файлы или ${simpler}. ${hint}`;
   } else if (denied === "credits") {
     const balance = await creditBalance(user.id);
     const need = opts.charge?.need;
     error =
       balance < 0
         ? `Предыдущий запрос стоил больше, чем оставалось кредитов: долг ${-balance} кр. Пополните кредиты, чтобы продолжить.`
-        : `Не хватает кредитов: этот запрос стоит около ${need ?? "?"}, а у вас ${balance}. Пополните кредиты или выберите модель попроще.`;
+        : `Не хватает кредитов: этот запрос стоит около ${need ?? "?"}, а у вас ${balance}. Пополните кредиты или ${simpler}.`;
   } else if (denied === "budget") {
     error = `Бесплатные запросы на сегодня закончились: сайт исчерпал дневной бюджет. Попробуйте после полуночи по UTC. ${hint}`;
   } else {
@@ -433,6 +442,7 @@ export async function deniedResponse(
         ? `${NOT_IN_PLAN[kind]} в ваш тариф. ${hint}`
         : `Дневной лимит исчерпан (${LIMIT_NAMES[kind]}: ${limit} в сутки). Лимит обновится в полночь по UTC. ${hint}`;
   }
+  error = error.trimEnd();
   // Credits in debt can't pay for anything until topped up: say so, whatever the reason was.
   if (denied !== "credits") {
     const balance = await creditBalance(user.id);

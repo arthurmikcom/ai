@@ -91,10 +91,13 @@ function Providers() {
  * The plan's daily AI budget: expensive models and big files use it up before
  * the message count does. Shown as a share, not in dollars.
  */
-function BudgetMeter({ used, limit }: { used: number; limit: number }) {
+function BudgetMeter({ used, limit, maryxOnly }: { used: number; limit: number; maryxOnly: boolean }) {
   const share = limit > 0 ? Math.min(100, (used / limit) * 100) : 100;
   return (
-    <div className="rounded-xl border border-white/5 bg-black/15 p-4" title="Дорогие модели, «Думать глубже» и большие файлы расходуют бюджет быстрее">
+    <div
+      className="rounded-xl border border-white/5 bg-black/15 p-4"
+      title={`${maryxOnly ? "Сложные задачи" : "Дорогие модели"}, «Думать глубже» и большие файлы расходуют бюджет быстрее`}
+    >
       <div className="text-xs text-zinc-500">Бюджет на ИИ</div>
       <div className="mt-1 text-sm text-zinc-200">израсходовано {Math.round(share)}%</div>
       <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
@@ -174,7 +177,7 @@ function DeleteAccount() {
 }
 
 export function SettingsView() {
-  const { me, signOut, refreshMe } = useApp();
+  const { me, signOut, refreshMe, maryxOnly } = useApp();
   // Credits and today's usage may have changed since the app loaded (pictures, video, dictation).
   useEffect(() => {
     refreshMe();
@@ -239,7 +242,7 @@ export function SettingsView() {
                   );
                 })}
                 {!me.admin && me.budget.limit !== null && (
-                  <BudgetMeter used={me.budget.used} limit={me.budget.limit} />
+                  <BudgetMeter used={me.budget.used} limit={me.budget.limit} maryxOnly={maryxOnly} />
                 )}
               </div>
               {me.ownKey && (
@@ -266,8 +269,13 @@ export function SettingsView() {
           <MemorySection />
         </div>
 
-        <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wider text-zinc-500">Свой ключ</h2>
-        <OwnKeySection />
+        {/* Own keys belong to the all-models mode. */}
+        {!maryxOnly && (
+          <>
+            <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wider text-zinc-500">Свой ключ</h2>
+            <OwnKeySection />
+          </>
+        )}
 
         {me?.admin && (
           <>

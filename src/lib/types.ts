@@ -56,6 +56,8 @@ export interface ProviderStatus {
 export interface ModelsResponse {
   providers: ProviderStatus[];
   models: ModelInfo[];
+  /** Only MARYX is offered (see MeResponse.maryxOnly). */
+  maryxOnly?: boolean;
 }
 
 // ---------- Chat ----------
@@ -331,6 +333,8 @@ export interface MeResponse {
   social: { google: boolean; vk: boolean };
   /** Speech-to-text on the server is available (otherwise the browser's own, if any). */
   voice: { transcribe: boolean };
+  /** Users get only our own AI, MARYX: no model choice, no names of the models behind it (SHOW_ALL_MODELS unset). */
+  maryxOnly: boolean;
 }
 
 /** What /api/billing/plans tells the pricing page. */

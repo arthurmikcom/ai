@@ -90,7 +90,7 @@ export function LoginView({ social }: Props) {
           <div className="section-label mb-5 hidden md:block">Интеллект без границ</div>
           <h2>Большие идеи.<br /><em>Новые возможности.</em></h2>
           <p className="mt-5 hidden max-w-sm text-sm leading-7 text-zinc-400 md:block">
-            Лучшие модели мира, ваши мысли и пространство, где из них рождается что-то большее.
+            Ваш собственный ИИ, ваши мысли и пространство, где из них рождается что-то большее.
           </p>
         </div>
         <OrbitArt className="login-orbit" />

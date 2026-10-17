@@ -1,4 +1,5 @@
-import { describeError } from "@/lib/server/errors";
+import { describeAiError } from "@/lib/server/brand";
+import { maryxMediaModel } from "@/lib/server/chat/image";
 import { applyResult, createMedia } from "@/lib/server/gallery";
 import { jsonError, requireUser } from "@/lib/server/http";
 import { startGeneration } from "@/lib/server/media";
@@ -18,11 +19,21 @@ export async function POST(request: Request) {
   const user = await requireUser(request);
   if (user instanceof Response) return user;
 
-  const req = parseGenerateRequest(await request.json().catch(() => null));
-  if (typeof req === "string") return jsonError(req, 400);
+  const parsed = parseGenerateRequest(await request.json().catch(() => null));
+  if (typeof parsed === "string") return jsonError(parsed, 400);
+  let req = parsed;
 
-  // OpenRouter models go out with the user's own key when they saved one.
-  const key = req.provider === "openrouter" ? await ownKey(user.id) : undefined;
+  // OpenRouter models (and MARYX, which picks them) go out with the user's own key when they saved one.
+  const key = req.provider === "openrouter" || req.provider === "maryx" ? await ownKey(user.id) : undefined;
+  // MARYX picks the real model itself; the gallery shows it as MARYX's.
+  if (req.provider === "maryx") {
+    try {
+      const pick = await maryxMediaModel(req.kind, key !== undefined);
+      req = { ...req, provider: pick.provider, model: pick.id };
+    } catch (err) {
+      return jsonError(describeAiError(err), 503);
+    }
+  }
   const hasKey = async () => key !== undefined || Boolean(await ownKeyInfo(user.id));
   const paid = await charge(user, req.kind, key);
   if ("denied" in paid) return deniedResponse(user, req.kind, paid.denied, { ownKey: await hasKey() });
@@ -51,6 +62,6 @@ export async function POST(request: Request) {
     return Response.json(await applyResult(row, await startGeneration(req, call), call));
   } catch (err) {
     console.error("[generate]", req.provider, req.model, err);
-    return Response.json(await applyResult(row, { status: "failed", error: describeError(err, req.provider, Boolean(paid.key)) }));
+    return Response.json(await applyResult(row, { status: "failed", error: describeAiError(err, req.provider, Boolean(paid.key)) }));
   }
 }

@@ -47,6 +47,8 @@ export interface LocalChat extends Chat {
 interface AppState {
   ready: boolean;
   me: MeResponse | null;
+  /** Only MARYX is offered (true until the server says otherwise, so other models never flash). */
+  maryxOnly: boolean;
   refreshMe: () => void;
   signOut: () => Promise<void>;
 
@@ -99,6 +101,12 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const [chats, setChats] = useState<LocalChat[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [model, setModel] = useStoredJson<ModelChoice>(MODEL_KEY);
+  const maryxOnly = me?.maryxOnly ?? true;
+  // Read by the streaming code, which outlives renders.
+  const maryxOnlyRef = useRef(maryxOnly);
+  useEffect(() => {
+    maryxOnlyRef.current = maryxOnly;
+  }, [maryxOnly]);
   const [draftAssistantId, setDraftAssistantId] = useState<string | null>(null);
   const [assistants, setAssistants] = useState<Assistant[]>([]);
   const assistantsRef = useRef<Assistant[]>([]);
@@ -267,7 +275,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
               messages: c.messages.map((m) => (m.id === message.id ? { ...m, unsent: undefined } : m)),
             }));
           }
-          drawnBy = { provider: "browser", model: local.model };
+          // The answer is credited to the browser model — or, in MARYX-only mode, to MARYX.
+          drawnBy = maryxOnlyRef.current ? { provider: "maryx", model: "maryx" } : { provider: "browser", model: local.model };
           patchMessage(chatId, answerId, { ...drawnBy, via: maryx ? "maryx" : undefined });
 
           let error: string | undefined;
@@ -312,7 +321,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
                       : m.content,
               }));
             const built = buildMessages(
-              localSystemPrompt({ model: local.model, maryx, assistantPrompt: assistant?.systemPrompt, about, style }),
+              localSystemPrompt({ model: local.model, maryx, assistantPrompt: assistant?.systemPrompt, about, style, brand: maryxOnlyRef.current }),
               history,
               options.deepThinking,
             );
@@ -323,6 +332,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
               deep: options.deepThinking,
               signal: controller.signal,
               onStatus: (status) => patchMessage(chatId, answerId, { status }),
+              brand: maryxOnlyRef.current,
             })) {
               text = part.text;
               reasoning = part.reasoning;
@@ -601,6 +611,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     () => ({
       ready,
       me,
+      maryxOnly,
       refreshMe,
       signOut,
       chats,
@@ -623,6 +634,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     [
       ready,
       me,
+      maryxOnly,
       refreshMe,
       signOut,
       chats,

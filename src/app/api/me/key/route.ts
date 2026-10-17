@@ -1,3 +1,4 @@
+import { maryxOnly } from "@/lib/server/config";
 import { jsonError, requireUser } from "@/lib/server/http";
 import { deleteOwnKey, ownKeyInfo, saveOwnKey } from "@/lib/server/own-key";
 
@@ -12,6 +13,8 @@ export async function GET(request: Request) {
 export async function PUT(request: Request) {
   const user = await requireUser(request);
   if (user instanceof Response) return user;
+  // Own keys are part of the all-models mode only.
+  if (maryxOnly()) return jsonError("Свой ключ сейчас не подключается", 403);
   const body = (await request.json().catch(() => null)) as { key?: unknown } | null;
   if (typeof body?.key !== "string" || !body.key.trim()) return jsonError("Вставьте ключ OpenRouter", 400);
   const error = await saveOwnKey(user.id, body.key);

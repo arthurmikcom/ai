@@ -1,4 +1,4 @@
-import { describeError } from "@/lib/server/errors";
+import { describeAiError } from "@/lib/server/brand";
 import { jsonError, requireUser } from "@/lib/server/http";
 import { endUserId, ownKey } from "@/lib/server/own-key";
 import { transcriptionCost } from "@/lib/server/pricing";
@@ -68,6 +68,6 @@ export async function POST(request: Request) {
   } catch (err) {
     await settleCharge(paid, [], true);
     console.error("[voice]", err);
-    return jsonError(describeError(err, paid.key ? "openrouter" : undefined, Boolean(paid.key)), 502);
+    return jsonError(describeAiError(err, paid.key ? "openrouter" : undefined, Boolean(paid.key)), 502);
   }
 }

@@ -3,7 +3,8 @@ import type { GenerateRequest, GenerateResult, MediaItem, MediaKind } from "@/li
 import type { SessionUser } from "./auth";
 import { getDb, schema } from "./db";
 import type { StoredFile } from "./db/schema";
-import { describeError, statusOf } from "./errors";
+import { describeAiError, maryxOnly, publicError } from "./brand";
+import { statusOf } from "./errors";
 import { checkGeneration, downloadOutput, type OpenRouterCall } from "./media";
 import { endUserId, ownKey } from "./own-key";
 import { mediaCost } from "./pricing";
@@ -18,17 +19,19 @@ const ORPHAN_AFTER_MS = 5 * 60 * 1000;
 /** A job still not done after this long is given up on (the provider has lost it or keeps failing). */
 const GIVE_UP_AFTER_MS = 2 * 60 * 60 * 1000;
 
+/** A gallery item as the browser sees it: in MARYX-only mode, MARYX's (the real model stays stored for polling and costs). */
 function toItem(row: MediaRow): MediaItem {
+  const masked = maryxOnly();
   return {
     id: row.id,
     kind: row.kind,
     prompt: row.prompt,
-    provider: row.provider,
-    model: row.model,
+    provider: masked ? "maryx" : row.provider,
+    model: masked ? `maryx-${row.kind}` : row.model,
     aspectRatio: row.aspectRatio,
     status: row.status,
     progress: row.progress ?? undefined,
-    error: row.error ?? undefined,
+    error: row.error ? publicError(row.error) : undefined,
     files: row.files.map((f) => ({ url: fileUrl(f.key), mime: f.mime })),
     createdAt: row.createdAt.getTime(),
   };
@@ -146,7 +149,7 @@ export async function applyResult(row: MediaRow, result: GenerateResult, call: O
   } catch (err) {
     await deleteFiles(files.map((f) => f.key)).catch(() => {});
     // The provider made (and billed) it; only the copy failed.
-    return toItem(await fail(row, describeError(err), [costOf(row, result.cost)]));
+    return toItem(await fail(row, describeAiError(err), [costOf(row, result.cost)]));
   }
 
   // Two polls can finish the same job at once; only the first one keeps its files.
@@ -182,7 +185,7 @@ export async function refreshMedia(userId: string, id: string): Promise<MediaIte
   // A video paid with the user's own key is checked and downloaded with it.
   const key = row.paidBy === "byok" ? await ownKey(userId) : undefined;
   if (row.paidBy === "byok" && !key) {
-    return toItem(await fail(row, "Ваш ключ OpenRouter удалён из настроек — узнать, готово ли видео, больше нельзя."));
+    return toItem(await fail(row, `Ваш ключ${maryxOnly() ? "" : " OpenRouter"} удалён из настроек — узнать, готово ли видео, больше нельзя.`));
   }
   // Still not done (or not answering) after hours: give up. The provider may have billed it,
   // so the estimate stays in the ledger, and the user gets the use back.
@@ -199,7 +202,7 @@ export async function refreshMedia(userId: string, id: string): Promise<MediaIte
     // account won't get better: stop polling.
     const status = statusOf(err);
     if (row.paidBy === "byok" && (status === 401 || status === 403 || status === 404)) {
-      return toItem(await fail(row, describeError(err, row.provider, true)));
+      return toItem(await fail(row, describeAiError(err, row.provider, true)));
     }
     if (tooOld) return giveUp();
     // Transient provider/network errors: keep the job and let the next poll retry.

@@ -31,7 +31,7 @@ function limitText(limit: number | null, kind: UsageKind): string {
 }
 
 export function PricingView() {
-  const { me, refreshMe } = useApp();
+  const { me, refreshMe, maryxOnly } = useApp();
   const [options, setOptions] = useState<BillingOptions | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -101,7 +101,11 @@ export function PricingView() {
   return (
     <div className="h-full overflow-y-auto">
       <div className="page-content !max-w-[1000px]">
-        <PageHeading number="05" eyebrow="Больше возможностей" title="Тарифы" description="Выберите свой масштаб. Все модели доступны на любом тарифе — Pro даёт больше пространства для работы и творчества." />
+        <PageHeading number="05" eyebrow="Больше возможностей" title="Тарифы" description={
+            maryxOnly
+              ? "Выберите свой масштаб. MARYX доступен на любом тарифе — Pro даёт больше пространства для работы и творчества."
+              : "Выберите свой масштаб. Все модели доступны на любом тарифе — Pro даёт больше пространства для работы и творчества."
+          } />
 
         {!options && !error && (
           <div className="mt-16 flex justify-center">
@@ -144,7 +148,7 @@ export function PricingView() {
                     ))}
                     <li className="flex items-center gap-2">
                       <Check className="size-4 shrink-0 text-emerald-400" />
-                      Claude, GPT, Gemini и другие модели
+                      {maryxOnly ? "MARYX — тексты, картинки и видео" : "Claude, GPT, Gemini и другие модели"}
                     </li>
                     <li className="flex items-center gap-2">
                       <Check className="size-4 shrink-0 text-emerald-400" />
@@ -153,7 +157,7 @@ export function PricingView() {
                     {options.budget[plan.id] !== null && (
                       <li className="flex items-start gap-2 text-zinc-500">
                         <Check className="mt-0.5 size-4 shrink-0 text-zinc-600" />
-                        Дорогие модели, «Думать глубже» и большие файлы расходуют дневной лимит быстрее
+                        {maryxOnly ? "Сложные задачи" : "Дорогие модели"}, «Думать глубже» и большие файлы расходуют дневной лимит быстрее
                       </li>
                     )}
                   </ul>
@@ -242,8 +246,9 @@ export function PricingView() {
             </div>
             <p className="mt-2 max-w-2xl text-sm text-zinc-400">
               Закончился дневной лимит — продолжайте за кредиты, на любом тарифе. Списывается реальная стоимость
-              запроса: сообщение быстрой модели — около {options.credits.min.chat} кредита, умные модели и большие файлы —
-              больше, картинка — от {options.credits.min.image}, видео — от {options.credits.min.video}. Кредиты не сгорают.
+              запроса: {maryxOnly ? "простое сообщение" : "сообщение быстрой модели"} — около {options.credits.min.chat} кредита,{" "}
+              {maryxOnly ? "сложные задачи" : "умные модели"} и большие файлы — больше, картинка — от {options.credits.min.image}, видео —
+              от {options.credits.min.video}. Кредиты не сгорают.
             </p>
             {options.credits.packs.length > 0 ? (
               <div className="mt-5 grid gap-4 sm:grid-cols-3">
@@ -292,16 +297,19 @@ export function PricingView() {
 
         {error && <p className="mt-6 text-center text-sm text-red-300">{error}</p>}
 
-        <div className="surface-card mx-auto mt-8 flex max-w-2xl items-start gap-3 rounded-2xl p-5 text-sm text-zinc-400">
-          <KeyRound className="mt-0.5 size-5 shrink-0 text-violet-300" />
-          <p>
-            Есть свой аккаунт OpenRouter? Подключите свой ключ в{" "}
-            <Link href="/settings" className="text-violet-300 hover:text-violet-200">
-              настройках
-            </Link>{" "}
-            — MARYX и модели OpenRouter будут работать за ваш счёт, без дневных лимитов.
-          </p>
-        </div>
+        {/* Own keys belong to the all-models mode. */}
+        {!maryxOnly && (
+          <div className="surface-card mx-auto mt-8 flex max-w-2xl items-start gap-3 rounded-2xl p-5 text-sm text-zinc-400">
+            <KeyRound className="mt-0.5 size-5 shrink-0 text-violet-300" />
+            <p>
+              Есть свой аккаунт OpenRouter? Подключите свой ключ в{" "}
+              <Link href="/settings" className="text-violet-300 hover:text-violet-200">
+                настройках
+              </Link>{" "}
+              — MARYX и модели OpenRouter будут работать за ваш счёт, без дневных лимитов.
+            </p>
+          </div>
+        )}
 
         <div className="surface-card mx-auto mt-8 max-w-md rounded-2xl p-5">
           <h3 className="mb-2 text-center text-sm font-medium text-zinc-300">Есть промокод?</h3>

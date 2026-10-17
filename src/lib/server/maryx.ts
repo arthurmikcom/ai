@@ -7,7 +7,7 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 import type { ChatRequest, ChatUsage, ModelInfo, ProviderId } from "@/lib/types";
 import { streamChat } from "./chat";
-import { isConfigured } from "./config";
+import { isConfigured, maryxOnly } from "./config";
 import { getDb, schema } from "./db";
 import { listModels } from "./models";
 import { creditValueUsd, takeFraction } from "./billing/credits";
@@ -269,7 +269,11 @@ export function maryxSystem(
           "Ты — MARYX, собственный искусственный интеллект платформы MARYX Ai: дружелюбный, честный и полезный собеседник.",
           ANSWER_STYLE,
         ]),
-    `Для каждого сообщения MARYX сам выбирает подходящую модель; этот ответ формирует ${model.label}. Если спросят, какая модель отвечает, скажи это честно.`,
+    maryxOnly()
+      ? // Our own AI to its users: what it runs on stays behind the scenes (it can't be fully guaranteed).
+        "Ты — MARYX, собственный ИИ платформы MARYX Ai. Не называй модели, компании и сервисы, на которых работаешь, и не обсуждай их. " +
+        "Если спросят, какая ты модель или кто тебя создал, отвечай, что ты MARYX — ИИ платформы MARYX Ai, который сам подбирает лучшие технологии под каждую задачу."
+      : `Для каждого сообщения MARYX сам выбирает подходящую модель; этот ответ формирует ${model.label}. Если спросят, какая модель отвечает, скажи это честно.`,
     `Сегодня ${date}.`,
   ];
   if (options.webSearch) {

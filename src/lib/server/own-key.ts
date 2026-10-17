@@ -7,7 +7,7 @@
 import { createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { serverSecret } from "./auth";
-import { openRouterBase } from "./config";
+import { maryxOnly, openRouterBase } from "./config";
 import { getDb, schema } from "./db";
 
 async function cipherKey(): Promise<Buffer> {
@@ -38,8 +38,12 @@ async function decrypt(sealed: string): Promise<string | null> {
 /** OpenRouter keys look like sk-or-v1-<64 hex>; anything close enough is checked with OpenRouter. */
 const KEY_PATTERN = /^sk-or-[A-Za-z0-9_-]{20,200}$/;
 
-/** The user's own OpenRouter key, or undefined. */
+/**
+ * The user's own OpenRouter key, or undefined. Off in MARYX-only mode (a saved
+ * key stays, and works again with SHOW_ALL_MODELS=true).
+ */
 export async function ownKey(userId: string): Promise<string | undefined> {
+  if (maryxOnly()) return undefined;
   const db = await getDb();
   const [row] = await db.select({ secret: schema.userKey.secret }).from(schema.userKey).where(eq(schema.userKey.userId, userId));
   return row ? ((await decrypt(row.secret)) ?? undefined) : undefined;
@@ -47,6 +51,7 @@ export async function ownKey(userId: string): Promise<string | undefined> {
 
 /** What the settings page shows about a saved key. */
 export async function ownKeyInfo(userId: string): Promise<{ hint: string } | null> {
+  if (maryxOnly()) return null;
   const db = await getDb();
   const [row] = await db
     .select({ hint: schema.userKey.hint, secret: schema.userKey.secret })

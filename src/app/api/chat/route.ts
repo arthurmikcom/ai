@@ -5,7 +5,8 @@ import { canDrawInChat, chatImageModel, generateChatImage } from "@/lib/server/c
 import { chatMessages, findAssistant, findChat, storedKeys, titleFrom } from "@/lib/server/chats";
 import { getDb, schema } from "@/lib/server/db";
 import type { StoredFile } from "@/lib/server/db/schema";
-import { describeError, statusOf } from "@/lib/server/errors";
+import { describeAiError, maryxOnly, publicNotice } from "@/lib/server/brand";
+import { statusOf } from "@/lib/server/errors";
 import { loadOpenRouterChatModels } from "@/lib/server/models";
 import { jsonError, requireUser } from "@/lib/server/http";
 import {
@@ -44,7 +45,7 @@ import {
   type Denial,
 } from "@/lib/server/usage";
 import { parseChatSendRequest } from "@/lib/server/validate";
-import type { ChatRequest, ChatStreamEvent, ChatUsage, InlineImage, ModelInfo, Source, UsageKind } from "@/lib/types";
+import type { ChatRequest, ChatStreamEvent, ChatUsage, InlineImage, ModelInfo, ProviderId, Source, UsageKind } from "@/lib/types";
 
 // Long answers from reasoning models can take several minutes.
 export const maxDuration = 300;
@@ -405,7 +406,7 @@ export async function POST(request: Request) {
         });
       } catch (err) {
         await refundCharge(bill);
-        return jsonError(describeError(err), 503);
+        return jsonError(describeAiError(err), 503);
       }
       facts = memoryOn ? (await listFacts(user.id)).map((f) => f.text) : [];
     }
@@ -580,9 +581,9 @@ export async function POST(request: Request) {
         try {
           for (let attempt = 0; ; ) {
             const current = candidates[attempt];
-            if (plan) send({ type: "route", provider, model, search: plan.webSearch || undefined, retry: attempt > 0 || undefined });
+            if (plan) send({ type: "route", ...shown(provider, model), search: plan.webSearch || undefined, retry: attempt > 0 || undefined });
             // The browser clears the failed attempt on "retry", then shows why the model changed.
-            if (attempt > 0) send({ type: "notice", text: notices[0] });
+            if (attempt > 0 && notices[0]) send({ type: "notice", text: notices[0] });
             const { call, limited } = requestFor(current, spentSoFar());
             limitedCall = limited;
             callLimit = call.maxTokens;
@@ -612,8 +613,13 @@ export async function POST(request: Request) {
                 } else if (event.type === "reasoning") {
                   reasoning += event.text;
                   produced += event.text.length;
-                } else if (event.type === "notice") notices.push(event.text);
-                else if (event.type === "source") sources.push({ url: event.url, title: event.title });
+                } else if (event.type === "notice") {
+                  // In MARYX-only mode, notices naming the model behind it are dropped or reworded.
+                  const notice = publicNotice(event.text);
+                  if (notice === undefined) continue;
+                  event = { type: "notice", text: notice };
+                  notices.push(notice);
+                } else if (event.type === "source") sources.push({ url: event.url, title: event.title });
                 send(event);
               }
               tally(!signal.aborted);
@@ -639,7 +645,8 @@ export async function POST(request: Request) {
               model = replacement.id;
               reasoning = "";
               sources.length = 0;
-              notices = [`${current.label} сейчас не отвечает — отвечает ${replacement.label}.`];
+              // Which model stood in is MARYX's own business in MARYX-only mode.
+              notices = maryxOnly() ? [] : [`${current.label} сейчас не отвечает — отвечает ${replacement.label}.`];
             }
           }
         } catch (err) {
@@ -649,8 +656,8 @@ export async function POST(request: Request) {
             cutOff();
           } else {
             console.error("[chat]", provider, model, err);
-            error = describeError(err, provider, Boolean(bill.key));
-            if (!text && failed.length > 1) {
+            error = describeAiError(err, provider, Boolean(bill.key));
+            if (!text && failed.length > 1 && !maryxOnly()) {
               // Not "X answered instead": nobody did. The browser resets the notice on "retry".
               notices = [`Не ответила ни одна из моделей: ${failed.join(", ")}.`];
               send({ type: "route", provider, model, search: plan?.webSearch || undefined, retry: true });
@@ -727,6 +734,14 @@ export async function POST(request: Request) {
     await refundCharge(bill);
     throw err;
   }
+}
+
+/**
+ * The model the browser is told answered: the real one, or in MARYX-only mode
+ * MARYX itself (the real one is still stored, for routing and costs).
+ */
+function shown(provider: ProviderId, model: string, drawing = false): { provider: ProviderId; model: string } {
+  return maryxOnly() ? { provider: "maryx", model: drawing ? "maryx-image" : "maryx" } : { provider, model };
 }
 
 /**
@@ -807,13 +822,13 @@ function drawInChat(
       try {
         const picked = await chatImageModel(Boolean(bill.key));
         model = picked;
-        if (via) send({ type: "route", provider: picked.provider, model: picked.id, image: true });
+        if (via) send({ type: "route", ...shown(picked.provider, picked.id, true), image: true });
         ({ files, cost } = await generateChatImage(userId, prompt, picked, request.signal, {
           key: bill.key,
           endUser: endUserId(userId),
         }));
         for (const f of files) {
-          send({ type: "image", url: fileUrl(f.key), mime: f.mime, provider: picked.provider, model: picked.id });
+          send({ type: "image", url: fileUrl(f.key), mime: f.mime, ...shown(picked.provider, picked.id, true) });
         }
         text = "Готово! Вот что получилось.";
         send({ type: "text", text });
@@ -824,7 +839,7 @@ function drawInChat(
           notice = "Генерация остановлена.";
         } else {
           console.error("[chat:image]", model?.provider, model?.id, err);
-          error = describeError(err, model?.provider, Boolean(bill.key));
+          error = describeAiError(err, model?.provider, Boolean(bill.key));
         }
       } finally {
         try {

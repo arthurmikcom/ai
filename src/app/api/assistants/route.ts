@@ -1,5 +1,6 @@
 import { listAssistants, saveAssistant } from "@/lib/server/chats";
 import { isValidId, jsonError, requireUser } from "@/lib/server/http";
+import { maryxOnly } from "@/lib/server/config";
 import { isProvider } from "@/lib/server/validate";
 import type { Assistant } from "@/lib/types";
 
@@ -30,7 +31,8 @@ export async function POST(request: Request) {
   };
   if (!assistant.name || !assistant.systemPrompt) return jsonError("Заполните название и инструкцию", 400);
 
-  return (await saveAssistant(user.id, assistant))
+  // In MARYX-only mode an assistant answers with MARYX; a model it had stays saved for the all-models mode.
+  return (await saveAssistant(user.id, assistant, { keepModel: maryxOnly() }))
     ? Response.json(assistant)
     : jsonError("Ассистент не найден", 404);
 }

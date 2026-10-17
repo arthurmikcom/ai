@@ -8,14 +8,15 @@ import { useModels } from "@/lib/client/useModels";
 import { useStoredJson } from "@/lib/client/useStored";
 import type { AspectRatio, MediaKind } from "@/lib/types";
 import { useApp, type ModelChoice } from "../AppState";
-import { findModel, ModelPicker } from "../ModelPicker";
+import { findModel, MaryxBadge, ModelPicker } from "../ModelPicker";
 import { MediaCard } from "./MediaCard";
 import { OrbitArt, PageHeading } from "../Design";
 
-const COPY: Record<MediaKind, { title: string; subtitle: string; placeholder: string; ideas: string[] }> = {
+const COPY: Record<MediaKind, { title: string; subtitle: string; maryx: string; placeholder: string; ideas: string[] }> = {
   image: {
     title: "Генерация изображений",
     subtitle: "GPT Image, Nano Banana, Imagen, FLUX, Ideogram и другие модели в одном месте.",
+    maryx: "MARYX сам подберёт лучший способ воплотить вашу идею.",
     placeholder: "Опишите изображение: что на нём, стиль, освещение, ракурс…",
     ideas: [
       "Уютная кофейня в дождливом Петербурге, вечер, тёплый свет, фотореализм",
@@ -27,6 +28,7 @@ const COPY: Record<MediaKind, { title: string; subtitle: string; placeholder: st
   video: {
     title: "Генерация видео",
     subtitle: "Veo, Kling, Seedance, Hailuo, Wan. Видео создаётся 1–5 минут — можно уйти со страницы, результат сохранится.",
+    maryx: "MARYX создаёт видео за 1–5 минут — можно уйти со страницы, результат сохранится.",
     placeholder: "Опишите сцену: что происходит, движение камеры, атмосфера, звук…",
     ideas: [
       "Дрон медленно пролетает над заснеженными горами на рассвете",
@@ -43,7 +45,7 @@ const RATIOS: Record<MediaKind, AspectRatio[]> = {
 };
 
 export function MediaStudio({ kind }: { kind: MediaKind }) {
-  const { me } = useApp();
+  const { me, maryxOnly } = useApp();
   const copy = COPY[kind];
   const { data, loading } = useModels(kind);
   const models = useMemo(() => data?.models ?? [], [data]);
@@ -54,15 +56,21 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
   const [customModel, setCustomModel] = useState("");
   const promptRef = useRef<HTMLTextAreaElement>(null);
 
-  const replicateReady = data?.providers.some((p) => p.id === "replicate" && p.configured) ?? false;
+  const replicateReady = !maryxOnly && (data?.providers.some((p) => p.id === "replicate" && p.configured) ?? false);
   const noProviders = data !== null && models.length === 0 && !replicateReady;
 
-  // The saved choice if it is still available, else the first featured model.
+  // The saved choice if it is still available, else the first featured model. Only MARYX
+  // is offered: it picks the model itself (the saved choice is kept for the all-models mode).
   const fallback = models.find((m) => m.featured) ?? models[0];
-  const choice: ModelChoice | null =
-    findModel(models, saved) || !fallback ? saved : { provider: fallback.provider, model: fallback.id };
+  const choice: ModelChoice | null = maryxOnly
+    ? fallback
+      ? { provider: fallback.provider, model: fallback.id }
+      : null
+    : findModel(models, saved) || !fallback
+      ? saved
+      : { provider: fallback.provider, model: fallback.id };
 
-  const custom = customModel.trim();
+  const custom = replicateReady ? customModel.trim() : "";
   const target: ModelChoice | null = custom ? { provider: "replicate", model: custom } : choice;
   const canGenerate = Boolean(target && prompt.trim());
 
@@ -73,12 +81,12 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
   };
 
   const labelOf = (provider: string, id: string) =>
-    models.find((m) => m.provider === provider && m.id === id)?.label ?? id;
+    models.find((m) => m.provider === provider && m.id === id)?.label ?? (maryxOnly ? "MARYX" : id);
 
   return (
     <div className="h-full overflow-y-auto">
       <div className="page-content">
-        <PageHeading number={kind === "image" ? "02" : "03"} eyebrow="Творческая студия" title={copy.title} description={copy.subtitle} />
+        <PageHeading number={kind === "image" ? "02" : "03"} eyebrow="Творческая студия" title={copy.title} description={maryxOnly ? copy.maryx : copy.subtitle} />
         <div className={`studio-hero ${kind === "video" ? "studio-hero-video" : ""}`}>
           <div>
             <div className="mb-4 flex items-center gap-2 text-[11px] text-violet-200">
@@ -130,9 +138,13 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
               className="w-full resize-none bg-transparent px-2 py-1 text-[15px] text-zinc-100 outline-none placeholder:text-zinc-500"
             />
             <div className="flex flex-wrap items-center gap-2 border-t border-white/5 pt-2">
-              <div className={custom ? "pointer-events-none opacity-40" : ""}>
-                <ModelPicker models={models} value={choice} onChange={setSaved} loading={loading} />
-              </div>
+              {maryxOnly ? (
+                <MaryxBadge />
+              ) : (
+                <div className={custom ? "pointer-events-none opacity-40" : ""}>
+                  <ModelPicker models={models} value={choice} onChange={setSaved} loading={loading} />
+                </div>
+              )}
 
               <div className="flex rounded-xl bg-black/30 p-0.5">
                 {RATIOS[kind].map((r) => (
