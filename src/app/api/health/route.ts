@@ -6,6 +6,7 @@ import { proPriceSetting, stripeConfigured, stripeCreditsConfigured } from "@/li
 import { yookassaConfigured } from "@/lib/server/billing/yookassa";
 import { getDb, schema } from "@/lib/server/db";
 import { siteDailyBudget } from "@/lib/server/spend";
+import { blobProblem, storageKind } from "@/lib/server/storage";
 
 const SETTINGS = "Vercel → Settings → Environment Variables, затем Redeploy";
 
@@ -146,11 +147,19 @@ export async function GET(request: Request) {
       : "✓ страницы /terms, /refund и /privacy с реквизитами";
   }
 
-  checks["Хранилище файлов"] = process.env.BLOB_READ_WRITE_TOKEN
-    ? "✓ Vercel Blob подключён"
-    : onVercel
-      ? "⚠ не подключено — картинки, видео и вложения не сохранятся. Vercel → Storage → Blob (Private), затем Redeploy"
-      : "✓ папка .data/files";
+  const storage = storageKind();
+  const connect = "Connect Project: префикс BLOB, отметьте «Add a read-write token env var», затем Redeploy";
+  if (storage === "blob") {
+    const problem = await blobProblem();
+    checks["Хранилище файлов"] = problem
+      ? `⚠ Vercel Blob подключён, но не отвечает (${describe(problem)}) — картинки, видео и вложения не сохранятся. Vercel → Storage → ваше хранилище Blob → ${connect}`
+      : "✓ Vercel Blob подключён";
+  } else {
+    checks["Хранилище файлов"] =
+      storage === "none"
+        ? `⚠ не подключено — картинки, видео и вложения не сохранятся. Vercel → Storage → Create → Blob (Private) → ${connect}`
+        : "✓ папка .data/files";
+  }
 
   if (!process.env.ADMIN_USER_IDS?.trim() && !process.env.ADMIN_EMAILS?.trim()) {
     checks["Администратор"] =

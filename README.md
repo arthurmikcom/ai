@@ -28,7 +28,7 @@ npm run dev
 
 1. **Проект.** Зайдите на [vercel.com](https://vercel.com) через GitHub, нажмите **Add New → Project** и импортируйте этот репозиторий.
 2. **База данных.** В проекте откройте **Storage → Create Database → Neon (Postgres)** и подключите её к проекту. Переменная `DATABASE_URL` добавится сама.
-3. **Хранилище файлов.** **Storage → Create → Blob**, тип доступа **Private**, подключите к проекту. Добавится `BLOB_READ_WRITE_TOKEN`.
+3. **Хранилище файлов.** **Storage → Create → Blob**, тип доступа **Private**, затем **Connect Project**: префикс переменных `BLOB`, лучше отметить «Add a read-write token env var». Добавится `BLOB_READ_WRITE_TOKEN` и/или `BLOB_STORE_ID` — сайт работает с любым из них.
 4. **Переменные.** В **Settings → Environment Variables** добавьте:
    - `BETTER_AUTH_SECRET` — 32+ случайных символа (например, результат `openssl rand -base64 32`);
    - ключи провайдеров: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` и т. д.;

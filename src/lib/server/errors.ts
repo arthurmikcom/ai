@@ -13,7 +13,7 @@ export class HttpError extends Error {
 
 /**
  * No file storage to keep a photo, video or document in: on Vercel the site's
- * own disk is read-only, so it needs Vercel Blob (BLOB_READ_WRITE_TOKEN).
+ * own disk is read-only, so it needs a Vercel Blob store connected to the project.
  */
 export class StorageUnavailableError extends Error {
   constructor() {
