@@ -1,7 +1,7 @@
 import { connection } from "next/server";
 import { Suspense } from "react";
 import { LegalPage } from "@/components/LegalPage";
-import { legalInfo } from "@/lib/server/legal";
+import { legalInfo, providersText, publicPrices } from "@/lib/server/legal";
 
 export const metadata = { title: "Конфиденциальность — MARYX Ai" };
 
@@ -17,6 +17,7 @@ export default function PrivacyPage() {
 async function Content() {
   await connection();
   const info = legalInfo();
+  const { providers } = await publicPrices();
   return (
     <LegalPage title="Политика конфиденциальности" updated="18 октября 2026" info={info}>
       <p>Здесь описано, какие данные собирает MARYX Ai, зачем и как ими управлять. Оператор данных — {info.name}.</p>
@@ -25,7 +26,7 @@ async function Content() {
       <ul>
         <li>Аккаунт: имя, электронная почта, пароль в зашифрованном виде (или данные входа через Google или VK).</li>
         <li>Чаты, загруженные файлы, созданные изображения и видео, ассистенты, личные инструкции и то, что MARYX запомнил о вас.</li>
-        <li>Тариф, история платежей и расход лимитов. Данные карт принимают и хранят платёжные системы (Stripe, ЮKassa), не мы.</li>
+        <li>Тариф, история платежей и расход лимитов. Данные карт принимает и хранит {providersText(providers, "платёжная система")}, а не мы.</li>
         <li>Технические данные: IP-адрес и сведения о браузере — для защиты от злоупотреблений и для статистики скорости сайта.</li>
       </ul>
 
@@ -46,6 +47,7 @@ async function Content() {
         <li>Платёжным системам — для проведения оплаты.</li>
         <li>Государственным органам — только когда этого требует закон.</li>
       </ul>
+      <p>Эти обработчики могут находиться за пределами вашей страны, в том числе за пределами России.</p>
 
       <h2>Cookies</h2>
       <p>Сервис использует только необходимые cookies: для входа в аккаунт. Рекламных и сторонних отслеживающих cookies нет.</p>
@@ -63,9 +65,9 @@ async function Content() {
       <h2>Privacy (English)</h2>
       <p>
         {info.name} stores your account (name, email, hashed password), your chats, files, generated media, assistants and preferences,
-        your plan and payment history (card details are handled by Stripe/ЮKassa, never by us) and technical data (IP, browser) for security
+        your plan and payment history (card details are handled by {providers.length ? providers.join(" and ") : "the payment provider"}, never by us) and technical data (IP, browser) for security
         and performance statistics. Data is used only to provide the service, take payments and prevent abuse; it is never sold and there are
-        no ads. Request content is sent to AI model providers to generate answers, with a pseudonymous id instead of your email. Only
+        no ads. Request content is sent to AI model providers to generate answers, with a pseudonymous id instead of your email; these processors may be located outside your country. Only
         essential sign-in cookies are used. Data is kept while your account exists; deleting the account in Settings deletes it. Contact us to
         get a copy of your data or correct it.
       </p>

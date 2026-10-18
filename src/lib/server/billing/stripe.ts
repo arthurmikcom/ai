@@ -8,12 +8,21 @@ import { getSubscription, hasLiveStripe, isEntitled, isLiveStripe } from "./plan
 /**
  * The monthly Pro price for Stripe: a price created in Stripe (STRIPE_PRICE_PRO),
  * else PRO_PRICE_USD (default $9.99), so nothing has to be set up there by hand.
- * PRO_PRICE_USD=0 sells only credits through Stripe.
+ * PRO_PRICE_USD=0 sells only credits through Stripe. A value that isn't a
+ * price Stripe takes ("9.99" or "9,99", at least $0.50) is `invalid`: Pro then
+ * isn't sold rather than at a wrong amount, and the setup check says so.
  */
-export function proPriceUsd(): number {
+export function proPriceSetting(): { usd: number; invalid?: string } {
   const raw = process.env.PRO_PRICE_USD?.trim();
-  const value = raw ? Number.parseFloat(raw) : NaN;
-  return Number.isFinite(value) && value >= 0 ? value : 9.99;
+  if (!raw) return { usd: 9.99 };
+  const text = raw.replace(",", ".");
+  const value = Number(text);
+  if (!/^\d+(\.\d{1,2})?$/.test(text) || (value > 0 && value < 0.5)) return { usd: 0, invalid: raw };
+  return { usd: value };
+}
+
+export function proPriceUsd(): number {
+  return proPriceSetting().usd;
 }
 
 export function stripeConfigured(): boolean {
@@ -48,19 +57,24 @@ function stripe(): Stripe {
   return client;
 }
 
-let priceCache: { at: number; label: string } | null = null;
+let priceCache: { at: number; price: { amount: number; currency: string } } | null = null;
 
-/** "12,00 $" — the Pro price as configured in Stripe or by PRO_PRICE_USD (cached for 10 minutes). */
-export async function stripePriceLabel(): Promise<string> {
-  if (priceCache && Date.now() - priceCache.at < 10 * 60 * 1000) return priceCache.label;
+/** The monthly Pro price as configured in Stripe or by PRO_PRICE_USD (cached for 10 minutes). */
+export async function stripeProPrice(): Promise<{ amount: number; currency: string }> {
+  if (priceCache && Date.now() - priceCache.at < 10 * 60 * 1000) return priceCache.price;
   const priceId = process.env.STRIPE_PRICE_PRO;
-  const price = priceId
+  const raw = priceId
     ? await stripe().prices.retrieve(priceId)
     : { unit_amount: Math.round(proPriceUsd() * 100), currency: "usd" };
-  const amount = (price.unit_amount ?? 0) / 100;
-  const label = new Intl.NumberFormat("ru-RU", { style: "currency", currency: price.currency.toUpperCase() }).format(amount);
-  priceCache = { at: Date.now(), label };
-  return label;
+  const price = { amount: (raw.unit_amount ?? 0) / 100, currency: raw.currency.toUpperCase() };
+  priceCache = { at: Date.now(), price };
+  return price;
+}
+
+/** "12,00 $" — the Pro price for the pricing page. */
+export async function stripePriceLabel(): Promise<string> {
+  const { amount, currency } = await stripeProPrice();
+  return new Intl.NumberFormat("ru-RU", { style: "currency", currency }).format(amount);
 }
 
 /** Starts a Stripe Checkout for the Pro subscription and returns its URL. */

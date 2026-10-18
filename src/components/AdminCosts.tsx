@@ -211,7 +211,7 @@ function CostTable({
   );
 }
 
-/** Adds credits to a user by email (e.g. after a bank transfer, or as a gift). */
+/** Adds credits to a user by email (e.g. after a bank transfer, or as a gift), or takes them back after a refund. */
 function GrantCredits() {
   const [email, setEmail] = useState("");
   const [credits, setCredits] = useState("100");
@@ -223,11 +223,17 @@ function GrantCredits() {
     setBusy(true);
     setMessage(null);
     try {
-      const { balance } = await api<{ balance: number }>("/api/admin/credits", {
+      const { balance, taken } = await api<{ balance: number; taken?: number }>("/api/admin/credits", {
         method: "POST",
         body: JSON.stringify({ email, credits: Number(credits) }),
       });
-      setMessage({ ok: true, text: `Начислено. Теперь у пользователя ${count(balance)} кредитов.` });
+      setMessage({
+        ok: true,
+        text:
+          taken === undefined
+            ? `Начислено. Теперь у пользователя ${count(balance)} кредитов.`
+            : `Списано ${count(taken)}. Теперь у пользователя ${count(balance)} кредитов.`,
+      });
       setEmail("");
     } catch (err) {
       setMessage({ ok: false, text: err instanceof Error ? err.message : String(err) });
@@ -239,7 +245,7 @@ function GrantCredits() {
   return (
     <form onSubmit={submit} className="rounded-xl border border-white/5 bg-black/15 p-4">
       <div className="mb-2 flex items-center gap-2 text-xs text-zinc-500">
-        <Coins className="size-3.5 text-amber-300" /> Начислить кредиты пользователю
+        <Coins className="size-3.5 text-amber-300" /> Начислить кредиты пользователю (со знаком минус — списать после возврата денег)
       </div>
       <div className="flex flex-wrap items-end gap-2">
         <input
@@ -262,7 +268,7 @@ function GrantCredits() {
           disabled={busy || !email.trim()}
           className="rounded-lg bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900 hover:bg-white disabled:opacity-50"
         >
-          {busy ? <LoaderCircle className="size-4 animate-spin" /> : "Начислить"}
+          {busy ? <LoaderCircle className="size-4 animate-spin" /> : Number(credits) < 0 ? "Списать" : "Начислить"}
         </button>
       </div>
       {message && <p className={`mt-2 text-sm ${message.ok ? "text-emerald-300" : "text-red-300"}`}>{message.text}</p>}

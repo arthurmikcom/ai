@@ -1,5 +1,5 @@
 import { isEntitled, getSubscription } from "@/lib/server/billing/plans";
-import { stripeConfigured, stripeCreditsConfigured, syncStripeCredits, syncStripeForUser } from "@/lib/server/billing/stripe";
+import { stripeCreditsConfigured, syncStripeCredits, syncStripeForUser } from "@/lib/server/billing/stripe";
 import { syncLatestYooKassaPayment, yookassaConfigured } from "@/lib/server/billing/yookassa";
 import { describeError } from "@/lib/server/errors";
 import { jsonError, requireUser } from "@/lib/server/http";
@@ -18,7 +18,7 @@ export async function POST(request: Request) {
     if (body?.method === "yookassa" && yookassaConfigured()) {
       return Response.json(await syncLatestYooKassaPayment(user.id));
     }
-    if (body?.method === "stripe" && stripeConfigured()) {
+    if (body?.method === "stripe" && stripeCreditsConfigured()) {
       await syncStripeForUser(user.id);
       return Response.json({ status: isEntitled(await getSubscription(user.id)) ? "succeeded" : "pending" });
     }

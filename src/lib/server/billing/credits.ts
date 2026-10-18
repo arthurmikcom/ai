@@ -205,6 +205,30 @@ export async function grantCredits(
   return db.transaction(run);
 }
 
+/**
+ * Takes back up to `n` credits that are still on the balance (e.g. after the
+ * money for them was refunded) and notes it among the grants as a negative
+ * one. Never into debt: credits already spent stay spent. Returns how many
+ * were taken.
+ */
+export async function revokeCredits(r: { userId: string; credits: number; note?: string }): Promise<number> {
+  if (!Number.isInteger(r.credits) || r.credits <= 0) return 0;
+  const db = await getDb();
+  return db.transaction(async (tx) => {
+    const taken = await holdUpTo(r.userId, r.credits, tx);
+    if (taken > 0) {
+      await tx.insert(schema.creditGrant).values({
+        id: `admin:${crypto.randomUUID()}`,
+        userId: r.userId,
+        credits: -taken,
+        source: "admin",
+        note: r.note?.slice(0, 200) ?? null,
+      });
+    }
+    return taken;
+  });
+}
+
 /** The latest top-ups of a user (settings page). */
 export async function recentGrants(userId: string, limit = 10) {
   const db = await getDb();

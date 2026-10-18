@@ -2,22 +2,25 @@ import Link from "next/link";
 import { connection } from "next/server";
 import { Suspense } from "react";
 import { LegalPage } from "@/components/LegalPage";
-import { hasBudgets, legalInfo, publicPrices } from "@/lib/server/legal";
+import { hasBudgets, legalInfo, providersText, publicPrices } from "@/lib/server/legal";
 
 export const metadata = { title: "Условия использования — MARYX Ai" };
 
-const usd = (v: number) => `$${v.toFixed(2)}`;
-const rub = (v: number) => `${new Intl.NumberFormat("ru-RU").format(v)} ₽`;
-/** "3 сообщения в сутки": `forms` are for 1, 2–4 and 5+ (the last one also says "unlimited"). */
-function count(v: number | null, forms: [string, string, string]): string {
-  if (v === null) return `без ограничения по числу ${forms[2]}`;
-  const n = Math.abs(v) % 100;
-  const form = n % 10 === 1 && n !== 11 ? forms[0] : n % 10 >= 2 && n % 10 <= 4 && (n < 12 || n > 14) ? forms[1] : forms[2];
-  return `${v} ${form} в сутки`;
+const money = (amount: number, currency: string) =>
+  currency === "RUB" ? `${new Intl.NumberFormat("ru-RU").format(amount)} ₽` : currency === "USD" ? `$${amount.toFixed(2)}` : `${amount.toFixed(2)} ${currency}`;
+
+/** The right form of a Russian noun for `n`: `forms` are for 1, 2–4 and 5+. */
+function plural(n: number, forms: [string, string, string]): string {
+  const m = Math.abs(n) % 100;
+  return m % 10 === 1 && m !== 11 ? forms[0] : m % 10 >= 2 && m % 10 <= 4 && (m < 12 || m > 14) ? forms[1] : forms[2];
 }
+/** "3 сообщения в сутки", or "без ограничения по числу сообщений". */
+const perDay = (v: number | null, forms: [string, string, string]) =>
+  v === null ? `без ограничения по числу ${forms[2]}` : `${v} ${plural(v, forms)} в сутки`;
 const MESSAGES: [string, string, string] = ["сообщение", "сообщения", "сообщений"];
 const IMAGES: [string, string, string] = ["изображение", "изображения", "изображений"];
 const VIDEOS: [string, string, string] = ["видео", "видео", "видео"];
+const CREDITS: [string, string, string] = ["кредит", "кредита", "кредитов"];
 
 // Read when the page is opened, so the owner's details and prices follow the current settings.
 export default function TermsPage() {
@@ -31,8 +34,12 @@ export default function TermsPage() {
 async function Content() {
   await connection();
   const info = legalInfo();
-  const prices = publicPrices();
-  const pro = [prices.proUsd !== undefined && usd(prices.proUsd), prices.proRub !== undefined && rub(prices.proRub)].filter(Boolean).join(" или ");
+  const prices = await publicPrices();
+  const pro = [prices.proStripe && money(prices.proStripe.amount, prices.proStripe.currency), prices.proRub !== undefined && money(prices.proRub, "RUB")]
+    .filter(Boolean)
+    .join(" или ");
+  const packPrice = (p: { usd: number; rub: number }) => [p.usd > 0 && money(p.usd, "USD"), p.rub > 0 && money(p.rub, "RUB")].filter(Boolean).join(" или ");
+  const englishPacks = prices.packs.filter((p) => p.usd > 0);
   return (
     <LegalPage title="Условия использования" updated="18 октября 2026" info={info}>
       <p>
@@ -49,7 +56,7 @@ async function Content() {
 
       <h2>2. Аккаунт</h2>
       <ul>
-        <li>Для работы нужен аккаунт. Пользоваться платными функциями могут лица старше 18 лет.</li>
+        <li>Для работы нужен аккаунт. Пользоваться платными функциями могут лица, достигшие 18 лет.</li>
         <li>Вы отвечаете за сохранность пароля и за действия в своём аккаунте.</li>
         <li>Аккаунт можно удалить в любой момент в настройках: вместе с ним удаляются чаты, файлы и созданные материалы.</li>
       </ul>
@@ -57,19 +64,17 @@ async function Content() {
       <h2>3. Тарифы и цены</h2>
       <ul>
         <li>
-          <b>Free</b> — бесплатно: {count(prices.free.chat, MESSAGES)}, {count(prices.free.image, IMAGES)}.
+          <b>Free</b> — бесплатно: {perDay(prices.free.chat, MESSAGES)}, {perDay(prices.free.image, IMAGES)}.
         </li>
         <li>
-          <b>Pro</b> — подписка на месяц{pro ? `: ${pro} в месяц` : ""}: {count(prices.pro.chat, MESSAGES)},{" "}
-          {count(prices.pro.image, IMAGES)}, {count(prices.pro.video, VIDEOS)}. Точная цена всегда показана перед оплатой.
+          <b>Pro</b> — подписка с ежемесячным продлением{pro ? ` (${pro} в месяц)` : ""}: {perDay(prices.pro.chat, MESSAGES)},{" "}
+          {perDay(prices.pro.image, IMAGES)}, {perDay(prices.pro.video, VIDEOS)}. Точная цена всегда показана перед оплатой.
         </li>
         {prices.packs.length > 0 && (
           <li>
             <b>Кредиты</b> — разовая покупка для запросов сверх дневных лимитов:{" "}
-            {prices.packs
-              .map((p) => `${p.credits} кредитов — ${[p.usd > 0 && usd(p.usd), p.rub > 0 && rub(p.rub)].filter(Boolean).join(" или ")}`)
-              .join("; ")}
-            . Кредиты не сгорают, их нельзя обменять на деньги или передать другому аккаунту.
+            {prices.packs.map((p) => `${p.credits} ${plural(p.credits, CREDITS)} — ${packPrice(p)}`).join("; ")}. Кредиты не сгорают, их нельзя
+            передать другому аккаунту или обменять на деньги, кроме возврата по правилам <Link href="/refund">«Отмена и возврат»</Link>.
           </li>
         )}
       </ul>
@@ -84,13 +89,15 @@ async function Content() {
       <ul>
         <li>Подписка Pro продлевается автоматически каждый месяц, и её стоимость списывается с выбранной карты, пока вы её не отмените.</li>
         <li>
-          Перед первой оплатой вы явно соглашаетесь на автопродление. Отменить его можно в любой момент в <b>Настройки → Подписка</b>: доступ к
-          Pro сохраняется до конца оплаченного месяца, дальше списаний не будет.
+          Перед первой оплатой вы явно соглашаетесь на автопродление. Отменить его можно в любой момент в разделе <b>Настройки → Подписка</b>:
+          доступ к Pro сохраняется до конца оплаченного месяца, дальше списаний не будет.
         </li>
         <li>
           Отмена и возврат денег описаны в правилах <Link href="/refund">«Отмена и возврат»</Link>.
         </li>
-        <li>Платежи принимают платёжные системы (Stripe, ЮKassa); данные карты Сервис не получает и не хранит.</li>
+        <li>
+          Платежи принимает {providersText(prices.providers, "платёжная система")}; данные карты Сервис не получает и не хранит.
+        </li>
       </ul>
 
       <h2>5. Правила использования</h2>
@@ -127,17 +134,15 @@ async function Content() {
       <p>
         MARYX Ai is an AI assistant service (text answers, documents, image and video generation) provided by {info.name}. AI output may be
         inaccurate and is not professional advice. Paid features are for users aged 18+. Free plan: free with daily limits. Pro: a monthly
-        subscription{prices.proUsd !== undefined ? ` at ${usd(prices.proUsd)} per month` : ""} that renews automatically until cancelled; you
-        can cancel any time in Settings → Subscription and keep Pro until the end of the paid month.
-        {prices.packs.some((p) => p.usd > 0) &&
-          ` Credits are one-time purchases (${prices.packs
-            .filter((p) => p.usd > 0)
-            .map((p) => `${p.credits} credits for ${usd(p.usd)}`)
-            .join(", ")}) for usage beyond daily limits; they don't expire and aren't redeemable for cash.`}{" "}
-        Payments are processed by Stripe; we never see or store card details. Illegal content, abuse, spam, malware and attempts to bypass
-        limits are prohibited. You keep the rights to your input and may use generated content lawfully. The service is provided “as is”;
-        liability is limited to the amount you paid in the last three months. See also <Link href="/refund">Cancellation &amp; refunds</Link>{" "}
-        and <Link href="/privacy">Privacy</Link>.
+        subscription
+        {prices.proStripe ? ` at ${money(prices.proStripe.amount, prices.proStripe.currency)} per month` : ""} that renews automatically until
+        cancelled; you can cancel any time in Settings → Subscription and keep Pro until the end of the paid month.
+        {englishPacks.length > 0 &&
+          ` Credits are one-time purchases (${englishPacks.map((p) => `${p.credits} credits for ${money(p.usd, "USD")}`).join(", ")}) for usage beyond daily limits; they don't expire and aren't redeemable for cash except as described in Cancellation & refunds.`}{" "}
+        {prices.providers.length > 0 && `Payments are processed by ${prices.providers.join(" and ")}; we never see or store card details. `}
+        Illegal content, abuse, spam, malware and attempts to bypass limits are prohibited. You keep the rights to your input and may use
+        generated content lawfully. The service is provided “as is”; liability is limited to the amount you paid in the last three months.
+        See also <Link href="/refund">Cancellation &amp; refunds</Link> and <Link href="/privacy">Privacy</Link>.
       </p>
     </LegalPage>
   );

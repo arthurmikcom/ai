@@ -2,7 +2,7 @@ import { PROVIDERS } from "@/lib/catalog";
 import { getAuth, vercelHosts } from "@/lib/server/auth";
 import { isConfigured, maryxOnly } from "@/lib/server/config";
 import { sellablePacks } from "@/lib/server/billing/packs";
-import { stripeConfigured, stripeCreditsConfigured } from "@/lib/server/billing/stripe";
+import { proPriceSetting, stripeConfigured, stripeCreditsConfigured } from "@/lib/server/billing/stripe";
 import { yookassaConfigured } from "@/lib/server/billing/yookassa";
 import { getDb, schema } from "@/lib/server/db";
 import { siteDailyBudget } from "@/lib/server/spend";
@@ -116,8 +116,14 @@ export async function GET(request: Request) {
   const stripeKey = process.env.STRIPE_SECRET_KEY?.trim();
   if (stripeCreditsConfigured()) {
     const test = stripeKey?.startsWith("sk_test_") || stripeKey?.startsWith("rk_test_") ? " (тестовый режим: настоящие деньги не списываются)" : "";
-    payments.push(`${stripeConfigured() ? "Stripe: Pro и кредиты" : "Stripe: только кредиты (Pro выключен: PRO_PRICE_USD=0)"}${test}`);
-    if (test) paymentsWarn = true;
+    const price = proPriceSetting();
+    const pro = process.env.STRIPE_PRICE_PRO?.trim() ? "Pro (цена из Stripe)" : `Pro $${price.usd.toFixed(2)}/мес`;
+    const creditsOnly = price.invalid ? "Stripe: только кредиты" : "Stripe: только кредиты (Pro выключен: PRO_PRICE_USD=0)";
+    payments.push(`${stripeConfigured() ? `Stripe: ${pro} и кредиты` : creditsOnly}${test}`);
+    if (price.invalid && !process.env.STRIPE_PRICE_PRO?.trim()) {
+      payments.push(`PRO_PRICE_USD="${price.invalid}" — не цена (нужно, например, 9.99 и не меньше 0.50), поэтому Pro через Stripe не продаётся`);
+    }
+    if (test || price.invalid) paymentsWarn = true;
   } else if (stripeKey) {
     paymentsWarn = true;
     payments.push(
