@@ -1,3 +1,4 @@
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { AppShell } from "@/components/AppShell";
@@ -20,6 +21,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <AppStateProvider>
           <AppShell>{children}</AppShell>
         </AppStateProvider>
+        {/* Vercel Speed Insights: page speed of real visitors (works on Vercel, does nothing elsewhere). */}
+        <SpeedInsights />
       </body>
     </html>
   );

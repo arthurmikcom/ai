@@ -58,5 +58,6 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  // Vercel's own routes (/_vercel/…, e.g. Speed Insights) need no sign-in.
+  matcher: ["/((?!_next/static|_next/image|_vercel|favicon.ico).*)"],
 };
