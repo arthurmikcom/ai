@@ -131,7 +131,9 @@ export async function POST(request: Request) {
     newPhotos.length === req.message.attachments?.length &&
     wantsImageEdit(req.message.content) &&
     (await canDrawInChat(Boolean(key), true));
-  const editing = autoEdit || (req.image && newPhotos.length > 0);
+  // Drawn again (no new message): an edit when the asked message carries photos, so the right model's price is held.
+  const editing =
+    autoEdit || (req.image && (req.message ? newPhotos.length > 0 : chat ? await askedHasPhotos(chat.id) : false));
   const refuse = async (k: UsageKind, denied: Denial, c?: Charge) =>
     deniedResponse(user, k, denied, { ownKey: key !== undefined || Boolean(await ownKeyInfo(user.id)), charge: c });
   // A picture's price is known up front, so it is held against budgets and credits right away.
@@ -804,6 +806,12 @@ function ndjson(body: ReadableStream<Uint8Array>): Response {
       "X-Accel-Buffering": "no",
     },
   });
+}
+
+/** Whether the user's last message carries photos (drawing its answer again edits them). */
+async function askedHasPhotos(chatId: string): Promise<boolean> {
+  const asked = (await chatMessages(chatId)).findLast((m) => m.role === "user");
+  return Boolean(asked?.attachments?.some((f) => f.mime.startsWith("image/")));
 }
 
 /** The photos stored with a message (to edit them again), as inline images. */

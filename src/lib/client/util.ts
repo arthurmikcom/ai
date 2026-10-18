@@ -38,7 +38,8 @@ const MAX_IMAGE_SIDE = 1568;
  * drops the photo's metadata (location included). Phone photos come out upright.
  */
 export async function imageToAttachment(file: Blob & { name?: string }): Promise<Attachment & { width: number; height: number }> {
-  const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+  // Older browsers don't know "from-image" (and throw); they decode without it.
+  const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" }).catch(() => createImageBitmap(file));
   const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(bitmap.width, bitmap.height));
   const width = Math.max(1, Math.round(bitmap.width * scale));
   const height = Math.max(1, Math.round(bitmap.height * scale));

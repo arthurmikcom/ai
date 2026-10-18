@@ -36,7 +36,8 @@ function toItem(row: MediaRow, admin = false): MediaItem {
     aspectRatio: row.aspectRatio,
     status: row.status,
     progress: row.progress ?? undefined,
-    error: error && admin && row.errorDetail ? `${error} [для администратора: ${row.errorDetail}]` : error,
+    error:
+      error && admin && row.errorDetail && row.errorDetail !== error ? `${error} [для администратора: ${row.errorDetail}]` : error,
     files: row.files.map((f) => ({ url: fileUrl(f.key), mime: f.mime })),
     ...(row.inputs?.length ? { inputs: row.inputs.map((f) => ({ url: fileUrl(f.key), mime: f.mime })) } : {}),
     createdAt: row.createdAt.getTime(),
