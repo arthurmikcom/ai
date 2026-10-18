@@ -22,6 +22,8 @@ import { relativeTime } from "@/lib/client/util";
 import { useApp } from "./AppState";
 import { BrandMark } from "./Design";
 
+const LEGAL_PATHS = ["/terms", "/refund", "/privacy"];
+
 const NAV = [
   { href: "/", label: "Чат", icon: MessageSquare },
   { href: "/images", label: "Изображения", icon: ImageIcon },
@@ -219,7 +221,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     };
   }, [open]);
 
-  if (pathname === "/login") return <>{children}</>;
+  // The login and legal pages stand on their own (they are seen without signing in).
+  if (pathname === "/login" || LEGAL_PATHS.includes(pathname)) return <>{children}</>;
 
   return (
     <div className="flex h-dvh overflow-hidden bg-zinc-950 text-zinc-100">

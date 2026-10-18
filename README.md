@@ -77,11 +77,13 @@ npm run dev
 
 Для проверки создайте в ЮKassa **тестовый магазин**: у него свои ключи, автоплатежи уже включены, а оплатить можно тестовой картой `5555 5555 5555 4444` (любой срок и CVC).
 
-**3. Stripe — для международных карт.**
-1. В [Stripe](https://dashboard.stripe.com) создайте продукт «MARYX Ai Pro» с ежемесячной ценой и скопируйте её ID (`price_...`).
-2. В **Developers → Webhooks** добавьте адрес `https://ваш-сайт/api/billing/stripe/webhook` с событиями `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed`.
-3. Задайте `STRIPE_SECRET_KEY`, `STRIPE_PRICE_PRO` и `STRIPE_WEBHOOK_SECRET` (`whsec_...`). Для продажи одних только кредитов цена Pro не нужна.
-4. Включите Customer Portal (**Settings → Billing → Customer portal**): через него пользователи меняют карту и отменяют подписку.
+**3. Stripe — для международных карт** (нужна компания или счёт в стране, где работает Stripe).
+1. Зарегистрируйтесь на [stripe.com](https://dashboard.stripe.com/register) и заполните данные бизнеса. В поле сайта укажите адрес сайта: Stripe проверит страницы `/terms`, `/refund` и `/privacy` (они уже есть, реквизиты в них — из `LEGAL_NAME`, `LEGAL_ADDRESS`, `LEGAL_EMAIL`).
+2. **Developers → API keys**: скопируйте **Secret key** в `STRIPE_SECRET_KEY`. Сначала можно взять тестовый ключ `sk_test_...` и платить тестовой картой `4242 4242 4242 4242` (любой будущий срок и CVC), потом заменить на боевой `sk_live_...`.
+3. **Developers → Webhooks → Add endpoint**: адрес `https://ваш-сайт/api/billing/stripe/webhook`, события `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed`. Скопируйте **Signing secret** (`whsec_...`) в `STRIPE_WEBHOOK_SECRET`. У тестового и боевого режима вебхуки и ключи свои.
+4. Цена Pro — `PRO_PRICE_USD` (по умолчанию $9.99 в месяц), создавать продукт в Stripe не нужно. Если хотите цену из Stripe, задайте её ID в `STRIPE_PRICE_PRO`; `PRO_PRICE_USD=0` — продавать через Stripe только кредиты. Цены пакетов кредитов — в `CREDIT_PACKS`.
+5. Включите Customer Portal (**Settings → Billing → Customer portal**): через него пользователи меняют карту и отменяют подписку.
+6. Сделайте Redeploy и откройте `/api/health`: строка «Оплата» покажет, что подключено, а «Условия и реквизиты» — хватает ли данных для проверки Stripe.
 
 **Важно знать:**
 - Перед оплатой пользователь ставит галочку согласия на автопродление, а отключить продление можно в любой момент в настройках. Этого требует закон о подписках (376-ФЗ, действует с 1 марта 2026). Разместите на сайте оферту с условиями подписки и сверьтесь с юристом.

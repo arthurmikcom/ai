@@ -3,6 +3,7 @@
 import { ArrowUpRight, LoaderCircle, LockKeyhole, Sparkles } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { authClient } from "@/lib/client/auth";
+import { LegalLinks } from "./LegalPage";
 import { BrandMark, OrbitArt } from "./Design";
 
 interface Props {
@@ -203,6 +204,7 @@ export function LoginView({ social }: Props) {
           <LockKeyhole className="size-3.5" aria-hidden="true" />
           Ваши диалоги доступны только вам
         </div>
+        <LegalLinks className="mt-3" />
       </div>
       </div>
     </div>

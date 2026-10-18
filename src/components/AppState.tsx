@@ -92,7 +92,8 @@ function titleFrom(text: string, attachments: Attachment[]): string {
 
 export function AppStateProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const onLoginPage = pathname === "/login";
+  // Pages seen without signing in: nothing to load for them.
+  const onLoginPage = pathname === "/login" || pathname === "/terms" || pathname === "/refund" || pathname === "/privacy";
   const [ready, setReady] = useState(false);
   const [me, setMe] = useState<MeResponse | null>(null);
   // The ref is the source of truth so async streaming code always sees the

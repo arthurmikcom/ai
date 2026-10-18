@@ -5,9 +5,20 @@ import { getDb, schema } from "../db";
 import { grantCredits, type PackDef } from "./credits";
 import { getSubscription, hasLiveStripe, isEntitled, isLiveStripe } from "./plans";
 
+/**
+ * The monthly Pro price for Stripe: a price created in Stripe (STRIPE_PRICE_PRO),
+ * else PRO_PRICE_USD (default $9.99), so nothing has to be set up there by hand.
+ * PRO_PRICE_USD=0 sells only credits through Stripe.
+ */
+export function proPriceUsd(): number {
+  const raw = process.env.PRO_PRICE_USD?.trim();
+  const value = raw ? Number.parseFloat(raw) : NaN;
+  return Number.isFinite(value) && value >= 0 ? value : 9.99;
+}
+
 export function stripeConfigured(): boolean {
   const env = process.env;
-  return Boolean(env.STRIPE_SECRET_KEY && env.STRIPE_PRICE_PRO && env.STRIPE_WEBHOOK_SECRET);
+  return Boolean(env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET && (env.STRIPE_PRICE_PRO || proPriceUsd() > 0));
 }
 
 /** Credit packs need no price in Stripe: each checkout names its own amount. */
@@ -39,10 +50,13 @@ function stripe(): Stripe {
 
 let priceCache: { at: number; label: string } | null = null;
 
-/** "12,00 $" — the Pro price as configured in Stripe (cached for 10 minutes). */
+/** "12,00 $" — the Pro price as configured in Stripe or by PRO_PRICE_USD (cached for 10 minutes). */
 export async function stripePriceLabel(): Promise<string> {
   if (priceCache && Date.now() - priceCache.at < 10 * 60 * 1000) return priceCache.label;
-  const price = await stripe().prices.retrieve(process.env.STRIPE_PRICE_PRO!);
+  const priceId = process.env.STRIPE_PRICE_PRO;
+  const price = priceId
+    ? await stripe().prices.retrieve(priceId)
+    : { unit_amount: Math.round(proPriceUsd() * 100), currency: "usd" };
   const amount = (price.unit_amount ?? 0) / 100;
   const label = new Intl.NumberFormat("ru-RU", { style: "currency", currency: price.currency.toUpperCase() }).format(amount);
   priceCache = { at: Date.now(), label };
@@ -97,7 +111,19 @@ export async function startStripeCheckout(user: SessionUser, origin: string): Pr
 
   const session = await stripe().checkout.sessions.create({
     mode: "subscription",
-    line_items: [{ price: process.env.STRIPE_PRICE_PRO!, quantity: 1 }],
+    line_items: [
+      process.env.STRIPE_PRICE_PRO
+        ? { price: process.env.STRIPE_PRICE_PRO, quantity: 1 }
+        : {
+            price_data: {
+              currency: "usd",
+              unit_amount: Math.round(proPriceUsd() * 100),
+              recurring: { interval: "month" },
+              product_data: { name: "MARYX Ai Pro" },
+            },
+            quantity: 1,
+          },
+    ],
     customer: customerId,
     client_reference_id: user.id,
     metadata: { userId: user.id },

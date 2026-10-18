@@ -2,7 +2,8 @@ import { getSessionCookie } from "better-auth/cookies";
 import { NextResponse, type NextRequest } from "next/server";
 
 // /api/health is the owner's setup check; it reports only whether settings are present.
-const PUBLIC_PATHS = ["/login", "/api/auth", "/api/health"];
+// The legal pages are public: payment providers and visitors read them before signing up.
+const PUBLIC_PATHS = ["/login", "/api/auth", "/api/health", "/terms", "/refund", "/privacy"];
 /** Called by payment providers and Vercel Cron; each route authenticates itself. */
 const MACHINE_PATHS = ["/api/billing/stripe/webhook", "/api/billing/yookassa/webhook", "/api/cron"];
 

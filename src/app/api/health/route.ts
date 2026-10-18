@@ -113,8 +113,16 @@ export async function GET(request: Request) {
       payments.push("ЮKassa: Pro и кредиты, но без CRON_SECRET подписки не продлеваются сами");
     }
   }
+  const stripeKey = process.env.STRIPE_SECRET_KEY?.trim();
   if (stripeCreditsConfigured()) {
-    payments.push(stripeConfigured() ? "Stripe: Pro и кредиты" : "Stripe: только кредиты (для Pro добавьте STRIPE_PRICE_PRO)");
+    const test = stripeKey?.startsWith("sk_test_") || stripeKey?.startsWith("rk_test_") ? " (тестовый режим: настоящие деньги не списываются)" : "";
+    payments.push(`${stripeConfigured() ? "Stripe: Pro и кредиты" : "Stripe: только кредиты (Pro выключен: PRO_PRICE_USD=0)"}${test}`);
+    if (test) paymentsWarn = true;
+  } else if (stripeKey) {
+    paymentsWarn = true;
+    payments.push(
+      "Stripe: ключ есть, но нет STRIPE_WEBHOOK_SECRET — добавьте вебхук https://<сайт>/api/billing/stripe/webhook в Stripe → Developers → Webhooks и его Signing secret",
+    );
   }
   if (payments.length && !sellablePacks().length) {
     paymentsWarn = true;
@@ -123,6 +131,14 @@ export async function GET(request: Request) {
   checks["Оплата"] = payments.length
     ? `${paymentsWarn ? "⚠" : "✓"} ${payments.join("; ")}`
     : "⚠ не подключена — Pro и кредиты можно выдавать промокодами в Настройках";
+
+  // Payment providers check the public terms before they activate an account.
+  if (payments.length) {
+    const missing = ["LEGAL_NAME", "LEGAL_EMAIL"].filter((name) => !process.env[name]?.trim());
+    checks["Условия и реквизиты"] = missing.length
+      ? `⚠ на страницах /terms, /refund и /privacy не хватает ${missing.join(" и ")} (кто продаёт и куда писать) — платёжная система может не пропустить сайт: ${SETTINGS}`
+      : "✓ страницы /terms, /refund и /privacy с реквизитами";
+  }
 
   checks["Хранилище файлов"] = process.env.BLOB_READ_WRITE_TOKEN
     ? "✓ Vercel Blob подключён"

@@ -7,6 +7,7 @@ import { api } from "@/lib/client/api";
 import type { BillingOptions, PlanId, UsageKind } from "@/lib/types";
 import { useApp } from "./AppState";
 import { PromoForm } from "./PromoForm";
+import { LegalLinks } from "./LegalPage";
 import { PageHeading } from "./Design";
 
 /** Forms for 1, 2–4 and 5+ of each kind, then what follows the number. */
@@ -189,8 +190,11 @@ export function PricingView() {
                                 className="mt-0.5 accent-violet-500"
                               />
                               <span>
-                                Согласен на автоматическое ежемесячное списание стоимости подписки. Отключить
-                                автопродление можно в любой момент в настройках.
+                                Согласен на автоматическое ежемесячное списание стоимости подписки и с{" "}
+                                <Link href="/terms" target="_blank" className="text-violet-300 hover:text-violet-200">
+                                  условиями
+                                </Link>
+                                . Отключить автопродление можно в любой момент в настройках.
                               </span>
                             </label>
                           )}
@@ -322,6 +326,7 @@ export function PricingView() {
             доступ сохранится до конца оплаченного периода.
           </p>
         )}
+        <LegalLinks className="mt-4" />
       </div>
     </div>
   );
