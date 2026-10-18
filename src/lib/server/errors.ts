@@ -11,6 +11,16 @@ export class HttpError extends Error {
   }
 }
 
+/**
+ * No file storage to keep a photo, video or document in: on Vercel the site's
+ * own disk is read-only, so it needs Vercel Blob (BLOB_READ_WRITE_TOKEN).
+ */
+export class StorageUnavailableError extends Error {
+  constructor() {
+    super("Фото, видео и файлы пока нельзя сохранить: на сайте не подключено хранилище файлов. Напишите текстом или попробуйте позже.");
+  }
+}
+
 export function statusOf(err: unknown): number | undefined {
   // The Anthropic, OpenAI and Google SDK errors all expose a numeric `status`.
   if (typeof err === "object" && err !== null && "status" in err) {
@@ -26,7 +36,7 @@ export function statusOf(err: unknown): number | undefined {
  * and balance problems are theirs to fix, not the site's.
  */
 export function describeError(err: unknown, provider?: ProviderId, ownKey = false): string {
-  if (err instanceof NotConfiguredError) return err.message;
+  if (err instanceof NotConfiguredError || err instanceof StorageUnavailableError) return err.message;
 
   const detail = err instanceof Error ? err.message : String(err);
   const status = statusOf(err);

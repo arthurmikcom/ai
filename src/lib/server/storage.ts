@@ -9,6 +9,7 @@ import { mkdir, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { del, get, list, put } from "@vercel/blob";
+import { StorageUnavailableError } from "./errors";
 
 const LOCAL_ROOT = path.join(process.cwd(), ".data", "files");
 const KEY_PATTERN = /^users\/[\w-]+\/[\w-]+\/[\w-]+\.[a-z0-9]+$/;
@@ -65,6 +66,8 @@ export async function putFile(
   mime: string,
 ): Promise<void> {
   if (!isValidKey(key)) throw new Error(`Invalid storage key: ${key}`);
+  // On Vercel the function's own disk is read-only: files need Blob there.
+  if (!blobEnabled() && process.env.VERCEL) throw new StorageUnavailableError();
   if (blobEnabled()) {
     await put(key, body, { access: "private", contentType: mime, addRandomSuffix: false });
     return;

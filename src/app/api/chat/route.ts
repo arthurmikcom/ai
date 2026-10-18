@@ -6,7 +6,8 @@ import { chatMessages, findAssistant, findChat, storedKeys, titleFrom } from "@/
 import { getDb, schema } from "@/lib/server/db";
 import type { StoredFile } from "@/lib/server/db/schema";
 import { describeAiError, maryxOnly, publicNotice } from "@/lib/server/brand";
-import { statusOf } from "@/lib/server/errors";
+import { StorageUnavailableError, statusOf } from "@/lib/server/errors";
+import { isAdmin } from "@/lib/server/auth";
 import { loadOpenRouterChatModels } from "@/lib/server/models";
 import { jsonError, requireUser } from "@/lib/server/http";
 import {
@@ -219,6 +220,14 @@ export async function POST(request: Request) {
         // Don't leave an empty chat behind when its first message was refused.
         if (created) await db.delete(schema.chat).where(and(eq(schema.chat.id, chat.id), eq(schema.chat.userId, user.id)));
         if (err instanceof DocumentError) return jsonError(err.message, 400);
+        if (err instanceof StorageUnavailableError) {
+          return jsonError(
+            isAdmin(user)
+              ? "Фото и файлы не сохраняются: подключите хранилище в Vercel → Storage → Create → Blob (Private) → Connect, затем Redeploy."
+              : err.message,
+            503,
+          );
+        }
         throw err;
       }
       try {
