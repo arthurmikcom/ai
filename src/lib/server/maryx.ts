@@ -73,6 +73,26 @@ export function wantsImage(text: string): boolean {
   return DRAW_REQUEST.test(t);
 }
 
+const EDIT_STRONG =
+  /(обработ|отретуш|ретуш|отредакт|фотошоп|перерисуй|раскрась|преврати|стилизуй|восстанови\s+(фото|снимок|изображение)|сделай\s+(из\s+(него|неё|нее|этого)|е[её]|его)\s)/;
+const EDIT_WEAK = /(убер|удали|замени|поменяй|измени|добавь|улучши|исправь|сделай)/;
+const EDIT_TARGET =
+  /(фон|фото|снимк|лиц|кож|прыщ|морщин|блик|тен[ьи]|цвет|свет|небо|волос|глаз|улыбк|предмет|надпис|водян|качеств|ярче|светлее|темнее|резче|ч[её]тче|ч[её]рно-бел|естествен)/;
+
+/**
+ * A request to edit the attached photo ("обработай фото", "убери фон",
+ * "сделай светлее"), as opposed to a question about it ("что на фото?",
+ * "переведи текст на скрине"), which the text models answer.
+ */
+export function wantsImageEdit(text: string): boolean {
+  const t = text.trim().toLowerCase();
+  if (!t || t.length > 600) return false;
+  if (/^(как|что|зачем|почему|где|можно ли|опиши|расскажи|переведи|прочитай|распознай|объясни|оцени|сколько|кто)(?![а-яё])/.test(t)) {
+    return false;
+  }
+  return EDIT_STRONG.test(t) || (EDIT_WEAK.test(t) && EDIT_TARGET.test(t));
+}
+
 /** Questions about the world right now, which a model can't know without searching. */
 function wantsSearch(text: string): boolean {
   return /(новост|что нового|что (произошло|случилось)|курс (доллар|евро|рубл|юан|валют|биткоин|акци)|погод[аеуы]|кто выиграл|результат(ы)? (матча|игры|выборов)|latest news|current price|weather)/i.test(
@@ -268,6 +288,9 @@ export function maryxSystem(
       : [
           "Ты — MARYX, собственный искусственный интеллект платформы MARYX Ai: дружелюбный, честный и полезный собеседник.",
           ANSWER_STYLE,
+          // The chat draws and edits photos itself (see chat/route.ts); a text answer can't.
+          "Ты умеешь рисовать картинки и обрабатывать фото. Если просят обработать или изменить фото, а фото не приложено, " +
+            "попроси прикрепить его (скрепка) и написать, что изменить. Не делай вид, что обработал фото, текстом.",
         ]),
     maryxOnly()
       ? // Our own AI to its users: what it runs on stays behind the scenes (it can't be fully guaranteed).

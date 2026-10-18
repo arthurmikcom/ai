@@ -67,18 +67,22 @@ function startPolling() {
 }
 
 export async function generate(req: GenerateRequest): Promise<void> {
-  // Placeholder card while the request is in flight (images can take a minute).
+  // Placeholder card while the request is in flight (images can take a minute), with the photos being edited.
   const tempId = `tmp-${uid()}`;
-  put({ id: tempId, ...req, status: "pending", files: [], createdAt: Date.now() });
+  const { images, ...shown } = req;
+  const inputs = images?.map((i) => ({ url: `data:${i.mime};base64,${i.data}`, mime: i.mime }));
+  put({ id: tempId, ...shown, inputs, status: "pending", files: [], createdAt: Date.now() });
   let result: MediaItem;
   try {
     result = await api<MediaItem>("/api/generate", { method: "POST", body: JSON.stringify(req) });
   } catch (e) {
     result = {
       id: tempId,
-      ...req,
+      ...shown,
+      inputs,
       status: "failed",
-      error: e instanceof Error ? e.message : String(e),
+      // The platform refuses big requests before they reach us (with no message of ours).
+      error: e instanceof ApiError && e.status === 413 ? "Фото слишком большое — попробуйте другое." : e instanceof Error ? e.message : String(e),
       errorCode: e instanceof ApiError ? e.code : undefined,
       files: [],
       createdAt: Date.now(),

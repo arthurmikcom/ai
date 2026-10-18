@@ -1,3 +1,4 @@
+import { isAdmin } from "@/lib/server/auth";
 import { deleteMedia, refreshMedia } from "@/lib/server/gallery";
 import { jsonError, requireUser } from "@/lib/server/http";
 
@@ -9,7 +10,7 @@ export const maxDuration = 120;
 export async function GET(request: Request, { params }: Context) {
   const user = await requireUser(request);
   if (user instanceof Response) return user;
-  const item = await refreshMedia(user.id, (await params).id);
+  const item = await refreshMedia(user.id, (await params).id, isAdmin(user));
   return item
     ? Response.json(item, { headers: { "Cache-Control": "no-store" } })
     : jsonError("Не найдено", 404);

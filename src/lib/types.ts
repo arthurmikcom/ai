@@ -38,6 +38,8 @@ export interface ModelInfo {
   local?: boolean;
   /** One-time download for a browser model, in MB. */
   downloadMB?: number;
+  /** Image models: can edit the user's own photo (takes it as a reference). */
+  photoEdit?: boolean;
 }
 
 export interface ProviderStatus {
@@ -233,6 +235,8 @@ export interface GenerateRequest {
   aspectRatio: AspectRatio;
   /** Video length in seconds (providers round to what they support). */
   duration?: number;
+  /** Images only: the user's photos to edit, as the server received them. */
+  images?: InlineImage[];
 }
 
 export type MediaOutput =
@@ -264,6 +268,8 @@ export interface MediaItem {
   /** "limit" when the daily limit blocked the request (not stored). */
   errorCode?: string;
   files: MediaFile[];
+  /** The user's photos it was made from (photo editing). */
+  inputs?: MediaFile[];
   createdAt: number;
 }
 

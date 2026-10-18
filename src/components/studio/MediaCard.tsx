@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, LoaderCircle, RotateCcw, Trash2, TriangleAlert, X } from "lucide-react";
+import { Download, ImagePlus, LoaderCircle, RotateCcw, Trash2, TriangleAlert, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { providerName } from "@/lib/catalog";
@@ -28,10 +28,13 @@ interface Props {
   item: MediaItem;
   modelLabel: string;
   onReuse: () => void;
+  /** Edit this picture further (it becomes the photo to edit). */
+  onEdit?: () => void;
   onDelete: () => void;
 }
 
-export function MediaCard({ item, modelLabel, onReuse, onDelete }: Props) {
+export function MediaCard({ item, modelLabel, onReuse, onEdit, onDelete }: Props) {
+  const source = item.inputs?.[0];
   const file = item.files[0];
   const url = file?.url;
   const [zoom, setZoom] = useState(false);
@@ -55,7 +58,7 @@ export function MediaCard({ item, modelLabel, onReuse, onDelete }: Props) {
         {item.status === "failed" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-4 text-center text-sm text-red-200">
             <TriangleAlert className="size-6" />
-            <span className="line-clamp-5">{item.error}</span>
+            <span className="line-clamp-6 break-words" title={item.error}>{item.error}</span>
             {item.errorCode === "limit" && (
               <Link href="/pricing" className="font-medium text-white underline">
                 Тарифы и кредиты →
@@ -75,6 +78,15 @@ export function MediaCard({ item, modelLabel, onReuse, onDelete }: Props) {
               className="absolute inset-0 size-full cursor-zoom-in object-cover"
             />
           ))}
+        {source && (
+          // eslint-disable-next-line @next/next/no-img-element -- stored file or local data URL
+          <img
+            src={source.url}
+            alt="Исходное фото"
+            title="Исходное фото"
+            className="absolute bottom-2 left-2 size-10 rounded-lg border border-white/20 object-cover shadow-lg"
+          />
+        )}
       </div>
 
       <div className="space-y-3 p-4">
@@ -95,10 +107,20 @@ export function MediaCard({ item, modelLabel, onReuse, onDelete }: Props) {
               <Download className="size-4" />
             </a>
           )}
+          {onEdit && item.status === "succeeded" && url && !isVideo && (
+            <button
+              type="button"
+              onClick={onEdit}
+              title="Обработать это изображение ещё раз"
+              className="rounded-lg p-1.5 text-zinc-400 hover:bg-white/5 hover:text-zinc-100"
+            >
+              <ImagePlus className="size-4" />
+            </button>
+          )}
           <button
             type="button"
             onClick={onReuse}
-            title="Использовать этот промпт"
+            title={item.inputs?.length ? "Повторить с этим фото и описанием" : "Использовать этот промпт"}
             className="rounded-lg p-1.5 text-zinc-400 hover:bg-white/5 hover:text-zinc-100"
           >
             <RotateCcw className="size-4" />

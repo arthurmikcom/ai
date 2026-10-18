@@ -1,3 +1,4 @@
+import { isAdmin } from "@/lib/server/auth";
 import { listMedia } from "@/lib/server/gallery";
 import { jsonError, requireUser } from "@/lib/server/http";
 
@@ -7,5 +8,5 @@ export async function GET(request: Request) {
   if (user instanceof Response) return user;
   const kind = new URL(request.url).searchParams.get("kind");
   if (kind !== "image" && kind !== "video") return jsonError("Неверный тип", 400);
-  return Response.json(await listMedia(user.id, kind), { headers: { "Cache-Control": "no-store" } });
+  return Response.json(await listMedia(user.id, kind, isAdmin(user)), { headers: { "Cache-Control": "no-store" } });
 }

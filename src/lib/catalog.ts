@@ -215,14 +215,15 @@ const OPENROUTER_CHAT = viaOpenRouter("chat", [
   { id: "mistralai/mistral-large-4-0", label: "Mistral Large 4", description: "Европейская модель от Mistral", vision: true },
 ]);
 
+// photoEdit: each takes the user's photo as a reference (until OpenRouter's live list says otherwise).
 const OPENROUTER_IMAGE = viaOpenRouter("image", [
-  { id: "google/gemini-3.1-flash-image", label: "Nano Banana 2", description: "Gemini 3.1 Flash Image — быстро и красиво", upstream: "google" },
-  { id: "google/gemini-3-pro-image", label: "Nano Banana Pro", description: "Gemini 3 Pro Image — лучше всех с текстом и деталями", upstream: "google" },
-  { id: "openai/gpt-image-2", label: "GPT Image 2", description: "OpenAI: качественно и очень дёшево", upstream: "openai" },
-  { id: "black-forest-labs/flux.2-pro", label: "FLUX.2 Pro", description: "Фотореализм от Black Forest Labs" },
-  { id: "bytedance-seed/seedream-4.5", label: "Seedream 4.5", description: "Яркие детализированные картинки от ByteDance" },
-  { id: "qwen/qwen-image-3", label: "Qwen Image 3", description: "Alibaba: точный текст на картинках, недорого" },
-  { id: "qwen/qwen-image-3-pro", label: "Qwen Image 3 Pro", description: "Лучшее качество от Qwen" },
+  { id: "google/gemini-3.1-flash-image", label: "Nano Banana 2", description: "Gemini 3.1 Flash Image — быстро и красиво", upstream: "google", photoEdit: true },
+  { id: "google/gemini-3-pro-image", label: "Nano Banana Pro", description: "Gemini 3 Pro Image — лучше всех с текстом и деталями", upstream: "google", photoEdit: true },
+  { id: "openai/gpt-image-2", label: "GPT Image 2", description: "OpenAI: качественно и очень дёшево", upstream: "openai", photoEdit: true },
+  { id: "black-forest-labs/flux.2-pro", label: "FLUX.2 Pro", description: "Фотореализм от Black Forest Labs", photoEdit: true },
+  { id: "bytedance-seed/seedream-4.5", label: "Seedream 4.5", description: "Яркие детализированные картинки от ByteDance", photoEdit: true },
+  { id: "qwen/qwen-image-3", label: "Qwen Image 3", description: "Alibaba: точный текст на картинках, недорого", photoEdit: true },
+  { id: "qwen/qwen-image-3-pro", label: "Qwen Image 3 Pro", description: "Лучшее качество от Qwen", photoEdit: true },
 ]);
 
 const OPENROUTER_VIDEO = viaOpenRouter("video", [

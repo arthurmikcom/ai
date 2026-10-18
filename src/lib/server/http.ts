@@ -10,6 +10,19 @@ export async function requireUser(request: Request): Promise<SessionUser | Respo
   return user ?? jsonError("Войдите в аккаунт", 401);
 }
 
+/**
+ * A file couldn't be saved because no storage is connected: users are told
+ * to try later, the site's admin what to connect.
+ */
+export function storageUnavailable(user: SessionUser, message: string): Response {
+  return jsonError(
+    isAdmin(user)
+      ? "Фото и файлы не сохраняются: подключите хранилище в Vercel → Storage → Create → Blob (Private) → Connect, затем Redeploy."
+      : message,
+    503,
+  );
+}
+
 /** The signed-in admin, or a 401/403 response to return as-is. */
 export async function requireAdmin(request: Request): Promise<SessionUser | Response> {
   const user = await requireUser(request);

@@ -19,9 +19,14 @@ const ORPHAN_AFTER_MS = 5 * 60 * 1000;
 /** A job still not done after this long is given up on (the provider has lost it or keeps failing). */
 const GIVE_UP_AFTER_MS = 2 * 60 * 60 * 1000;
 
-/** A gallery item as the browser sees it: in MARYX-only mode, MARYX's (the real model stays stored for polling and costs). */
-function toItem(row: MediaRow): MediaItem {
+/**
+ * A gallery item as the browser sees it: in MARYX-only mode, MARYX's (the
+ * real model stays stored for polling and costs). Admins also see the
+ * provider's own reason for a failure.
+ */
+function toItem(row: MediaRow, admin = false): MediaItem {
   const masked = maryxOnly();
+  const error = row.error ? publicError(row.error) : undefined;
   return {
     id: row.id,
     kind: row.kind,
@@ -31,13 +36,14 @@ function toItem(row: MediaRow): MediaItem {
     aspectRatio: row.aspectRatio,
     status: row.status,
     progress: row.progress ?? undefined,
-    error: row.error ? publicError(row.error) : undefined,
+    error: error && admin && row.errorDetail ? `${error} [для администратора: ${row.errorDetail}]` : error,
     files: row.files.map((f) => ({ url: fileUrl(f.key), mime: f.mime })),
+    ...(row.inputs?.length ? { inputs: row.inputs.map((f) => ({ url: fileUrl(f.key), mime: f.mime })) } : {}),
     createdAt: row.createdAt.getTime(),
   };
 }
 
-export async function listMedia(userId: string, kind: MediaKind): Promise<MediaItem[]> {
+export async function listMedia(userId: string, kind: MediaKind, admin = false): Promise<MediaItem[]> {
   const db = await getDb();
   const rows = await db
     .select()
@@ -45,7 +51,7 @@ export async function listMedia(userId: string, kind: MediaKind): Promise<MediaI
     .where(and(eq(schema.media.userId, userId), eq(schema.media.kind, kind)))
     .orderBy(desc(schema.media.createdAt))
     .limit(200);
-  return rows.map(toItem);
+  return rows.map((row) => toItem(row, admin));
 }
 
 /**
@@ -75,7 +81,8 @@ function costOf(row: MediaRow, reported?: number): CostEntry {
   };
 }
 
-export async function createMedia(user: SessionUser, req: GenerateRequest, paid: Charge): Promise<MediaRow> {
+/** `inputs`: the user's photos it is made from, already stored. */
+export async function createMedia(user: SessionUser, req: GenerateRequest, paid: Charge, inputs?: StoredFile[]): Promise<MediaRow> {
   const db = await getDb();
   const [row] = await db
     .insert(schema.media)
@@ -83,7 +90,8 @@ export async function createMedia(user: SessionUser, req: GenerateRequest, paid:
       id: crypto.randomUUID(),
       userId: user.id,
       kind: req.kind,
-      prompt: req.prompt,
+      prompt: req.prompt || (inputs?.length ? "Естественная ретушь фото" : req.prompt),
+      inputs: inputs?.length ? inputs : null,
       provider: req.provider,
       model: req.model,
       aspectRatio: req.aspectRatio,
@@ -95,6 +103,12 @@ export async function createMedia(user: SessionUser, req: GenerateRequest, paid:
     })
     .returning();
   return row;
+}
+
+/** The model that took the job, when MARYX's first choice refused it and another one tried. */
+export async function recordModel(row: MediaRow, provider: MediaRow["provider"], model: string): Promise<MediaRow> {
+  if (row.provider === provider && row.model === model) return row;
+  return update(row, { provider, model });
 }
 
 async function update(row: MediaRow, changes: Partial<MediaRow>): Promise<MediaRow> {
@@ -110,13 +124,13 @@ async function update(row: MediaRow, changes: Partial<MediaRow>): Promise<MediaR
 /**
  * Marks a pending item failed and gives its charge back — once, however many
  * polls get here. `costs`: what the provider billed anyway (it made the
- * result, but it couldn't be stored).
+ * result, but it couldn't be stored). `detail`: the provider's own reason, for admins.
  */
-async function fail(row: MediaRow, error: string, costs: CostEntry[] = []): Promise<MediaRow> {
+async function fail(row: MediaRow, error: string, costs: CostEntry[] = [], detail?: string): Promise<MediaRow> {
   const db = await getDb();
   const [failed] = await db
     .update(schema.media)
-    .set({ status: "failed", error, progress: null, updatedAt: new Date() })
+    .set({ status: "failed", error, errorDetail: detail?.slice(0, 1000) ?? null, progress: null, updatedAt: new Date() })
     .where(and(eq(schema.media.id, row.id), eq(schema.media.status, "pending")))
     .returning();
   if (!failed) {
@@ -130,13 +144,20 @@ async function fail(row: MediaRow, error: string, costs: CostEntry[] = []): Prom
 /**
  * Records a provider result; finished outputs are copied into our storage and
  * the cost is recorded. `call` carries the user's own OpenRouter key when the
- * item is paid with it (needed to download OpenRouter videos).
+ * item is paid with it (needed to download OpenRouter videos). `opts.detail`:
+ * the provider's own reason for a failure; `opts.admin`: the viewer sees it.
  */
-export async function applyResult(row: MediaRow, result: GenerateResult, call: OpenRouterCall = {}): Promise<MediaItem> {
+export async function applyResult(
+  row: MediaRow,
+  result: GenerateResult,
+  call: OpenRouterCall = {},
+  opts: { detail?: string; admin?: boolean } = {},
+): Promise<MediaItem> {
+  const item = (r: MediaRow) => toItem(r, opts.admin);
   if (result.status === "pending") {
-    return toItem(await update(row, { jobId: result.jobId, progress: result.progress ?? null }));
+    return item(await update(row, { jobId: result.jobId, progress: result.progress ?? null }));
   }
-  if (result.status === "failed") return toItem(await fail(row, result.error));
+  if (result.status === "failed") return item(await fail(row, result.error, [], opts.detail ?? result.error));
 
   const files: StoredFile[] = [];
   try {
@@ -149,7 +170,7 @@ export async function applyResult(row: MediaRow, result: GenerateResult, call: O
   } catch (err) {
     await deleteFiles(files.map((f) => f.key)).catch(() => {});
     // The provider made (and billed) it; only the copy failed.
-    return toItem(await fail(row, describeAiError(err), [costOf(row, result.cost)]));
+    return item(await fail(row, describeAiError(err), [costOf(row, result.cost)], err instanceof Error ? err.message : String(err)));
   }
 
   // Two polls can finish the same job at once; only the first one keeps its files.
@@ -162,52 +183,52 @@ export async function applyResult(row: MediaRow, result: GenerateResult, call: O
   if (!saved) {
     await deleteFiles(files.map((f) => f.key)).catch(() => {});
     const [current] = await db.select().from(schema.media).where(eq(schema.media.id, row.id));
-    return toItem(current ?? row);
+    return item(current ?? row);
   }
   await settleCharge(chargeOf(row), [costOf(row, result.cost)]);
-  return toItem(saved);
+  return item(saved);
 }
 
 /** Current state of an item, checking the provider if the job is still running. */
-export async function refreshMedia(userId: string, id: string): Promise<MediaItem | null> {
+export async function refreshMedia(userId: string, id: string, admin = false): Promise<MediaItem | null> {
   const db = await getDb();
   const [row] = await db
     .select()
     .from(schema.media)
     .where(and(eq(schema.media.id, id), eq(schema.media.userId, userId)));
   if (!row) return null;
-  if (row.status !== "pending") return toItem(row);
+  if (row.status !== "pending") return toItem(row, admin);
 
   if (!row.jobId) {
     const stale = Date.now() - row.createdAt.getTime() > ORPHAN_AFTER_MS;
-    return toItem(stale ? await fail(row, "Генерация прервалась. Попробуйте ещё раз.") : row);
+    return toItem(stale ? await fail(row, "Генерация прервалась. Попробуйте ещё раз.") : row, admin);
   }
   // A video paid with the user's own key is checked and downloaded with it (also once own keys are off).
   const key = row.paidBy === "byok" ? await savedOwnKey(userId) : undefined;
   if (row.paidBy === "byok" && !key) {
-    return toItem(await fail(row, `Ваш ключ${maryxOnly() ? "" : " OpenRouter"} удалён из настроек — узнать, готово ли видео, больше нельзя.`));
+    return toItem(await fail(row, `Ваш ключ${maryxOnly() ? "" : " OpenRouter"} удалён из настроек — узнать, готово ли видео, больше нельзя.`), admin);
   }
   // Still not done (or not answering) after hours: give up. The provider may have billed it,
   // so the estimate stays in the ledger, and the user gets the use back.
   const tooOld = Date.now() - row.createdAt.getTime() > GIVE_UP_AFTER_MS;
   const giveUp = async () =>
-    toItem(await fail(row, "Видео так и не было готово. Попробуйте ещё раз.", row.paidBy === "byok" ? [] : [costOf(row)]));
+    toItem(await fail(row, "Видео так и не было готово. Попробуйте ещё раз.", row.paidBy === "byok" ? [] : [costOf(row)]), admin);
   const call = { key, endUser: endUserId(userId) };
   try {
     const result = await checkGeneration(row.provider, row.kind, row.jobId, call);
     if (result.status === "pending" && tooOld) return await giveUp();
-    return await applyResult(row, result, call);
+    return await applyResult(row, result, call, { admin });
   } catch (err) {
     // With the user's own key, a rejected key or a job that belongs to another
     // account won't get better: stop polling.
     const status = statusOf(err);
     if (row.paidBy === "byok" && (status === 401 || status === 403 || status === 404)) {
-      return toItem(await fail(row, describeAiError(err, row.provider, true)));
+      return toItem(await fail(row, describeAiError(err, row.provider, true)), admin);
     }
     if (tooOld) return giveUp();
     // Transient provider/network errors: keep the job and let the next poll retry.
     console.error("[media] status check failed", row.provider, row.jobId, err);
-    return toItem(row);
+    return toItem(row, admin);
   }
 }
 
@@ -225,7 +246,7 @@ export async function deleteMedia(userId: string, id: string): Promise<boolean> 
     .where(and(eq(schema.media.id, id), eq(schema.media.userId, userId)))
     .returning();
   if (!row) return false;
-  await deleteFiles(row.files.map((f) => f.key)).catch((e) =>
+  await deleteFiles([...row.files, ...(row.inputs ?? [])].map((f) => f.key)).catch((e) =>
     console.error("[media] failed to delete files", e),
   );
   return true;

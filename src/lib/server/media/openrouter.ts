@@ -1,11 +1,13 @@
 // Images and video through OpenRouter, so one OPENROUTER_API_KEY covers them too.
-// Images: POST /images answers with the finished picture (base64).
+// Images: POST /images answers with the finished picture (base64); the
+// user's photos to edit go along as input_references (data URLs).
 // Video: POST /videos starts an async job; we poll GET /videos/{id} and then
 // download GET /videos/{id}/content?index=N with the key.
 
 import type { GenerateRequest, GenerateResult, MediaOutput } from "@/lib/types";
 import { openRouterBase, openRouterKey } from "../config";
 import { HttpError } from "../errors";
+import { openRouterImageParams } from "../models";
 
 /** Options of one call: the user's own key (BYOK) and their pseudonym for OpenRouter. */
 export interface OpenRouterCall {
@@ -24,8 +26,17 @@ async function openRouter<T>(path: string, call: OpenRouterCall, init?: { method
     body: init ? JSON.stringify(init.body) : undefined,
   });
   if (!res.ok) {
-    const detail = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
-    throw new HttpError(res.status, detail?.error?.message ?? res.statusText);
+    const body = (await res.json().catch(() => null)) as {
+      error?: { message?: string; metadata?: { provider_name?: string; raw?: unknown; reasons?: unknown } };
+    } | null;
+    // The upstream provider's own answer says why (OpenRouter's message is often generic).
+    const meta = body?.error?.metadata;
+    const raw = typeof meta?.raw === "string" ? meta.raw : meta?.raw === undefined ? undefined : JSON.stringify(meta.raw);
+    const detail = [meta?.provider_name, raw, meta?.reasons ? JSON.stringify(meta.reasons) : undefined]
+      .filter(Boolean)
+      .join(": ")
+      .slice(0, 500);
+    throw new HttpError(res.status, body?.error?.message ?? res.statusText, detail || undefined);
   }
   return (await res.json()) as T;
 }
@@ -39,16 +50,45 @@ interface ImageResponse {
 const costOf = (usage?: { cost?: number | null }) =>
   typeof usage?.cost === "number" && Number.isFinite(usage.cost) ? usage.cost : undefined;
 
+/** A model's described parameter: { type: "enum", values } or { type: "range", min, max }. */
+function described(params: Record<string, unknown> | undefined, name: string): { values?: unknown[]; max?: number } | null | undefined {
+  if (!params) return undefined;
+  const value = params[name];
+  if (value === undefined) return null;
+  return typeof value === "object" && value !== null ? (value as { values?: unknown[]; max?: number }) : {};
+}
+
+/**
+ * The request body for one picture. Only what the model accepts goes along
+ * (OpenRouter answers 400 to a parameter no provider of the model serves);
+ * before the model list has loaded, the usual parameters are sent.
+ */
+export function openRouterImageBody(req: GenerateRequest, endUser?: string): Record<string, unknown> {
+  const params = openRouterImageParams(req.model);
+  const photos = req.images ?? [];
+  const body: Record<string, unknown> = { model: req.model, prompt: req.prompt };
+  if (photos.length) {
+    const max = described(params, "input_references")?.max;
+    const count = typeof max === "number" && max >= 1 ? Math.min(photos.length, max) : photos.length;
+    body.input_references = photos.slice(0, count).map((p) => ({
+      type: "image_url",
+      image_url: { url: `data:${p.mime};base64,${p.data}` },
+    }));
+  } else {
+    // With a photo the result keeps its proportions; a ratio would crop or pad it.
+    const ratio = described(params, "aspect_ratio");
+    if (ratio !== null && (!Array.isArray(ratio?.values) || ratio.values.includes(req.aspectRatio))) {
+      body.aspect_ratio = req.aspectRatio;
+    }
+  }
+  if (endUser) body.user = endUser;
+  return body;
+}
+
 export async function generateOpenRouterImage(req: GenerateRequest, call: OpenRouterCall = {}): Promise<GenerateResult> {
   const res = await openRouter<ImageResponse>("/images", call, {
     method: "POST",
-    body: {
-      model: req.model,
-      prompt: req.prompt,
-      aspect_ratio: req.aspectRatio,
-      n: 1,
-      ...(call.endUser ? { user: call.endUser } : {}),
-    },
+    body: openRouterImageBody(req, call.endUser),
   });
   const outputs: MediaOutput[] = (res.data ?? []).flatMap((d): MediaOutput[] =>
     d.b64_json ? [{ type: "base64", mime: d.media_type || "image/png", data: d.b64_json }] : [],

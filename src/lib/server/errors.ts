@@ -6,6 +6,8 @@ export class HttpError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /** More of the provider's answer (e.g. the upstream provider's own error), for logs and admins. */
+    readonly detail?: string,
   ) {
     super(message);
   }

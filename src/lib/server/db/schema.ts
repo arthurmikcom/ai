@@ -185,7 +185,11 @@ export const media = pgTable(
     jobId: text("job_id"),
     progress: integer("progress"),
     error: text("error"),
+    /** The provider's own reason for a failure, shown to admins only (users see `error`). */
+    errorDetail: text("error_detail"),
     files: jsonb("files").$type<StoredFile[]>().default([]).notNull(),
+    /** The user's photos it was made from (photo editing); deleted with the item. */
+    inputs: jsonb("inputs").$type<StoredFile[]>(),
     /** How the generation is paid for (null for items made before credits existed: the plan). */
     paidBy: text("paid_by").$type<PaidBy>(),
     /** Credits held when it started (paid with credits). */

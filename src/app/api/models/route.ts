@@ -34,7 +34,11 @@ function onlyMaryx(all: ModelsResponse, capability: Capability | null): ModelsRe
     const maryx = all.models.find((m) => m.provider === "maryx" && m.capability === "chat");
     if (maryx) models.push(maryx.local ? { ...maryx, description: "Наш ИИ: работает прямо в вашем браузере — бесплатно" } : maryx);
   }
-  if ((!capability || capability === "image") && has("image")) models.push(MARYX_IMAGE_MODEL);
+  if ((!capability || capability === "image") && has("image")) {
+    // The studio offers "upload a photo" when MARYX has a model that edits photos.
+    const photoEdit = all.models.some((m) => m.capability === "image" && m.photoEdit);
+    models.push(photoEdit ? { ...MARYX_IMAGE_MODEL, photoEdit } : MARYX_IMAGE_MODEL);
+  }
   if ((!capability || capability === "video") && has("video")) models.push(MARYX_VIDEO_MODEL);
   return { providers: [], models };
 }

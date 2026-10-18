@@ -1,4 +1,4 @@
-import type { Attachment } from "@/lib/types";
+import type { AspectRatio, Attachment } from "@/lib/types";
 
 export function uid(): string {
   // randomUUID needs a secure context (https or localhost); fall back otherwise.
@@ -34,13 +34,14 @@ const MAX_IMAGE_SIDE = 1568;
 
 /**
  * Shrinks an image so its longest side fits what the vision models actually
- * use, and re-encodes it as JPEG. Keeps requests and stored chats small.
+ * use, and re-encodes it as JPEG. Keeps requests and stored chats small, and
+ * drops the photo's metadata (location included). Phone photos come out upright.
  */
-export async function imageToAttachment(file: File): Promise<Attachment> {
-  const bitmap = await createImageBitmap(file);
+export async function imageToAttachment(file: Blob & { name?: string }): Promise<Attachment & { width: number; height: number }> {
+  const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
   const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(bitmap.width, bitmap.height));
-  const width = Math.round(bitmap.width * scale);
-  const height = Math.round(bitmap.height * scale);
+  const width = Math.max(1, Math.round(bitmap.width * scale));
+  const height = Math.max(1, Math.round(bitmap.height * scale));
 
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -53,7 +54,16 @@ export async function imageToAttachment(file: File): Promise<Attachment> {
   bitmap.close();
 
   const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
-  return { mime: "image/jpeg", data: dataUrl.slice(dataUrl.indexOf(",") + 1), name: file.name };
+  return { mime: "image/jpeg", data: dataUrl.slice(dataUrl.indexOf(",") + 1), name: file.name, width, height };
+}
+
+/** The studio's aspect ratio closest to a picture's own. */
+export function nearestRatio(width: number, height: number, ratios: AspectRatio[]): AspectRatio {
+  const distance = (r: AspectRatio) => {
+    const [w, h] = r.split(":").map(Number);
+    return Math.abs(Math.log(width / height) - Math.log(w / h));
+  };
+  return ratios.reduce((best, r) => (distance(r) < distance(best) ? r : best), ratios[0]);
 }
 
 /** Documents the chat accepts, by file extension (browsers often leave file.type empty). */

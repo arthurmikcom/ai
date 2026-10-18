@@ -48,6 +48,8 @@ export function ChatView() {
   // Drawing in the chat needs at least one image model on the server.
   const images = useModels("image");
   const canDraw = Boolean(images.data?.models.length);
+  // …and one that edits photos, for photos attached in "draw" mode.
+  const canEditPhotos = Boolean(images.data?.models.some((m) => m.photoEdit));
   // Answers name their model; pictures come from image models.
   const allModels = useMemo(() => [...models, ...(images.data?.models ?? [])], [models, images.data]);
   const scroller = useRef<HTMLDivElement>(null);
@@ -305,6 +307,7 @@ export function ChatView() {
           webSearch={webSearch && Boolean(current?.search)}
           onWebSearchChange={setWebSearch}
           canDraw={canDraw && !current?.local}
+          canEditPhotos={canEditPhotos}
           imageMode={imageMode && canDraw && !current?.local}
           onImageModeChange={setImageMode}
           voiceInput={voiceInput}

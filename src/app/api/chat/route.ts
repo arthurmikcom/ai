@@ -1,15 +1,14 @@
 import { and, eq } from "drizzle-orm";
 import { after } from "next/server";
 import { streamChat } from "@/lib/server/chat";
-import { canDrawInChat, chatImageModel, generateChatImage } from "@/lib/server/chat/image";
+import { canDrawInChat, chatImageModel, generateChatImage, maryxMediaModels } from "@/lib/server/chat/image";
 import { chatMessages, findAssistant, findChat, storedKeys, titleFrom } from "@/lib/server/chats";
 import { getDb, schema } from "@/lib/server/db";
 import type { StoredFile } from "@/lib/server/db/schema";
 import { describeAiError, maryxOnly, publicNotice } from "@/lib/server/brand";
 import { StorageUnavailableError, statusOf } from "@/lib/server/errors";
-import { isAdmin } from "@/lib/server/auth";
 import { loadOpenRouterChatModels } from "@/lib/server/models";
-import { jsonError, requireUser } from "@/lib/server/http";
+import { jsonError, requireUser, storageUnavailable } from "@/lib/server/http";
 import {
   DocumentError,
   DocumentLimitError,
@@ -31,6 +30,7 @@ import {
   suggestTitle,
   userPrefs,
   wantsImage,
+  wantsImageEdit,
   type MaryxPlan,
 } from "@/lib/server/maryx";
 import { endUserId, ownKey, ownKeyInfo } from "@/lib/server/own-key";
@@ -120,6 +120,18 @@ export async function POST(request: Request) {
     !req.message.attachments?.length &&
     wantsImage(req.message.content) &&
     (await canDrawInChat(Boolean(key)));
+  // Photos of the new message: in "Картинка" mode (or when asked to edit them) they are what gets edited.
+  const newPhotos = (req.message?.attachments ?? []).filter((a) => a.mime.startsWith("image/"));
+  // MARYX edits the attached photo by itself when asked to ("обработай фото", "убери фон"), with no documents along.
+  const autoEdit =
+    maryx &&
+    !req.image &&
+    req.message !== undefined &&
+    newPhotos.length > 0 &&
+    newPhotos.length === req.message.attachments?.length &&
+    wantsImageEdit(req.message.content) &&
+    (await canDrawInChat(Boolean(key), true));
+  const editing = autoEdit || (req.image && newPhotos.length > 0);
   const refuse = async (k: UsageKind, denied: Denial, c?: Charge) =>
     deniedResponse(user, k, denied, { ownKey: key !== undefined || Boolean(await ownKeyInfo(user.id)), charge: c });
   // A picture's price is known up front, so it is held against budgets and credits right away.
@@ -129,7 +141,7 @@ export async function POST(request: Request) {
     let refused: Denial | null;
     try {
       // With no image model set up, drawInChat says so (and refunds); hold a typical picture meanwhile.
-      const picked = await chatImageModel(Boolean(c.key)).catch(() => null);
+      const picked = await chatImageModel(Boolean(c.key), editing).catch(() => null);
       refused = await reserve(c, mediaCost("image", picked?.id ?? ""), {
         provider: picked?.provider ?? "openrouter",
         model: picked?.id ?? "image",
@@ -142,13 +154,13 @@ export async function POST(request: Request) {
     await refundCharge(c);
     return { denied: refused, charge: c };
   };
-  let draw = req.image || autoDraw;
+  let draw = req.image || autoDraw || autoEdit;
   // A picture drawn in the chat counts toward the image limit, not messages.
   let kind: UsageKind = draw ? "image" : "chat";
   let paid = draw ? await chargeDrawing() : await charge(user, "chat", key);
   if ("denied" in paid) {
-    // MARYX chose to draw on its own: with no pictures left today, answer in words.
-    if (!autoDraw) return refuse(kind, paid.denied, (paid as { charge?: Charge }).charge);
+    // MARYX chose to draw (or edit) on its own: with no pictures left today, answer in words.
+    if (!autoDraw && !autoEdit) return refuse(kind, paid.denied, (paid as { charge?: Charge }).charge);
     paid = await charge(user, "chat", key);
     if ("denied" in paid) return refuse("chat", paid.denied);
     draw = false;
@@ -220,14 +232,7 @@ export async function POST(request: Request) {
         // Don't leave an empty chat behind when its first message was refused.
         if (created) await db.delete(schema.chat).where(and(eq(schema.chat.id, chat.id), eq(schema.chat.userId, user.id)));
         if (err instanceof DocumentError) return jsonError(err.message, 400);
-        if (err instanceof StorageUnavailableError) {
-          return jsonError(
-            isAdmin(user)
-              ? "Фото и файлы не сохраняются: подключите хранилище в Vercel → Storage → Create → Blob (Private) → Connect, затем Redeploy."
-              : err.message,
-            503,
-          );
-        }
+        if (err instanceof StorageUnavailableError) return storageUnavailable(user, err.message);
         throw err;
       }
       try {
@@ -283,7 +288,12 @@ export async function POST(request: Request) {
 
     if (draw) {
       await commitReplace();
-      return drawInChat(request, bill, chatId, req.answerId, rows[rows.length - 1].content, maryx ? "maryx" : undefined);
+      const asked = rows[rows.length - 1];
+      // The photos to edit: the new message's, or (when an edit is drawn again) the stored ones.
+      const photos = req.message
+        ? newPhotos.map(({ mime, data }) => ({ mime, data }))
+        : await storedPhotos(asked.attachments);
+      return drawInChat(request, bill, chatId, req.answerId, asked.content, maryx ? "maryx" : undefined, photos);
     }
 
     // Images of the new message are already in memory; older ones are re-read.
@@ -796,9 +806,20 @@ function ndjson(body: ReadableStream<Uint8Array>): Response {
   });
 }
 
+/** The photos stored with a message (to edit them again), as inline images. */
+async function storedPhotos(files: StoredFile[] | null | undefined): Promise<InlineImage[]> {
+  const photos: InlineImage[] = [];
+  for (const f of (files ?? []).filter((f) => f.mime.startsWith("image/")).slice(0, 4)) {
+    const data = await readFileBase64(f.key);
+    if (data) photos.push({ mime: f.mime, data });
+  }
+  return photos;
+}
+
 /**
- * Image mode: draws a picture from the last user message and stores it as the
- * answer. Streams the same NDJSON events as a text answer, plus "image".
+ * Image mode: draws a picture from the last user message (or edits the
+ * `photos` attached to it) and stores it as the answer. Streams the same
+ * NDJSON events as a text answer, plus "image".
  */
 function drawInChat(
   request: Request,
@@ -807,6 +828,7 @@ function drawInChat(
   answerId: string,
   prompt: string,
   via?: "maryx",
+  photos: InlineImage[] = [],
 ): Response {
   const userId = bill.userId;
   const encoder = new TextEncoder();
@@ -828,20 +850,35 @@ function drawInChat(
       let text = "";
       let error: string | undefined;
       let notice: string | undefined;
+      // Which model made (or last tried) the picture, also when it fails.
+      const tried: { model?: ModelInfo } = {};
       try {
-        const picked = await chatImageModel(Boolean(bill.key));
+        const editing = photos.length > 0;
+        // A picture needs a description (an attached photo can be edited without one).
+        if (!editing && !prompt.trim()) throw new Error("Опишите картинку словами — и MARYX её нарисует.");
+        // Says what to set up when no model can draw (or edit photos).
+        const picked = await chatImageModel(Boolean(bill.key), editing);
         model = picked;
         if (via) send({ type: "route", ...shown(picked.provider, picked.id, true), image: true });
-        ({ files, cost } = await generateChatImage(userId, prompt, picked, request.signal, {
-          key: bill.key,
-          endUser: endUserId(userId),
-        }));
+        const models = await maryxMediaModels("image", Boolean(bill.key), editing);
+        let made: ModelInfo;
+        ({ files, cost, model: made } = await generateChatImage(
+          userId,
+          prompt,
+          models.length ? models : [picked],
+          request.signal,
+          { key: bill.key, endUser: endUserId(userId) },
+          photos,
+          tried,
+        ));
+        model = made;
         for (const f of files) {
-          send({ type: "image", url: fileUrl(f.key), mime: f.mime, ...shown(picked.provider, picked.id, true) });
+          send({ type: "image", url: fileUrl(f.key), mime: f.mime, ...shown(made.provider, made.id, true) });
         }
-        text = "Готово! Вот что получилось.";
+        text = editing ? "Готово! Вот обработанное фото." : "Готово! Вот что получилось.";
         send({ type: "text", text });
       } catch (err) {
+        if (tried.model) model = tried.model;
         const lost = err as { billed?: number; reported?: boolean };
         if (typeof lost.billed === "number") billed = { usd: lost.billed, reported: Boolean(lost.reported) };
         if (request.signal.aborted) {

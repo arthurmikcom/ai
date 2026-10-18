@@ -1,5 +1,5 @@
 import { PROVIDERS } from "@/lib/catalog";
-import type { AspectRatio, ChatSendRequest, GenerateRequest, InlineFile, ProviderId } from "@/lib/types";
+import type { AspectRatio, ChatSendRequest, GenerateRequest, InlineFile, InlineImage, ProviderId } from "@/lib/types";
 import { maryxOnly } from "./config";
 import { isDocumentMime } from "./documents";
 import { isValidId } from "./http";
@@ -96,14 +96,55 @@ export function parseChatSendRequest(body: unknown): ChatSendRequest | string {
   };
 }
 
+/** Photos to edit: what the image models take (the browser sends JPEG). */
+const PHOTO_MIME = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+/** Whether base64 data starts like the image type it claims to be. */
+function looksLike(mime: string, data: string): boolean {
+  const head = Buffer.from(data.slice(0, 24), "base64");
+  if (mime === "image/jpeg") return head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff;
+  if (mime === "image/png") return head.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  if (mime === "image/webp") return head.subarray(0, 4).toString("latin1") === "RIFF" && head.subarray(8, 12).toString("latin1") === "WEBP";
+  return false;
+}
+
+function parsePhotos(value: unknown): InlineImage[] | string {
+  if (!Array.isArray(value) || value.length === 0) return "Неверный формат фото";
+  if (value.length > MAX_ATTACHMENTS) return `Не больше ${MAX_ATTACHMENTS} фото за раз`;
+  let total = 0;
+  const photos: InlineImage[] = [];
+  for (const p of value) {
+    if (!isObject(p) || typeof p.mime !== "string" || typeof p.data !== "string") return "Неверный формат фото";
+    if (!PHOTO_MIME.has(p.mime)) return "Можно загрузить фото в формате JPEG, PNG или WebP";
+    if (p.data.length > MAX_ATTACHMENT_BASE64) return "Фото слишком большое: до 3 МБ";
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(p.data) || !looksLike(p.mime, p.data)) return "Не удалось прочитать фото — сохраните его как JPEG или PNG";
+    total += p.data.length;
+    photos.push({ mime: p.mime, data: p.data });
+  }
+  if (total > MAX_TOTAL_BASE64) return "Фото слишком большие: всего до 3 МБ за раз";
+  return photos;
+}
+
 export function parseGenerateRequest(body: unknown): GenerateRequest | string {
   if (!isObject(body)) return "Пустой запрос";
-  const { kind, provider, model, prompt, aspectRatio } = body;
+  const { kind, provider, model, prompt, aspectRatio, images } = body;
   if (kind !== "image" && kind !== "video") return "Неизвестный тип генерации";
   if (!isProvider(provider) || provider === "browser") return "Неизвестный провайдер";
   if (maryxOnly() && provider !== "maryx") return ONLY_MARYX;
-  if (typeof model !== "string" || !model) return "Не выбрана модель";
-  if (typeof prompt !== "string" || !prompt.trim()) return "Опишите, что нужно сгенерировать";
+  if (typeof model !== "string" || !model || model.length > 200) return "Не выбрана модель";
+  const photos = images === undefined ? undefined : parsePhotos(images);
+  if (typeof photos === "string") return photos;
+  if (photos && kind !== "image") return "Видео по фото пока недоступно";
+  // A photo can be edited without words (a natural retouch); a new picture needs a description.
+  if (typeof prompt !== "string" || (!prompt.trim() && !photos)) return "Опишите, что нужно сгенерировать";
+  if (prompt.length > 4000) return "Описание слишком длинное: до 4000 символов";
   if (typeof aspectRatio !== "string" || !ASPECT_RATIOS.has(aspectRatio)) return "Неверное соотношение сторон";
-  return { kind, provider, model, prompt: prompt.trim(), aspectRatio: aspectRatio as AspectRatio };
+  return {
+    kind,
+    provider,
+    model,
+    prompt: prompt.trim(),
+    aspectRatio: aspectRatio as AspectRatio,
+    ...(photos ? { images: photos } : {}),
+  };
 }

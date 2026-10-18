@@ -48,6 +48,8 @@ interface Props {
   onWebSearchChange: (value: boolean) => void;
   /** An image model is available, so the "draw" toggle can be offered. */
   canDraw: boolean;
+  /** An image model edits photos: in "draw" mode, attached photos are what it edits. */
+  canEditPhotos?: boolean;
   /** The next message is a picture description, not a question. */
   imageMode: boolean;
   onImageModeChange: (value: boolean) => void;
@@ -73,6 +75,7 @@ export function Composer({
   webSearch,
   onWebSearchChange,
   canDraw,
+  canEditPhotos = false,
   imageMode,
   onImageModeChange,
   voiceInput,
@@ -94,12 +97,15 @@ export function Composer({
   const fileInput = useRef<HTMLInputElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
 
-  // Documents work with any model; pictures need one that can see.
-  const canAttach = !imageMode && allowFiles;
-  /** Files stay in the composer but don't go with this message (drawing, or a text-only model). */
-  const keepFiles = imageMode || !allowFiles;
-  const canSeeImages = model?.vision !== false;
-  const canSend = !disabled && !streaming && (keepFiles ? text.trim() !== "" : text.trim() !== "" || attachments.length > 0);
+  // Documents work with any model; pictures need one that can see. In "draw" mode only photos (to edit) go along.
+  const editPhotos = imageMode && canEditPhotos;
+  const canAttach = allowFiles && (!imageMode || editPhotos);
+  /** Whether a file goes with this message; the others stay in the composer (drawing, or a text-only model). */
+  const goes = (a: Attachment) => allowFiles && (!imageMode || (editPhotos && !isDocumentAttachment(a)));
+  const sending = attachments.filter(goes);
+  const keeping = attachments.filter((a) => !goes(a));
+  const canSeeImages = model?.vision !== false || editPhotos;
+  const canSend = !disabled && !streaming && (text.trim() !== "" || sending.length > 0);
 
   const addFiles = async (files: File[]) => {
     setError(null);
@@ -144,10 +150,10 @@ export function Composer({
 
   const submit = () => {
     if (!canSend) return;
-    onSend(text.trim(), keepFiles ? [] : attachments);
+    onSend(text.trim(), sending);
     setText("");
-    // A picture prompt (or a text-only model) doesn't take the files along; they stay for later.
-    if (!keepFiles) setAttachments([]);
+    // A picture prompt (or a text-only model) doesn't take the other files along; they stay for later.
+    setAttachments(keeping);
     setError(null);
     if (textarea.current) textarea.current.style.height = "auto";
   };
@@ -175,8 +181,8 @@ export function Composer({
       return;
     }
     if (voiceMode && !disabled && !streaming) {
-      onSend(spoken, keepFiles ? [] : attachments, true);
-      if (!keepFiles) setAttachments([]);
+      onSend(spoken, sending, true);
+      setAttachments(keeping);
       return;
     }
     setText((t) => (t.trim() ? `${t.trimEnd()} ${spoken}` : spoken));
@@ -255,17 +261,19 @@ export function Composer({
   return (
     <div className="mx-auto w-full max-w-3xl">
       <div className="composer-panel rounded-3xl border p-3 transition-colors">
-        {attachments.length > 0 && keepFiles && (
+        {keeping.length > 0 && (
           <p className="px-2 pt-1 text-xs text-zinc-500">
-            {imageMode
-              ? "В режиме «Картинка» файлы не отправляются — они останутся для следующего сообщения."
-              : "ИИ на вашем устройстве читает только текст — файлы не отправятся и останутся для следующего сообщения."}
+            {!allowFiles
+              ? "ИИ на вашем устройстве читает только текст — файлы не отправятся и останутся для следующего сообщения."
+              : editPhotos
+                ? "В режиме «Картинка» документы не отправляются — только фото. Они останутся для следующего сообщения."
+                : "В режиме «Картинка» файлы не отправляются — они останутся для следующего сообщения."}
           </p>
         )}
         {attachments.length > 0 && (
-          <div className={`flex flex-wrap gap-2 p-2 ${keepFiles ? "opacity-40" : ""}`}>
+          <div className="flex flex-wrap gap-2 p-2">
             {attachments.map((a, i) => (
-              <div key={i} className="relative">
+              <div key={i} className={`relative ${goes(a) ? "" : "opacity-40"}`}>
                 {isDocumentAttachment(a) ? (
                   <div className="flex h-16 max-w-52 items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 text-xs text-zinc-300">
                     <FileText className="size-5 shrink-0 text-violet-300" />
@@ -306,7 +314,11 @@ export function Composer({
             disabled
               ? (disabledText ?? "Загрузка…")
               : imageMode
-                ? "Опишите картинку: что на ней, стиль, настроение…"
+                ? sending.length
+                  ? "Что сделать с фото? Например: естественная ретушь, другой фон…"
+                  : canEditPhotos
+                    ? "Опишите картинку — или прикрепите фото, чтобы MARYX его обработал"
+                    : "Опишите картинку: что на ней, стиль, настроение…"
                 : "Спросите что угодно…"
           }
           aria-label="Сообщение"
@@ -318,7 +330,7 @@ export function Composer({
           <input
             ref={fileInput}
             type="file"
-            accept={ATTACH_ACCEPT}
+            accept={editPhotos ? "image/*" : ATTACH_ACCEPT}
             multiple
             hidden
             onChange={(e) => {
@@ -330,7 +342,9 @@ export function Composer({
             type="button"
             title={
               imageMode
-                ? "В режиме рисования вложения не нужны"
+                ? editPhotos
+                  ? "Прикрепить фото, чтобы MARYX его обработал"
+                  : "В режиме рисования вложения не нужны"
                 : !allowFiles
                   ? "ИИ на вашем устройстве читает только текст"
                   : canSeeImages
@@ -398,7 +412,7 @@ export function Composer({
               type="button"
               onClick={() => onImageModeChange(!imageMode)}
               aria-pressed={imageMode}
-              title="Нарисовать картинку по описанию"
+              title={canEditPhotos ? "Нарисовать картинку по описанию или обработать фото" : "Нарисовать картинку по описанию"}
               aria-label="Картинка"
               className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition ${
                 imageMode

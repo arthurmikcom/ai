@@ -1,9 +1,11 @@
 // "Draw it right in the chat": generates an image from the user's message
-// with the best available image model and stores it as the answer's attachment.
+// (or edits the photo they attached) with the best available image model and
+// stores it as the answer's attachment. Also how MARYX picks its media models.
 
-import type { MediaKind, ModelInfo } from "@/lib/types";
+import type { GenerateRequest, GenerateResult, InlineImage, MediaKind, ModelInfo } from "@/lib/types";
 import { NotConfiguredError } from "../config";
 import type { StoredFile } from "../db/schema";
+import { statusOf } from "../errors";
 import { checkGeneration, downloadOutput, startGeneration, type OpenRouterCall } from "../media";
 import { listModels } from "../models";
 import { mediaCost } from "../pricing";
@@ -11,39 +13,113 @@ import { deleteFiles, newKey, putFile } from "../storage";
 
 const POLL_EVERY_MS = 2500;
 const GIVE_UP_AFTER_MS = 150_000;
+/** MARYX tries this many models for one picture or clip, at most. */
+const MAX_ATTEMPTS = 3;
 
 /** Image or video models MARYX may use; with the user's own key, only OpenRouter's (which it pays for). */
-async function mediaModels(kind: MediaKind, ownKey: boolean): Promise<ModelInfo[]> {
+async function mediaModels(kind: MediaKind, ownKey: boolean, photos = false): Promise<ModelInfo[]> {
   const { models } = await listModels(kind, { ownKey });
-  return ownKey ? models.filter((m) => m.provider === "openrouter") : models;
+  return models.filter((m) => (!ownKey || m.provider === "openrouter") && (!photos || m.photoEdit));
 }
 
-/** Whether any image model is set up, so the chat can draw. */
-export async function canDrawInChat(ownKey = false): Promise<boolean> {
-  return (await mediaModels("image", ownKey)).length > 0;
+/** Whether any image model is set up, so the chat can draw (or, with `photos`, edit a photo). */
+export async function canDrawInChat(ownKey = false, photos = false): Promise<boolean> {
+  return (await mediaModels("image", ownKey, photos)).length > 0;
 }
 
 /**
- * The model MARYX makes a picture or a clip with (in the chat, and in the
- * studio when it's MARYX's choice): the first featured one among configured
- * providers.
+ * The models MARYX makes a picture or a clip with (in the chat, and in the
+ * studio when it's MARYX's choice), best first: the featured ones among
+ * configured providers, then the rest. With `photos`, only models that edit
+ * the user's photo.
  */
-export async function maryxMediaModel(kind: MediaKind, ownKey = false): Promise<ModelInfo> {
-  const models = await mediaModels(kind, ownKey);
-  const pick = models.find((m) => m.featured) ?? models[0];
+export async function maryxMediaModels(kind: MediaKind, ownKey = false, photos = false): Promise<ModelInfo[]> {
+  const models = await mediaModels(kind, ownKey, photos);
+  return [...models.filter((m) => m.featured), ...models.filter((m) => !m.featured)];
+}
+
+/** The first of maryxMediaModels, or an error saying what to set up. */
+export async function maryxMediaModel(kind: MediaKind, ownKey = false, photos = false): Promise<ModelInfo> {
+  const pick = (await maryxMediaModels(kind, ownKey, photos))[0];
   if (!pick) {
     throw new NotConfiguredError(
-      kind === "image"
-        ? "Генерация картинок не подключена: добавьте ключ OpenRouter, OpenAI, Google или Replicate."
-        : "Генерация видео не подключена: добавьте ключ OpenRouter, Google или Replicate.",
+      photos
+        ? "Обработка фото не подключена: нужна модель OpenRouter, которая принимает фото."
+        : kind === "image"
+          ? "Генерация картинок не подключена: добавьте ключ OpenRouter, OpenAI, Google или Replicate."
+          : "Генерация видео не подключена: добавьте ключ OpenRouter, Google или Replicate.",
     );
   }
   return pick;
 }
 
-/** The image model a chat draws with. */
-export function chatImageModel(ownKey = false): Promise<ModelInfo> {
-  return maryxMediaModel("image", ownKey);
+/** The image model a chat draws with (or edits the attached photos with). */
+export function chatImageModel(ownKey = false, photos = false): Promise<ModelInfo> {
+  return maryxMediaModel("image", ownKey, photos);
+}
+
+/**
+ * What the image model is told when it edits the user's photo: their words,
+ * plus keeping the photo real (the usual ask is a natural retouch, not a new picture).
+ */
+export function editPrompt(text: string): string {
+  return (
+    "Edit the attached photo as the user asks. Keep the person's face, identity, age, body shape, pose, " +
+    "clothing, background and framing unchanged unless the user asks otherwise. The result must look like " +
+    "a real, natural photograph: no plastic skin, no filter look, no added objects. If there are several " +
+    `photos, the first one is the one to edit. User's request: ${text.trim() || "Natural retouch."}`
+  );
+}
+
+/** Errors after which another model may well do it: this one can't take the request, or is down. */
+function worthAnotherModel(err: unknown): boolean {
+  const status = statusOf(err);
+  return status === 400 || status === 404 || status === 422 || (status !== undefined && status >= 500);
+}
+
+/** One try at a picture or clip: what came back, or what went wrong, and with which model. */
+export interface Attempt {
+  model: ModelInfo;
+  result?: GenerateResult;
+  error?: unknown;
+}
+
+/**
+ * Starts a picture or clip with MARYX's models in turn: when one refuses the
+ * request (it doesn't take a parameter, it's gone, it's down), the next one
+ * tries, while there's time. Only models that cost no more than the first are
+ * tried, as that's what was held for it.
+ */
+export async function startWithFallback(
+  req: GenerateRequest,
+  models: ModelInfo[],
+  call: OpenRouterCall,
+  until: number,
+): Promise<Attempt> {
+  const price = (m: ModelInfo) => mediaCost(req.kind, m.id, req.duration);
+  const tries = models.filter((m, i) => i === 0 || price(m) <= price(models[0])).slice(0, MAX_ATTEMPTS);
+  let attempt: Attempt = { model: tries[0] };
+  for (const [i, model] of tries.entries()) {
+    const last = i === tries.length - 1 || Date.now() > until;
+    try {
+      const result = await startGeneration({ ...req, provider: model.provider, model: model.id }, call);
+      attempt = { model, result };
+      // "No picture came back" is worth another model too; other failures say why on their own.
+      if (result.status !== "failed" || last || !/^Модель не вернула/.test(result.error)) return attempt;
+    } catch (error) {
+      attempt = { model, error };
+      if (last || !worthAnotherModel(error)) return attempt;
+    }
+    console.error("[media] trying another model after", model.provider, model.id, attempt.error ?? attempt.result);
+  }
+  return attempt;
+}
+
+/** The provider's full reason for a failed attempt, for the server log and admins. */
+export function failureDetail(attempt: Pick<Attempt, "model" | "error">): string {
+  const err = attempt.error as { status?: number; message?: string; detail?: string } | undefined;
+  const parts = [`${attempt.model.provider}:${attempt.model.id}`, err?.status, err?.message, err?.detail];
+  return parts.filter((p) => p !== undefined && p !== "").join(" — ").slice(0, 800);
 }
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
@@ -56,25 +132,41 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
-/** Draws a picture and stores it; `cost` is what the provider reported, if it did. */
+/**
+ * Draws a picture (or edits the user's `photos`) and stores it, trying
+ * MARYX's next model when one refuses. `model` is set as soon as one is
+ * tried (also when this throws); `cost` is what the provider reported, if it did.
+ */
 export async function generateChatImage(
   userId: string,
   prompt: string,
-  model: ModelInfo,
+  models: ModelInfo[],
   signal: AbortSignal,
   call: OpenRouterCall = {},
-): Promise<{ files: StoredFile[]; cost?: number }> {
+  photos: InlineImage[] = [],
+  tried: { model?: ModelInfo } = {},
+): Promise<{ files: StoredFile[]; cost?: number; model: ModelInfo }> {
   const started = Date.now();
-  let result = await startGeneration(
+  const attempt = await startWithFallback(
     {
       kind: "image",
-      provider: model.provider,
-      model: model.id,
-      prompt,
+      provider: models[0].provider,
+      model: models[0].id,
+      prompt: photos.length ? editPrompt(prompt) : prompt,
       aspectRatio: "1:1",
+      ...(photos.length ? { images: photos } : {}),
     },
+    models,
     call,
+    started + 60_000,
   );
+  const model = attempt.model;
+  tried.model = model;
+  if (attempt.error !== undefined) {
+    console.error("[chat:image] failed:", failureDetail(attempt));
+    throw attempt.error;
+  }
+  let result = attempt.result!;
   // Most image models answer right away; a few (e.g. on Replicate) run as a job.
   while (result.status === "pending") {
     try {
@@ -107,5 +199,5 @@ export async function generateChatImage(
       reported: result.cost !== undefined,
     });
   }
-  return { files, cost: result.cost };
+  return { files, cost: result.cost, model };
 }

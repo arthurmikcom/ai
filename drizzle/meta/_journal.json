@@ -71,6 +71,13 @@
       "when": 1792196984766,
       "tag": "0009_economy_fixes2",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792359188279,
+      "tag": "0010_media_photo_edit",
+      "breakpoints": true
     }
   ]
 }
