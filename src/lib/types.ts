@@ -349,6 +349,8 @@ export interface BillingOptions {
     yookassa: { price: string } | null;
     stripe: { price: string } | null;
   };
+  /** The Pro price to show while no payment method is set up yet (null: not set). */
+  proPrice: string | null;
 }
 
 /** Personal instructions for every chat (settings page). */

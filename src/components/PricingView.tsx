@@ -95,7 +95,7 @@ export function PricingView() {
       id: "pro",
       name: "Pro",
       tagline: "Для тех, кто работает с ИИ каждый день",
-      price: options?.methods.yookassa?.price ?? options?.methods.stripe?.price ?? "—",
+      price: options?.methods.yookassa?.price ?? options?.methods.stripe?.price ?? options?.proPrice ?? "—",
     },
   ];
 

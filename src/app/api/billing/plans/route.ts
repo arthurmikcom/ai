@@ -6,7 +6,7 @@ import { listModels } from "@/lib/server/models";
 import { mediaCost } from "@/lib/server/pricing";
 import { planDailyUsd } from "@/lib/server/spend";
 import { planLimit } from "@/lib/server/billing/plans";
-import { stripeConfigured, stripeCreditsConfigured, stripePriceLabel } from "@/lib/server/billing/stripe";
+import { proPriceUsd, stripeConfigured, stripeCreditsConfigured, stripePriceLabel } from "@/lib/server/billing/stripe";
 import { yookassaConfigured, yookassaPriceLabel } from "@/lib/server/billing/yookassa";
 import { requireUser } from "@/lib/server/http";
 import { USAGE_KINDS, type BillingOptions, type PlanId, type UsageKind } from "@/lib/types";
@@ -66,6 +66,7 @@ export async function GET(request: Request) {
       yookassa: yookassaConfigured() ? { price: yookassaPriceLabel() } : null,
       stripe,
     },
+    proPrice: proPriceUsd() > 0 ? money(proPriceUsd(), "USD") : null,
   };
   return Response.json(body, { headers: { "Cache-Control": "no-store" } });
 }
