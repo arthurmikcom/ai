@@ -157,6 +157,7 @@ npm run dev
 | `XAI_API_KEY` | Grok | [console.x.ai](https://console.x.ai) |
 | `DASHSCOPE_API_KEY` | Qwen 3.8 Max, Qwen 3.8 Flash, Qwen 3.7 Plus напрямую от Alibaba | [Alibaba Cloud Model Studio](https://modelstudio.console.alibabacloud.com/) |
 | `CUSTOM_LLM_BASE_URL` | Свой сервер с открытыми моделями (vLLM, SGLang, LM Studio) | см. «Qwen» ниже |
+| `COMFYUI_URL` | **Картинки и видео бесплатно, на своей видеокарте:** FLUX.1 schnell и Wan 2.2 через ComfyUI | см. «Картинки и видео без оплаты за запрос» ниже |
 | `OLLAMA_BASE_URL` | Ваши локальные модели | [ollama.com](https://ollama.com/download) |
 | `REPLICATE_API_TOKEN` | FLUX, Ideogram, Recraft, Kling, Veo, Seedance… | [replicate.com](https://replicate.com/account/api-tokens) |
 | `HF_API_KEY_ID` и `HF_API_KEY_SECRET` | «Тренд» → «Точный повтор»: движения ролика кадр в кадр (Higgsfield Genjutsu Motion Transfer). Оплата у Higgsfield — по секундам ролика. `HIGGSFIELD_RESOLUTION` — `480p`, `720p` (по умолчанию) или `1080p` | [Higgsfield API](https://higgsfield.ai/higgsfield-api) |
@@ -188,6 +189,33 @@ npm run dev
 - Ограничения: маленькие модели заметно слабее облачных, читают только текст (без картинок и документов), а картинки, видео и поиск в интернете без ключей не работают. «Думать глубже» включает у Qwen рассуждение.
 
 Ключ OpenRouter (раздел выше) добавляет сильные облачные модели, картинки и видео — MARYX тогда снова выбирает лучшую модель на сервере.
+
+## Картинки и видео без оплаты за запрос: своя видеокарта
+
+Платные API (OpenRouter, Higgsfield) берут деньги за каждую картинку и каждое видео. Открытые модели с GitHub и Hugging Face бесплатны, но им нужна видеокарта: своя (только электричество) или арендованная (платите за часы её работы, а не за запросы). MARYX умеет отдавать картинки и видео на ваш собственный сервер [ComfyUI](https://github.com/comfyanonymous/ComfyUI) — и тогда **за запрос никто не платит**.
+
+Что делает свой GPU сейчас:
+- **картинки по описанию** — FLUX.1 schnell (лицензия Apache 2.0, можно в коммерции), 4 шага, несколько секунд;
+- **видео по описанию и из фото** (фото — первый кадр) — Wan 2.2 5B (Apache 2.0), до 5 секунд, 720p, обычно несколько минут на ролик.
+
+Когда `COMFYUI_URL` задан, MARYX сначала отдаёт эти задачи своему GPU, а платные модели не трогает. Правка фото, «Мои персонажи», «Тренд» и переход между двумя кадрами пока идут через OpenRouter (это следующий этап: Qwen-Image-Edit и Wan Animate на своём GPU).
+
+Как подключить:
+1. **Видеокарта.** NVIDIA, лучше от 16 ГБ памяти (RTX 4080/4090/5090; с 12 ГБ тоже заработает, но медленнее). Нет своей — арендуйте на [RunPod](https://www.runpod.io/) или [Vast.ai](https://vast.ai/): RTX 4090 стоит примерно $0.3–0.7 в час, и платите только пока сервер включён.
+2. **ComfyUI.** На Windows — [ComfyUI Desktop](https://www.comfy.org/download), на сервере — `git clone https://github.com/comfyanonymous/ComfyUI` (на RunPod и Vast.ai есть готовые шаблоны «ComfyUI»).
+3. **Модели** (бесплатно, с Hugging Face) — положите в папки ComfyUI:
+   - `models/checkpoints/flux1-schnell-fp8.safetensors` — из [Comfy-Org/flux1-schnell](https://huggingface.co/Comfy-Org/flux1-schnell);
+   - `models/diffusion_models/wan2.2_ti2v_5B_fp16.safetensors`, `models/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors`, `models/vae/wan2.2_vae.safetensors` — из [Comfy-Org/Wan_2.2_ComfyUI_Repackaged](https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged).
+
+   Проще всего открыть в ComfyUI шаблоны «Flux Schnell» и «Wan 2.2 5B video generation» (Workflow → Browse Templates): ComfyUI сам предложит скачать нужные файлы.
+4. **Адрес в интернете с паролем.** У ComfyUI нет своего пароля, поэтому не открывайте его в интернет просто так — чужие смогут занять вашу видеокарту. Поставьте перед ним прокси с паролем (например, Caddy с `basic_auth`) или туннель Cloudflare с доступом по токену. В Vercel → Environment Variables задайте:
+   - `COMFYUI_URL` — адрес сервера, например `https://gpu.ваш-домен.ru`;
+   - `COMFYUI_TOKEN` — пароль: просто токен (уйдёт как `Bearer …`) или целиком `Basic …` для прокси с логином и паролем.
+5. Redeploy — и в настройках администратора появится «Свой GPU (ComfyUI)».
+
+Другие файлы моделей можно указать через `COMFYUI_FLUX_CHECKPOINT`, `COMFYUI_WAN_MODEL`, `COMFYUI_WAN_TEXT_ENCODER`, `COMFYUI_WAN_VAE`. Свои схемы целиком — `COMFYUI_IMAGE_WORKFLOW` и `COMFYUI_VIDEO_WORKFLOW`: в ComfyUI нажмите «Export (API)» и вставьте JSON, поставив `{{prompt}}`, `{{negative}}`, `{{width}}`, `{{height}}`, `{{frames}}`, `{{seed}}` и `{{image}}` туда, куда MARYX должен подставить значения.
+
+В учёте расходов свой GPU считается почти бесплатным ($0.002 за картинку и $0.005 за секунду видео — примерно его время), поэтому месячный бюджет тарифа на картинки и видео почти не тратится.
 
 ## Qwen
 

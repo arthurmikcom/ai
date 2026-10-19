@@ -242,6 +242,8 @@ export function answerLimits(
 }
 
 const IMAGE_PRICES: [RegExp, number][] = [
+  // The site's own GPU: only its time (about a cent of a rented card's hour).
+  [/^comfy\//, 0.002],
   [/schnell/, 0.003],
   [/gpt-image-1-mini|image-1-mini/, 0.011],
   [/gemini-3-pro-image|nano-banana-pro|imagen-4.*ultra/, 0.134],
@@ -250,6 +252,7 @@ const IMAGE_PRICES: [RegExp, number][] = [
 
 /** USD per second of video. */
 const VIDEO_PRICES: [RegExp, number][] = [
+  [/^comfy\//, 0.005],
   [/veo.*fast/, 0.15],
   [/veo/, 0.4],
   [/seedance.*fast|wan.*fast/, 0.03],

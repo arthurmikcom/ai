@@ -17,6 +17,8 @@ export type ProviderId =
   | "replicate"
   /** Higgsfield's API: Genjutsu motion transfer for «Тренд» (a person of a video becomes someone else, move for move). */
   | "higgsfield"
+  /** The site's own GPU running ComfyUI: free open models (FLUX, Wan) for pictures and video. */
+  | "comfy"
   /** Our own AI: picks the best real model for each message. */
   | "maryx";
 

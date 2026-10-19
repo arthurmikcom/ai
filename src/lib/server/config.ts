@@ -49,6 +49,9 @@ export function apiKey(provider: ProviderId): string | undefined {
     case "custom":
       // vLLM and others accept requests without a key unless started with --api-key.
       return env("CUSTOM_LLM_API_KEY");
+    case "comfy":
+      // ComfyUI itself has no keys; a token only when it sits behind a proxy that asks for one.
+      return env("COMFYUI_TOKEN");
     case "ollama":
     case "maryx":
     case "browser":
@@ -59,6 +62,7 @@ export function apiKey(provider: ProviderId): string | undefined {
 export function isConfigured(provider: ProviderId): boolean {
   if (provider === "ollama") return Boolean(env("OLLAMA_BASE_URL"));
   if (provider === "custom") return Boolean(env("CUSTOM_LLM_BASE_URL"));
+  if (provider === "comfy") return Boolean(env("COMFYUI_URL"));
   return Boolean(apiKey(provider));
 }
 
@@ -91,6 +95,11 @@ export function openRouterKey(own?: string): string {
 export function motionResolution(): "480p" | "720p" | "1080p" {
   const value = env("HIGGSFIELD_RESOLUTION")?.toLowerCase();
   return value === "480p" || value === "1080p" ? value : "720p";
+}
+
+/** The site's own GPU server running ComfyUI (COMFYUI_URL), e.g. a home PC behind a tunnel or a rented GPU. */
+export function comfyBase(): string {
+  return (env("COMFYUI_URL") ?? "").replace(/\/+$/, "");
 }
 
 /** Higgsfield's API (HIGGSFIELD_BASE_URL points it elsewhere, e.g. a local mock in tests). */

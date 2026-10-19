@@ -96,6 +96,14 @@ export const PROVIDERS: ProviderDef[] = [
     note: "FLUX, Ideogram, Recraft, Kling, Veo, Seedance и тысячи других",
   },
   {
+    id: "comfy",
+    name: "Свой GPU (ComfyUI)",
+    envVar: "COMFYUI_URL",
+    signupUrl: "https://github.com/comfyanonymous/ComfyUI",
+    capabilities: ["image", "video"],
+    note: "Бесплатные открытые модели на вашей видеокарте: FLUX.1 schnell (картинки) и Wan 2.2 (видео) — без оплаты за запрос",
+  },
+  {
     id: "higgsfield",
     name: "Higgsfield",
     envVar: "HF_API_KEY_ID",

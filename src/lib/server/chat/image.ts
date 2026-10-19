@@ -41,7 +41,12 @@ export async function canFilmInChat(ownKey = false, photos = false): Promise<boo
  */
 export async function maryxMediaModels(kind: MediaKind, ownKey = false, photos = false): Promise<ModelInfo[]> {
   const models = await mediaModels(kind, ownKey, photos);
-  const ordered = [...models.filter((m) => m.featured), ...models.filter((m) => !m.featured)];
+  // The site's own GPU first: open models with no fee per request.
+  const ordered = [
+    ...models.filter((m) => m.provider === "comfy"),
+    ...models.filter((m) => m.provider !== "comfy" && m.featured),
+    ...models.filter((m) => m.provider !== "comfy" && !m.featured),
+  ];
   // A clip from a photo usually shows a real person, which some models refuse: they go last.
   return photos && kind === "video"
     ? [...ordered.filter((m) => !REFUSES_REAL_PEOPLE.test(m.id)), ...ordered.filter((m) => REFUSES_REAL_PEOPLE.test(m.id))]

@@ -1,5 +1,6 @@
 import type { GenerateRequest, GenerateResult, MediaKind, MediaOutput, ProviderId } from "@/lib/types";
-import { apiKey, higgsfieldBase, openRouterBase } from "../config";
+import { apiKey, comfyBase, higgsfieldBase, openRouterBase } from "../config";
+import { checkComfy, comfyDownloadHeaders, startComfy } from "./comfy";
 import { checkGoogleVideo, generateGoogleImage, startGoogleVideo } from "./google";
 import { checkMotionTransfer, startMotionTransfer } from "./higgsfield";
 import { generateOpenAIImage } from "./openai";
@@ -14,6 +15,8 @@ export async function startGeneration(req: GenerateRequest, call: OpenRouterCall
   if (req.provider === "higgsfield") {
     return req.kind === "video" && req.motion ? startMotionTransfer(req) : { status: "failed", error: "Higgsfield здесь только повторяет движения тренда." };
   }
+  // The site's own GPU: open models, no fee per request.
+  if (req.provider === "comfy") return startComfy(req);
   // Only OpenRouter's media APIs take the user's photo; the others would make something new.
   if (req.images?.length && req.provider !== "openrouter") {
     return {
@@ -43,6 +46,7 @@ export async function checkGeneration(
 ): Promise<GenerateResult> {
   if (provider === "replicate") return checkReplicate(jobId);
   if (provider === "higgsfield" && kind === "video") return checkMotionTransfer(jobId);
+  if (provider === "comfy") return checkComfy(jobId, kind);
   if (provider === "google" && kind === "video") return checkGoogleVideo(jobId);
   if (provider === "openrouter" && kind === "video") return checkOpenRouterVideo(jobId, call);
   return { status: "failed", error: "Для этого провайдера нет фоновых задач." };
@@ -74,6 +78,11 @@ function mediaSource(
     return key && url.origin === base.origin && url.pathname.startsWith(videos)
       ? { url, headers: { Authorization: `Bearer ${key}` } }
       : null;
+  }
+  // The site's own GPU server: its /view, with its token when it has one (over http too: a home PC or a tunnel).
+  if (provider === "comfy") {
+    const base = comfyBase();
+    return base && url.origin === new URL(base).origin && url.pathname.endsWith("/view") ? { url, headers: comfyDownloadHeaders() } : null;
   }
   // Higgsfield's API host itself (over http only for a local mock in tests).
   if (provider === "higgsfield" && url.origin === new URL(higgsfieldBase()).origin) return { url, headers: {} };

@@ -1,4 +1,5 @@
 import { BROWSER_MODELS, FEATURED_MODELS, MARYX_MODEL, PROVIDERS } from "@/lib/catalog";
+import { comfyModels } from "./media/comfy";
 import type { Capability, ModelInfo, ModelsResponse, ProviderId } from "@/lib/types";
 import { ADAPTIVE_THINKING } from "./chat/anthropic";
 import { THINKING_LEVEL_MODELS } from "./chat/google";
@@ -276,6 +277,7 @@ function classify(provider: ProviderId, m: LiveModel): Capability | null {
       return "chat";
     case "replicate":
     case "higgsfield":
+    case "comfy":
     case "maryx":
     case "browser":
       return null;
@@ -314,6 +316,8 @@ function liveModelInfo(provider: ProviderId, capability: Capability, m: LiveMode
 }
 
 async function modelsFor(provider: ProviderId, capability: Capability, ownKey: boolean): Promise<ModelInfo[]> {
+  // The site's own GPU: the open models its workflows run.
+  if (provider === "comfy") return capability === "chat" ? [] : comfyModels(capability);
   const picks = FEATURED_MODELS.filter((m) => m.provider === provider && m.capability === capability);
   // A flagship offered through OpenRouter only stays on top when its own provider isn't set up
   // (or when the user brings their own OpenRouter key, which pays for it).
