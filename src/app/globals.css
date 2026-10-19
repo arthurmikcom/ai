@@ -1872,3 +1872,8 @@ button, a, input, textarea { -webkit-tap-highlight-color: transparent; }
 .trend-scene-people span[data-changed] { border-color: color-mix(in oklab, var(--color-violet-300) 40%, transparent); background: color-mix(in oklab, var(--color-violet-500) 14%, transparent); color: var(--color-violet-100); }
 .trend-scene-wait small { color: var(--color-zinc-500); font-size: 11px; }
 a.vs-reel-button { text-decoration: none; }
+.trend-review { display: grid; justify-items: start; gap: 8px; padding: 16px; border: 1px solid color-mix(in oklab, var(--color-violet-300) 40%, transparent); border-radius: 20px; background: color-mix(in oklab, var(--color-violet-500) 12%, transparent); }
+.trend-review strong { color: var(--color-zinc-50); font-size: 15px; }
+.trend-review p { color: var(--color-zinc-300); font-size: 12.5px; line-height: 1.55; }
+.trend-redo { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; padding: 4px 9px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--color-violet-200); font-size: 11.5px; }
+.trend-redo:hover { border-color: color-mix(in oklab, var(--color-violet-300) 45%, transparent); }

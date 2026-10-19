@@ -112,7 +112,7 @@ export async function POST(request: Request) {
 
   try {
     return Response.json(
-      await startMediaJob(user, req, paid, models, { until: started + FALLBACK_WINDOW_MS, admin: isAdmin(user) }),
+      await startMediaJob(user, req, paid, models, { until: started + FALLBACK_WINDOW_MS, stop: started + (maxDuration - 10) * 1000, admin: isAdmin(user) }),
     );
   } catch (err) {
     if (err instanceof StorageUnavailableError) return storageUnavailable(user, err.message);

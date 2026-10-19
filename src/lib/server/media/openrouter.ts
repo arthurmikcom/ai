@@ -76,7 +76,8 @@ export function openRouterImageBody(req: GenerateRequest, endUser?: string): Rec
     }));
   }
   // An edited photo keeps its proportions (a ratio would crop or pad it); a character's new scene takes the chosen one.
-  if (!photos.length || req.character) {
+  // A recast keeps the video frame's shape, whatever the reference photos are.
+  if (!photos.length || req.character || req.recast) {
     const ratio = described(params, "aspect_ratio");
     if (ratio !== null && (!Array.isArray(ratio?.values) || ratio.values.includes(req.aspectRatio))) {
       body.aspect_ratio = req.aspectRatio;

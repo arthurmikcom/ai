@@ -829,13 +829,13 @@ export interface TrendPerson {
 export const MAX_TREND_PEOPLE = 3;
 
 const TREND_SYSTEM =
-  "Ты — режиссёр монтажа MARYX. Тебе дают кадры из сцен короткого трендового видео (по одному кадру на сцену, по порядку, " +
-  "с длительностью каждой сцены). Пользователь хочет повторить этот тренд со своими персонажами: они займут места людей из " +
+  "Ты — режиссёр монтажа MARYX. Тебе дают сцены короткого трендового видео по порядку, с длительностью каждой: на каждой " +
+  "картинке три момента сцены слева направо — начало, середина, конец; по ним видно, как люди и камера двигаются. Пользователь хочет повторить этот тренд со своими персонажами: они займут места людей из " +
   "видео. Сначала найди главных людей ролика (до 3, тех, кто в кадре крупно и важен для сюжета; одного и того же человека " +
   "в разных сценах узнавай по одежде и внешности) и дай каждому id (1, 2, 3), who — как его узнать по-русски, 3–6 слов " +
   "(«парень в белой футболке», «девушка в чёрной куртке»), и whoEn — то же по-английски. Для каждой сцены напиши: title — " +
   "2–4 слова по-русски; action — что происходит, одно предложение по-русски; prompt — по-английски, для видеомодели, которая " +
-  "оживит кадр: что делают люди (движения тела, жесты, танец, походка, мимика), как движется камера (селфи на вытянутой руке, " +
+  "оживит первый кадр сцены: что делают люди от начала к концу сцены, точно по трём моментам (движения тела, жесты, танец, походка, мимика, куда смотрят), как движется камера (селфи на вытянутой руке, " +
   "общий план, крупный план, проход к камере), темп и атмосфера, 1–3 предложения; people — id людей, которые видны в этой " +
   "сцене, главный первым (пустой список, если людей не видно: машины, пейзаж). Внешность лиц не описывай. Также style — общая " +
   "атмосфера ролика по-русски, одной фразой. Если в видео есть обнажённость, сексуальный контент, насилие или дети — не " +
@@ -888,6 +888,41 @@ export async function analyzeTrend(
   }));
   if (read.every((s) => !s.prompt)) throw new Error("MARYX не смог разобрать видео. Попробуйте ещё раз.");
   return { style: words(parsed.style, 200), people, shots: read.map((s) => ({ ...s, people: [...new Set(s.people)], prompt: s.prompt || s.action })) };
+}
+
+const RECAST_CHECK =
+  "Ты проверяешь кадр для видео. Картинка 1 — исходный кадр из ролика. Картинка 2 — тот же кадр, где людей заменили. " +
+  "Картинка 3 — фото человека, который должен оказаться в кадре. Ответь строго JSON без блока кода: " +
+  '{"sameScene": true|false, "swapped": true|false, "reason": "коротко по-русски"}. sameScene — картинка 2 показывает ' +
+  "ту же сцену, что картинка 1: то же место и фон, тот же ракурс и крупность, та же поза (а не сцену с картинки 3). " +
+  "swapped — человек на картинке 2 узнаётся как человек с картинки 3, а не остался прежним.";
+
+/**
+ * «Тренд»: whether a framed scene came out right — the video's own scene,
+ * with the new person in it — before a clip (the costly part) is made of it.
+ * When the check itself can't be made, the frame passes.
+ */
+export async function checkRecast(images: { frame: InlineImage; result: InlineImage; reference: InlineImage }, meter: Meter): Promise<{ ok: boolean; reason: string }> {
+  try {
+    const plan = await planRoute({
+      text: "",
+      hasImages: true,
+      hasDocuments: false,
+      deepThinking: false,
+      webSearch: false,
+      ownKey: meter.paidBy === "byok" && Boolean(meter.key),
+    });
+    const { text } = await callModels([plan.model, ...plan.fallbacks].slice(0, 2), RECAST_CHECK, "Проверь картинки 1, 2 и 3.", 18_000, meter, {
+      maxTokens: 300,
+      light: true,
+      images: [images.frame, images.result, images.reference],
+    });
+    const parsed = JSON.parse(/\{[\s\S]*\}/.exec(text)?.[0] ?? "") as { sameScene?: unknown; swapped?: unknown; reason?: unknown };
+    const ok = parsed.sameScene !== false && parsed.swapped !== false;
+    return { ok, reason: typeof parsed.reason === "string" ? parsed.reason.slice(0, 200) : "" };
+  } catch {
+    return { ok: true, reason: "" };
+  }
 }
 
 /** What «Холст для текстов» can do with a document or its selected part, in one click. */

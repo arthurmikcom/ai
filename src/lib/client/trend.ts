@@ -11,8 +11,10 @@ import { imageToAttachment } from "./util";
 export interface TrendScene {
   start: number;
   end: number;
-  /** A frame from the scene (two fifths in): the character takes its main person's place. */
+  /** The scene's opening frame: the new people step into it, and the clip goes on from it, in time with the original. */
   frame: Frame;
+  /** Three moments of the scene side by side (start, middle, end): what MARYX reads the movement from. */
+  strip: Frame;
 }
 
 /** Scenes a trend is cut into at most (each becomes a picture and a clip). */
@@ -48,6 +50,25 @@ function histogram(ctx: CanvasRenderingContext2D, video: HTMLVideoElement, w: nu
   const n = (data.length / 4) * 3;
   for (let i = 0; i < bins.length; i++) bins[i] /= n;
   return bins;
+}
+
+/** Three moments of a scene in one picture, side by side. */
+async function stripOf(video: HTMLVideoElement, start: number, end: number): Promise<Frame> {
+  const h = 360;
+  const w = Math.round((h * video.videoWidth) / Math.max(1, video.videoHeight));
+  const canvas = document.createElement("canvas");
+  canvas.width = w * 3 + 8;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  for (const [i, part] of [0.12, 0.5, 0.88].entries()) {
+    await seek(video, start + (end - start) * part);
+    ctx.drawImage(video, i * (w + 4), 0, w, h);
+  }
+  const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/jpeg", 0.82));
+  if (!blob) throw new Error("Кадр недоступен");
+  return imageToAttachment(blob);
 }
 
 async function still(video: HTMLVideoElement): Promise<Frame> {
@@ -128,8 +149,10 @@ export async function findScenes(file: Blob): Promise<{ duration: number; scenes
 
     const found: TrendScene[] = [];
     for (const s of scenes) {
-      await seek(video, s.start + (s.end - s.start) * 0.4);
-      found.push({ ...s, frame: await still(video) });
+      // Just past the cut: a frame right on it can still show the scene before.
+      await seek(video, s.start + Math.min(0.3, (s.end - s.start) * 0.15));
+      const frame = await still(video);
+      found.push({ ...s, frame, strip: await stripOf(video, s.start, s.end) });
     }
     return { duration, scenes: found };
   } finally {

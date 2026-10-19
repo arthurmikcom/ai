@@ -62,10 +62,11 @@ interface Scene extends TrendScene {
 }
 
 /** The one-click run, step by step. */
-type Stage = "idle" | "reading" | "framing" | "filming" | "gluing" | "saving" | "done";
+type Stage = "idle" | "reading" | "framing" | "review" | "filming" | "gluing" | "saving" | "done";
 
 const STAGES: { id: Stage; label: string }[] = [
   { id: "framing", label: "Ставлю героев в кадры" },
+  { id: "review", label: "Проверьте кадры" },
   { id: "filming", label: "Снимаю сцены" },
   { id: "gluing", label: "Склеиваю под музыку" },
   { id: "saving", label: "Сохраняю в «Мои видео»" },
@@ -110,6 +111,8 @@ export function TrendStudio() {
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [cast, setCast] = useState<Record<number, Role>>({});
   const [consent, setConsent] = useState(false);
+  /** Frames are shown before any clip is paid for (on unless the user turns it off). */
+  const [review, setReview] = useState(true);
   const [stage, setStage] = useState<Stage>("idle");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -128,7 +131,9 @@ export function TrendStudio() {
 
   const imageTarget = choose(images);
   const videoTarget = choose(videos);
-  const running = stage !== "idle" && stage !== "done";
+  const running = stage !== "idle" && stage !== "done" && stage !== "review";
+  /** A frame being made again (in the review): the clips wait for it. */
+  const redoing = scenes.some((s) => s.step === "frame");
   const roleOf = (id: number): Role => cast[id] ?? { kind: "original" };
   const changed = (id: number) => roleOf(id).kind !== "original";
   // The scenes to make anew: those with someone in them the user is changing.
@@ -156,7 +161,8 @@ export function TrendStudio() {
         shots: { title: string; action: string; prompt: string; people: number[] }[];
       }>("/api/trends/analyze", {
         method: "POST",
-        body: JSON.stringify({ shots: cut.map((s) => ({ seconds: s.end - s.start, frame: { mime: s.frame.mime, data: s.frame.data } })) }),
+        // MARYX reads each scene's movement from three of its moments.
+        body: JSON.stringify({ shots: cut.map((s) => ({ seconds: s.end - s.start, frame: { mime: s.strip.mime, data: s.strip.data } })) }),
       });
       const read = cut.map((s, i) => ({ ...s, ...got.shots[i], extra: "", on: true, step: "idle" as const }));
       setStyle(got.style);
@@ -226,17 +232,27 @@ export function TrendStudio() {
     });
     const done = framed.status === "pending" ? await whenDone(framed.id) : framed;
     if (done.status !== "succeeded" || !done.files[0]) throw new Error(done.error ?? "Не получилось поставить героев в кадр.");
-    update(i, { picture: done.files[0].url, step: "clip" });
+    // Framed, not filmed yet: the clip starts after the look at the frames.
+    update(i, { picture: done.files[0].url, step: "idle" });
     return done.files[0].url;
   };
 
-  /** One scene: the new people into its frame (unless they're there already), then that frame to life. Its clip's id. */
-  const shoot = async (i: number, scene: Scene): Promise<string | null> => {
-    if (!videoTarget) return null;
-    let pictureUrl = scene.picture;
-    update(i, { step: pictureUrl ? "clip" : "frame", error: undefined, clip: undefined });
+  /** The scene's frame with the new people (checked on the server), or null when it didn't come out. */
+  const framed = async (i: number, scene: Scene): Promise<string | null> => {
+    update(i, { step: "frame", error: undefined, picture: undefined, clip: undefined });
     try {
-      if (!pictureUrl) pictureUrl = await frame(i, scene);
+      return await frame(i, scene);
+    } catch (e) {
+      update(i, { step: "failed", error: e instanceof Error ? e.message : String(e) });
+      return null;
+    }
+  };
+
+  /** One scene's clip, from its framed picture: the clip's id, or null when it couldn't start. */
+  const film = async (i: number, scene: Scene, pictureUrl: string): Promise<string | null> => {
+    if (!videoTarget) return null;
+    update(i, { step: "clip", error: undefined, clip: undefined });
+    try {
       const picture = await frameAt(pictureUrl);
       const clip = await generateItem({
         kind: "video",
@@ -255,9 +271,10 @@ export function TrendStudio() {
   };
 
   /**
-   * The one button: every scene with someone changed is framed and filmed,
-   * then all scenes are glued with the music (failed or unchanged ones as in
-   * the original) and the reel is saved to «Мои видео».
+   * The one button: every scene with someone changed is framed first (cheap,
+   * and checked); then — after a look at the frames, unless the user skips
+   * it — filmed, glued with the music (failed or unchanged scenes as in the
+   * original) and saved to «Мои видео».
    */
   const make = async (fresh = false) => {
     if (!canMake || !file || !preview) return;
@@ -269,15 +286,40 @@ export function TrendStudio() {
     setReel(null);
     setProgress(0);
     setStage("framing");
-    // One frame after another (seconds each); each clip then films in the background.
-    const started: { i: number; clip: Promise<string | null> }[] = [];
+    const pictures = new Map<number, string>();
     for (const [i, scene] of take.entries()) {
       if (!scene.on || !scene.people.some(changed)) continue;
-      const clip = scene.clip && clips.find((c) => c.id === scene.clip)?.status === "succeeded" ? Promise.resolve(scene.clip) : shoot(i, scene);
-      started.push({ i, clip });
-      await clip;
+      const url = scene.picture ?? (await framed(i, scene));
+      if (url) pictures.set(i, url);
     }
+    if (!pictures.size) {
+      setError("Ни один кадр не получился. Попробуйте другое фото: лицо крупно, хорошо освещено, без очков и масок.");
+      setStage("idle");
+      return;
+    }
+    // A look at the frames first: a clip costs far more than a picture.
+    if (review) setStage("review");
+    else await shootAndGlue(take, pictures);
+  };
+
+  /** «Всё нравится»: the approved frames are filmed. */
+  const approve = () => {
+    // Someone was cast anew during the look: their scenes are framed (and shown) first.
+    if (toMake.some((s) => !s.picture && s.step !== "failed")) return void make();
+    const pictures = new Map(scenes.flatMap((s, i): [number, string][] => (s.on && s.people.some(changed) && s.picture ? [[i, s.picture]] : [])));
+    if (pictures.size) void shootAndGlue(scenes, pictures);
+  };
+
+  /** The framed scenes filmed (all at once), then the reel glued with the music and saved. */
+  const shootAndGlue = async (take: Scene[], pictures: Map<number, string>) => {
+    if (!file || !preview) return;
     setStage("filming");
+    const started = [...pictures].map(([i, url]) => {
+      const s = take[i];
+      const kept = s.clip && clips.find((c) => c.id === s.clip)?.status === "succeeded";
+      return { i, clip: kept ? Promise.resolve(s.clip!) : film(i, s, url) };
+    });
+    const scenes = take;
     const made = new Map<number, MediaItem>();
     const problems: string[] = [];
     await Promise.all(
@@ -479,10 +521,20 @@ export function TrendStudio() {
         )}
         {scenes.length > 0 && (
           <>
-            <button type="button" onClick={() => void make()} disabled={!canMake} className="maryx-button vs-go">
-              {running ? <LoaderCircle className="size-4 animate-spin" /> : <WandSparkles size={17} />}
-              {running ? "Делаю тренд…" : "Сделать мой тренд"}
-            </button>
+            {stage === "review" ? (
+              <button type="button" onClick={approve} disabled={redoing} className="maryx-button vs-go">
+                <Check size={17} /> Всё нравится — снять видео
+              </button>
+            ) : (
+              <button type="button" onClick={() => void make()} disabled={!canMake} className="maryx-button vs-go">
+                {running ? <LoaderCircle className="size-4 animate-spin" /> : <WandSparkles size={17} />}
+                {running ? "Делаю тренд…" : "Сделать мой тренд"}
+              </button>
+            )}
+            <label className="trend-consent">
+              <input type="checkbox" checked={review} onChange={(e) => setReview(e.target.checked)} disabled={running} />
+              <span>Сначала показать кадры — видео снимется только после вашего «да» (так лимит не тратится зря)</span>
+            </label>
             <p className="vs-cost">
               {toMake.length
                 ? `${toMake.length} ${plural(toMake.length, ["сцена", "сцены", "сцен"])} с новыми героями: ${toMake.length} ${plural(toMake.length, ["картинка", "картинки", "картинок"])} и ${toMake.length} видео из лимита. Остальные сцены — из оригинала.`
@@ -573,6 +625,18 @@ export function TrendStudio() {
                 })}
               </ol>
             )}
+            {stage === "review" && (
+              <div className="trend-review" role="region" aria-label="Проверка кадров">
+                <strong>Кадры готовы — проверьте их</strong>
+                <p>
+                  Видео снимется только по этим кадрам. Не нравится кадр — нажмите «Переделать кадр» (это 1 картинка). Сцены без
+                  кадра останутся как в оригинале.
+                </p>
+                <button type="button" onClick={approve} disabled={redoing} className="maryx-button vs-reel-button">
+                  <Check size={16} /> Всё нравится — снять видео ({toMake.filter((s) => s.picture).length} видео из лимита)
+                </button>
+              </div>
+            )}
             {running && <p className="trend-hint">Не закрывайте вкладку, пока ролик склеивается. Сцены снимаются на сервере и в любом случае появятся в «Мои видео».</p>}
 
             {reel && (
@@ -605,7 +669,7 @@ export function TrendStudio() {
               </ul>
             )}
 
-            <details className="trend-details" open={!running && stage !== "done"}>
+            <details className="trend-details" open={stage === "review" || (!running && stage !== "done")}>
               <summary>
                 Сцены <span>{scenes.length}</span>
                 {style && <em>{style}</em>}
@@ -680,6 +744,11 @@ export function TrendStudio() {
                             <span className="trend-scene-error" title={s.error ?? clip?.error}>
                               <TriangleAlert size={14} /> {s.error ?? clip?.error ?? "Не получилось"}
                             </span>
+                          )}
+                          {stage === "review" && s.on && recast && s.people.some(changed) && s.step !== "frame" && (
+                            <button type="button" className="trend-redo" onClick={() => void framed(i, s)}>
+                              <RotateCcw size={13} /> Переделать кадр
+                            </button>
                           )}
                         </div>
                       </div>
