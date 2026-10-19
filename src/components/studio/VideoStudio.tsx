@@ -5,9 +5,14 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import {
   ArrowRight,
+  Camera,
+  ScriptVideo,
+  PhotoMotion,
+  FrameTransition,
+  VideoMagic,
+  Recast,
   Check,
   Clapperboard,
-  Columns2,
   ImagePlus,
   KeyRound,
   Layers3 as Layers,
@@ -15,7 +20,6 @@ import {
   Sparkles,
   Type,
   Undo2,
-  UserRound,
   WandSparkles,
   X,
 } from "@/components/MaryxIcons";
@@ -27,7 +31,8 @@ import { useStoredJson } from "@/lib/client/useStored";
 import { imageToAttachment, MAX_TOTAL_BASE64, nearestRatio } from "@/lib/client/util";
 import type { AspectRatio, MediaFile, MediaItem } from "@/lib/types";
 import { useApp, type ModelChoice } from "../AppState";
-import { PageHeading } from "../Design";
+import { StudioImage } from "../WorkspaceVisuals";
+import { StudioDialog } from "./StudioDialog";
 import { findModel, MaryxBadge, ModelPicker } from "../ModelPicker";
 import { PresetArt } from "./PresetArt";
 import { TrendStudio } from "./TrendStudio";
@@ -37,11 +42,11 @@ import { VideoGallery } from "./VideoGallery";
 type Mode = "text" | "photo" | "frames" | "effects" | "trend";
 
 const MODES: { id: Mode; label: string; Icon: typeof Type; hint: string }[] = [
-  { id: "text", label: "Текст в видео", Icon: Type, hint: "Опишите сцену — MARYX снимет её" },
-  { id: "photo", label: "Оживить фото", Icon: ImagePlus, hint: "Ваше фото станет первым кадром" },
-  { id: "frames", label: "Начало и конец", Icon: Columns2, hint: "Плавный переход от первого кадра ко второму" },
-  { id: "effects", label: "Эффекты", Icon: WandSparkles, hint: "Взрыв, левитация, портал — в один клик" },
-  { id: "trend", label: "Тренд", Icon: UserRound, hint: "Повторите трендовое видео со своим персонажем" },
+  { id: "text", label: "Текст в видео", Icon: ScriptVideo, hint: "Опишите сцену — MARYX снимет её" },
+  { id: "photo", label: "Оживить фото", Icon: PhotoMotion, hint: "Ваше фото станет первым кадром" },
+  { id: "frames", label: "Начало и конец", Icon: FrameTransition, hint: "Плавный переход от первого кадра ко второму" },
+  { id: "effects", label: "Эффекты", Icon: VideoMagic, hint: "Взрыв, левитация, портал — в один клик" },
+  { id: "trend", label: "Тренд", Icon: Recast, hint: "Повторите трендовое видео со своим персонажем" },
 ];
 
 const RATIOS: AspectRatio[] = ["16:9", "9:16"];
@@ -136,7 +141,7 @@ function FrameSlot({
         </>
       ) : (
         <button type="button" className="vs-slot-empty" onClick={onPick} disabled={busy} aria-label={`Загрузить ${label.toLowerCase()}`}>
-          {busy ? <LoaderCircle className="size-6 animate-spin" /> : <ImagePlus size={compact ? 20 : 26} />}
+          <span className="vs-upload-symbol">{busy ? <LoaderCircle className="size-6 animate-spin" /> : <ImagePlus size={compact ? 20 : 26} />}</span>
           <span>{label}</span>
           {!compact && <small>Перетащите фото сюда или нажмите</small>}
         </button>
@@ -164,6 +169,7 @@ function PresetCard({
   return (
     <button type="button" className="preset-card" aria-pressed={selected} onClick={onClick} title={hint}>
       <PresetArt motion={kind === "camera" ? id : undefined} effect={kind === "effect" ? id : undefined} live={selected} />
+      <span className="preset-card-symbol" aria-hidden="true">{kind === "camera" ? <Camera size={14} /> : <VideoMagic size={14} />}</span>
       <span className="preset-card-label">
         {label}
         {selected && <Check size={13} />}
@@ -190,16 +196,10 @@ function PresetDialog({
   onEffect: (id: string | null) => void;
   onClose: () => void;
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
   const list = tab === "camera" ? CAMERA_MOTIONS : VIDEO_EFFECTS;
   const chosen = tab === "camera" ? camera : effect;
   return (
-    <div className="vs-dialog-backdrop" onClick={onClose}>
-      <div role="dialog" aria-modal="true" aria-label="Движения камеры и эффекты" className="vs-dialog" onClick={(e) => e.stopPropagation()}>
+    <StudioDialog title="Движения камеры и эффекты" className="vs-dialog" onClose={onClose}>
         <div className="vs-dialog-head">
           <div role="tablist" aria-label="Что выбрать" className="vs-tabs">
             <button type="button" role="tab" aria-selected={tab === "camera"} onClick={() => onTab("camera")}>
@@ -237,8 +237,7 @@ function PresetDialog({
             />
           ))}
         </div>
-      </div>
-    </div>
+    </StudioDialog>
   );
 }
 
@@ -461,8 +460,16 @@ export function VideoStudio() {
 
   // The kinds of video, at the top of the panel (the trend has its own panel).
   const tabs = (
-    <div role="tablist" aria-label="Что снимаем" className="vs-modes">
-      {MODES.map(({ id, label, Icon, hint }) => {
+    <div role="tablist" aria-label="Что снимаем" className="vs-modes" onKeyDown={(e) => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+      e.preventDefault();
+      const buttons = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"));
+      const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+      const next = e.key === "Home" ? 0 : e.key === "End" ? buttons.length - 1 : (index + (e.key === "ArrowRight" ? 1 : -1) + buttons.length) % buttons.length;
+      buttons[next]?.click();
+      buttons[next]?.focus();
+    }}>
+      {MODES.map(({ id, label, Icon, hint }, index) => {
         const off = (id === "photo" && !photoOk) || (id === "frames" && !lastFrameOk);
         return (
           <button
@@ -470,12 +477,17 @@ export function VideoStudio() {
             type="button"
             role="tab"
             aria-selected={mode === id}
+            aria-label={label}
+            id={`video-mode-${id}`}
+            aria-controls="video-workspace"
+            tabIndex={mode === id ? 0 : -1}
             disabled={off}
             title={off ? "Подключённые модели этого пока не умеют" : hint}
             onClick={() => switchMode(id)}
           >
-            <Icon size={17} />
-            <span>{label}</span>
+            <span className="vs-mode-symbol"><Icon size={23} /></span>
+            <span className="vs-mode-copy"><strong>{label}</strong><small>{hint}</small></span>
+            <span className="vs-mode-number" aria-hidden="true">0{index + 1}</span>
           </button>
         );
       })}
@@ -489,19 +501,15 @@ export function VideoStudio() {
   return (
     <div className="studio-page h-full overflow-y-auto">
       <div className="page-content video-studio-page">
-        <PageHeading
-          number="03"
-          eyebrow="Киностудия MARYX"
-          title="Видео"
-          description="Снимайте по описанию, оживляйте фото, делайте переходы между кадрами и эффекты, как в кино. Движение камеры и эффект смешиваются в одном клике."
-        >
-          {left !== null && (
-            <div className="section-status">
-              <Clapperboard size={16} />
-              <span>Сегодня осталось: {left}</span>
-            </div>
-          )}
-        </PageHeading>
+        <header className="film-hero">
+          <StudioImage preload />
+          <div className="film-hero-shade" />
+          <div className="film-hero-copy"><span className="film-kicker"><Clapperboard size={15} />Киностудия MARYX</span><h1>Ваши идеи.<br /><span>В движении.</span></h1><p>От первой мысли до последнего кадра.<br />Снимайте истории, которые хочется пересматривать.</p></div>
+          <div className="film-hero-footer"><span><span className="film-live-dot" />Текст. Кадры. Камера. Ваш стиль.</span>{left !== null && <span className="film-quota"><Clapperboard size={14} />Сегодня осталось: {left}</span>}</div>
+        </header>
+        {!noProviders && tabs}
+        <div id="video-workspace" role={!noProviders ? "tabpanel" : undefined} aria-labelledby={!noProviders ? `video-mode-${mode}` : undefined}>
+        {!noProviders && <div className="vs-workspace-heading"><div><span className="section-kicker">Ваш режиссёрский пульт</span><h2>{MODES.find(m => m.id === mode)?.label}</h2></div><p>{MODES.find(m => m.id === mode)?.hint}</p></div>}
 
         {noProviders ? (
           <div className="empty-notice mt-6 rounded-2xl border p-5 text-sm text-zinc-200">
@@ -520,12 +528,10 @@ export function VideoStudio() {
             )}
           </div>
         ) : mode === "trend" ? (
-          <TrendStudio tabs={tabs} />
+          <TrendStudio />
         ) : (
           <div className="video-studio">
             <div ref={panel} className="vs-panel composer-panel" aria-label="Создать видео">
-              {tabs}
-
               {mode !== "text" && (mode !== "effects" || photoOk) && (
                 <div className={mode === "frames" ? "vs-frames" : ""}>
                   <FrameSlot
@@ -584,7 +590,9 @@ export function VideoStudio() {
               )}
 
               <div className="vs-prompt">
+                <label className="vs-field-label" htmlFor="video-description"><ScriptVideo size={15} />Сценарий</label>
                 <textarea
+                  id="video-description"
                   ref={promptRef}
                   value={prompt}
                   onChange={(e) => {
@@ -678,29 +686,29 @@ export function VideoStudio() {
                 {withPhoto ? (
                   <span className="vs-setting-note">Формат как у фото</span>
                 ) : (
-                  <div role="radiogroup" aria-label="Формат" className="vs-segment">
+                  <div className="vs-setting-group"><span>Формат</span><div role="radiogroup" aria-label="Формат" className="vs-segment">
                     {RATIOS.map((r) => (
                       <button key={r} type="button" role="radio" aria-checked={ratio === r} onClick={() => setRatio(r)}>
                         <span className={`vs-ratio vs-ratio-${r.replace(":", "x")}`} aria-hidden="true" />
                         {r}
                       </button>
                     ))}
-                  </div>
+                  </div></div>
                 )}
-                <div role="radiogroup" aria-label="Длительность" className="vs-segment">
+                <div className="vs-setting-group"><span>Длительность</span><div role="radiogroup" aria-label="Длительность" className="vs-segment">
                   {DURATIONS.map((d) => (
                     <button key={d} type="button" role="radio" aria-checked={duration === d} onClick={() => setDuration(d)}>
                       {d} с
                     </button>
                   ))}
-                </div>
-                <div role="radiogroup" aria-label="Сколько вариантов" className="vs-segment" title="Каждый вариант — отдельное видео из лимита">
+                </div></div>
+                <div className="vs-setting-group"><span>Варианты</span><div role="radiogroup" aria-label="Сколько вариантов" className="vs-segment" title="Каждый вариант — отдельное видео из лимита">
                   {COUNTS.map((n) => (
                     <button key={n} type="button" role="radio" aria-checked={count === n} onClick={() => setCount(n)}>
                       ×{n}
                     </button>
                   ))}
-                </div>
+                </div></div>
               </div>
 
               {modelCant && <p className="vs-error">Эта модель не умеет начинать видео с фото — выберите другую.</p>}
@@ -758,6 +766,7 @@ export function VideoStudio() {
             </div>
           </div>
         )}
+        </div>
       </div>
       {presets && (
         <PresetDialog

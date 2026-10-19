@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight,
+  Recast,
+  Check,
   Clapperboard,
   Download,
   Film,
@@ -14,7 +16,6 @@ import {
   RotateCcw,
   Sparkles,
   TriangleAlert,
-  UserRound,
   WandSparkles,
   X,
 } from "@/components/MaryxIcons";
@@ -27,6 +28,7 @@ import { useModels } from "@/lib/client/useModels";
 import { imageToAttachment, nearestRatio } from "@/lib/client/util";
 import type { AspectRatio, MediaItem, ModelInfo } from "@/lib/types";
 import { useApp } from "../AppState";
+import { PresetArt } from "./PresetArt";
 
 /** The biggest trend the browser cuts (it's never uploaded whole). */
 const MAX_TREND_MB = 200;
@@ -156,7 +158,7 @@ function TrendReel({ clips, music, ratio }: { clips: string[]; music: File; rati
  * the main person's place in each scene's frame, each frame comes to life,
  * and the scenes play back with the original music.
  */
-export function TrendStudio({ tabs }: { tabs: ReactNode }) {
+export function TrendStudio() {
   const { me } = useApp();
   const characters = useCharacters();
   const images = useModels("image").data?.models ?? [];
@@ -283,7 +285,6 @@ export function TrendStudio({ tabs }: { tabs: ReactNode }) {
   return (
     <div className="video-studio">
       <div className="vs-panel composer-panel" aria-label="Повторить тренд">
-        {tabs}
         <div className="trend-step">
           <div className="trend-step-head">
             <span>1</span> Трендовое видео
@@ -377,14 +378,14 @@ export function TrendStudio({ tabs }: { tabs: ReactNode }) {
       <div className="vs-results">
         {!scenes.length ? (
           <div className="trend-intro">
-            <span className="vs-empty-reel" aria-hidden="true">
-              <UserRound size={22} />
-            </span>
-            <h2>Повторите любой тренд со своим персонажем</h2>
-            <ol>
-              <li>Загрузите трендовое видео — MARYX разрежет его на сцены (до {MAX_SCENES}) и поймёт, что в каждой происходит.</li>
-              <li>Выберите персонажа: он займёт место главного героя в каждом кадре.</li>
-              <li>Каждая сцена оживёт, а готовый ролик соберётся с музыкой оригинала.</li>
+            <div className="trend-intro-visual" aria-hidden="true"><div><PresetArt motion="orbit" /><span>Референс</span></div><span className="trend-intro-arrow"><ArrowRight size={23} /></span><div><PresetArt effect="aura" /><span><Recast size={13} />Ваш персонаж</span></div></div>
+            <span className="section-kicker">Знакомый сюжет. Новая главная роль.</span>
+            <h2>Тот же тренд.<br /><span>Ваш главный герой.</span></h2>
+            <p className="trend-intro-lead">Сохраните настроение и ритм любимого ролика, добавив в историю своего персонажа.</p>
+            <ol className="trend-process">
+              <li><span className="section-symbol"><Film size={20} /></span><div><strong>Возьмите референс</strong><p>MARYX разберёт видео на сцены — до {MAX_SCENES} — и поймёт, что происходит в каждой.</p></div></li>
+              <li><span className="section-symbol"><Recast size={20} /></span><div><strong>Добавьте главного героя</strong><p>Выберите сохранённого персонажа или загрузите своё фото.</p></div></li>
+              <li><span className="section-symbol"><Clapperboard size={20} /></span><div><strong>Соберите свою версию</strong><p>Кадры оживут, а готовый ролик сохранит музыку оригинала.</p></div></li>
             </ol>
           </div>
         ) : (
@@ -400,7 +401,7 @@ export function TrendStudio({ tabs }: { tabs: ReactNode }) {
                 const clip = clipOf(s);
                 const failed = s.step === "failed" || clip?.status === "failed";
                 return (
-                  <article key={i} className="trend-scene" data-off={!s.on || undefined}>
+                  <article key={i} className="trend-scene" data-state={failed ? "failed" : clip?.status === "succeeded" ? "ready" : s.step} data-off={!s.on || undefined}>
                     <div className="trend-scene-frames">
                       {/* eslint-disable-next-line @next/next/no-img-element -- a local data URL */}
                       <img src={`data:${s.frame.mime};base64,${s.frame.data}`} alt={`Сцена ${i + 1} из тренда`} />
@@ -447,6 +448,7 @@ export function TrendStudio({ tabs }: { tabs: ReactNode }) {
                           <input type="checkbox" checked={s.on} onChange={(e) => update(i, { on: e.target.checked })} disabled={busy === "shooting"} />
                           Снимать
                         </label>
+                        {clip?.status === "succeeded" && <span className="trend-scene-ready"><Check size={13} />Готово</span>}
                         {failed && (
                           <>
                             <span className="trend-scene-error" title={s.error ?? clip?.error}>

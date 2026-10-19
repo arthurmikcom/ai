@@ -16,6 +16,7 @@ import {
   WandSparkles,
   X,
 } from "@/components/MaryxIcons";
+import { StudioDialog } from "./StudioDialog";
 import { CAMERA_MOTIONS, VIDEO_EFFECTS } from "@/lib/effects";
 import { frameNow, frameOf, type Frame } from "@/lib/client/frames";
 import type { MediaItem } from "@/lib/types";
@@ -163,12 +164,6 @@ function VideoPlayer({
   const [busy, setBusy] = useState<"continue" | "frame" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   const continueIt = async () => {
     if (!url) return;
     setBusy("continue");
@@ -196,8 +191,7 @@ function VideoPlayer({
   };
 
   return (
-    <div className="vs-dialog-backdrop" onClick={onClose}>
-      <div role="dialog" aria-modal="true" aria-label="Видео" className="video-player" onClick={(e) => e.stopPropagation()}>
+    <StudioDialog title="Видео" className="video-player" onClose={onClose}>
         <div className={`video-player-stage ${item.aspectRatio === "9:16" ? "is-tall" : ""}`}>
           {url && <video ref={video} src={url} controls autoPlay loop playsInline aria-label={`Видео: ${item.prompt}`} />}
         </div>
@@ -266,8 +260,7 @@ function VideoPlayer({
             </p>
           )}
         </aside>
-      </div>
-    </div>
+    </StudioDialog>
   );
 }
 
@@ -295,9 +288,7 @@ export function VideoGallery({
   return (
     <section className="vs-gallery" aria-label="Мои видео">
       <div className="vs-gallery-head">
-        <h2>
-          Мои видео <span>{items.length}</span>
-        </h2>
+        <div><span className="section-kicker">Ваша коллекция</span><h2>Мои видео <span>{items.length}</span></h2></div>
         <div role="radiogroup" aria-label="Показать" className="vs-segment">
           <button type="button" role="radio" aria-checked={filter === "all"} onClick={() => setFilter("all")}>
             Все
@@ -318,11 +309,12 @@ export function VideoGallery({
         </div>
       ) : (
         <div className="vs-empty">
+          <div className="vs-empty-film" aria-hidden="true"><span /><span /><span /></div>
           <span className="vs-empty-reel" aria-hidden="true">
             <Clapperboard size={22} />
           </span>
           <h3>{items.length ? "Здесь пока пусто" : "Ваша киноплёнка начинается здесь"}</h3>
-          <p>{items.length ? "Выберите другой фильтр." : "Опишите сцену или загрузите фото слева — готовые видео появятся здесь и будут играть при наведении."}</p>
+          <p>{items.length ? "Выберите другой фильтр." : "Опишите сцену или загрузите фото в пульт создания — готовые видео появятся здесь и будут играть при наведении."}</p>
         </div>
       )}
       {playing && (
