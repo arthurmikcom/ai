@@ -21,10 +21,13 @@ import {
   freeSpendToday,
   heldFor,
   insertReservation,
+  MEDIA,
   planDailyUsd,
+  planMonthlyMediaUsd,
   recordCosts,
   siteBudgetSpent,
   siteDailyBudget,
+  userMediaSpendThisMonth,
   userSpendToday,
   type CostEntry,
 } from "./spend";
@@ -163,7 +166,7 @@ export interface Charge {
  * own key, or the user's other requests still running and holding what's
  * left (it comes back when they end).
  */
-export type Denial = "limit" | "spend" | "expensive" | "budget" | "credits" | "ownKey" | "busy";
+export type Denial = "limit" | "spend" | "month" | "expensive" | "budget" | "credits" | "ownKey" | "busy";
 
 /** Requests a day with one's own key: no cost to the site, but the server still does the work. */
 const OWN_KEY_DAILY = 3000;
@@ -297,6 +300,18 @@ async function reservePlan(
       r < row.expected && Math.max(0, await creditBalance(row.userId, tx)) * creditValueUsd() >= row.most;
     let room = Infinity;
     let short: Denial = "expensive";
+    // Pictures and video: the plan's monthly budget for them (so a subscription never costs more than it brings).
+    const monthly = MEDIA.includes(row.kind) ? planMonthlyMediaUsd(plan) : null;
+    if (monthly !== null) {
+      const left = monthly - (await userMediaSpendThisMonth(row.userId, tx));
+      if (left < row.least) {
+        const settled = monthly - (await userMediaSpendThisMonth(row.userId, tx, { settled: true }));
+        if (settled >= row.least && !(await takeOver(settled))) return "busy";
+        return left <= 0 ? "month" : "expensive";
+      }
+      room = left;
+      short = "month";
+    }
     if (budget !== null) {
       room = budget - (await userSpendToday(row.userId, tx));
       if (room < row.least) {
@@ -429,13 +444,17 @@ export async function deniedResponse(
         ? "Дневной бюджет вашего тарифа на ИИ израсходован. "
         : `Дневной бюджет вашего тарифа на ИИ израсходован: ${costlier} тратят его быстрее. `) +
       `Он обновится в полночь по UTC. ${hint}`;
+  } else if (denied === "month") {
+    error = `Месячный бюджет вашего тарифа на картинки и видео израсходован — он обновится 1-го числа. ${hint}`;
   } else if (denied === "expensive") {
     error =
       kind === "voice"
         ? `Эта запись дороже, чем осталось в дневном бюджете вашего тарифа. Запишите фрагмент покороче. ${hint}`
         : opts.expensive
           ? `${opts.expensive} ${hint}`
-          : "Этот запрос слишком большой для того, что осталось в дневном бюджете вашего тарифа: длинная переписка или большие файлы. " +
+          : kind === "image" || kind === "video"
+            ? `${kind === "image" ? "Эта картинка" : "Это видео"} дороже, чем осталось в месячном бюджете вашего тарифа на картинки и видео. ${hint}`
+            : "Этот запрос слишком большой для того, что осталось в дневном бюджете вашего тарифа: длинная переписка или большие файлы. " +
           `Начните новый чат, уберите файлы или ${simpler}. ${hint}`;
   } else if (denied === "credits") {
     const balance = await creditBalance(user.id);

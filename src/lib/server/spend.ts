@@ -231,6 +231,44 @@ export async function userSpendToday(userId: string, conn?: Conn, opts: { settle
   return Number(row?.usd ?? 0);
 }
 
+/** Pictures and video: besides their daily counts, a monthly budget in dollars (what a plan can afford per user). */
+export const MEDIA: CostKind[] = ["image", "video"];
+
+/**
+ * This month's spending (finished and still running) on a user's pictures
+ * and video paid by the plan (not by credits, their own key or an admin).
+ */
+export async function userMediaSpendThisMonth(userId: string, conn?: Conn, opts: { settled?: boolean } = {}): Promise<number> {
+  const db = conn ?? (await getDb());
+  const now = new Date();
+  const [row] = await db
+    .select({ usd: sql<number>`coalesce(sum(${schema.aiCost.costUsd}), 0)` })
+    .from(schema.aiCost)
+    .where(
+      and(
+        eq(schema.aiCost.userId, userId),
+        gte(schema.aiCost.at, new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))),
+        inArray(schema.aiCost.paidBy, ["free", "pro"]),
+        inArray(schema.aiCost.kind, MEDIA),
+        counted(opts),
+      ),
+    );
+  return Number(row?.usd ?? 0);
+}
+
+/**
+ * Monthly budget per user in USD for pictures and video (FREE_MONTHLY_MEDIA_USD,
+ * PRO_MONTHLY_MEDIA_USD; "unlimited" = none). By default $1 on Free and $6 on
+ * Pro: well under what Pro costs, so a subscription always pays for itself.
+ */
+export function planMonthlyMediaUsd(plan: PlanId): number | null {
+  const raw = process.env[plan === "free" ? "FREE_MONTHLY_MEDIA_USD" : "PRO_MONTHLY_MEDIA_USD"]?.trim();
+  if (raw === "unlimited") return null;
+  const value = raw ? Number.parseFloat(raw) : NaN;
+  if (Number.isFinite(value) && value >= 0) return value;
+  return plan === "free" ? 1 : 6;
+}
+
 /** Daily AI budget per user in USD for chat and dictation (FREE_DAILY_USD, PRO_DAILY_USD); null = none. */
 export function planDailyUsd(plan: PlanId): number | null {
   const raw = process.env[plan === "free" ? "FREE_DAILY_USD" : "PRO_DAILY_USD"]?.trim();

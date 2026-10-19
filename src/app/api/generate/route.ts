@@ -130,7 +130,7 @@ export async function POST(request: Request) {
   if (refused) {
     await refundCharge(paid);
     const expensive = req.motion
-      ? "Точный повтор этого ролика дороже, чем осталось в дневном бюджете вашего тарифа. Возьмите ролик покороче или выберите «По сценам»."
+      ? "Точный повтор этого ролика дороже, чем осталось в бюджете вашего тарифа на видео. Возьмите ролик покороче или выберите «По сценам»."
       : undefined;
     return deniedResponse(user, req.kind, refused, { ownKey: await hasKey(), charge: paid, expensive });
   }
