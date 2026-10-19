@@ -5,6 +5,8 @@
 // resulting picture leaves the device.
 
 const MAX_SIDE = 1568;
+/** The browser can't decode the video (a codec it lacks, such as HEVC on some computers). */
+const UNREADABLE = "Браузер не смог открыть это видео. Попробуйте другое видео или другой браузер — например, Chrome или Safari.";
 
 /** The current frame of a playing video as a JPEG, its longest side at most `max`. */
 export function frameOf(video: HTMLVideoElement, max = MAX_SIDE): Promise<Blob> {
@@ -84,10 +86,10 @@ export async function videoSheet(file: Blob): Promise<{ sheet: Blob; duration: n
     const loaded = once(video, "loadeddata", 15_000);
     video.src = url;
     await loaded.catch(() => {
-      throw new Error("Не удалось открыть видео — сохраните его как MP4.");
+      throw new Error(UNREADABLE);
     });
     const duration = video.duration;
-    if (!Number.isFinite(duration) || duration <= 0 || !video.videoWidth) throw new Error("Не удалось прочитать видео — сохраните его как MP4.");
+    if (!Number.isFinite(duration) || duration <= 0 || !video.videoWidth) throw new Error(UNREADABLE);
 
     const frames = duration < 6 ? 4 : 9;
     const cols = frames === 4 ? 2 : 3;
