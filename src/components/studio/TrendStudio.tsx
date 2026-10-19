@@ -235,25 +235,34 @@ export function TrendStudio() {
     setBusy(null);
   };
 
-  /** One scene: the character into its frame, then that frame to life. */
+  /** The character in the scene's frame: the picture's address. */
+  const frame = async (i: number, scene: Scene): Promise<string> => {
+    if (!imageTarget) throw new Error("Картинки сейчас недоступны.");
+    const framed = await generateItem({
+      kind: "image",
+      ...imageTarget,
+      prompt: scene.extra.trim(),
+      aspectRatio: nearestRatio(scene.frame.width, scene.frame.height, FRAME_RATIOS),
+      images: [{ mime: scene.frame.mime, data: scene.frame.data! }, ...(character ? [] : [{ mime: photo!.mime, data: photo!.data! }])],
+      ...(character ? { character: character.id } : {}),
+      recast: true,
+      consent: true,
+    });
+    const done = framed.status === "pending" ? await whenDone(framed.id) : framed;
+    if (done.status !== "succeeded" || !done.files[0]) throw new Error(done.error ?? "Не получилось поставить персонажа в кадр.");
+    update(i, { picture: done.files[0].url, step: "clip" });
+    return done.files[0].url;
+  };
+
+  /** One scene: the character into its frame (unless it's there already), then that frame to life. */
   const shoot = async (i: number, scene: Scene) => {
     if (!imageTarget || !videoTarget || !who) return;
-    update(i, { step: "frame", error: undefined, picture: undefined, clip: undefined });
+    // Again after a refused clip: the framed picture is kept, only the clip is filmed again.
+    let pictureUrl = scene.picture;
+    update(i, { step: pictureUrl ? "clip" : "frame", error: undefined, clip: undefined });
     try {
-      const framed = await generateItem({
-        kind: "image",
-        ...imageTarget,
-        prompt: scene.extra.trim(),
-        aspectRatio: nearestRatio(scene.frame.width, scene.frame.height, FRAME_RATIOS),
-        images: [{ mime: scene.frame.mime, data: scene.frame.data! }, ...(character ? [] : [{ mime: photo!.mime, data: photo!.data! }])],
-        ...(character ? { character: character.id } : {}),
-        recast: true,
-        consent: true,
-      });
-      const done = framed.status === "pending" ? await whenDone(framed.id) : framed;
-      if (done.status !== "succeeded" || !done.files[0]) throw new Error(done.error ?? "Не получилось поставить персонажа в кадр.");
-      update(i, { picture: done.files[0].url, step: "clip" });
-      const picture = await frameAt(done.files[0].url);
+      if (!pictureUrl) pictureUrl = await frame(i, scene);
+      const picture = await frameAt(pictureUrl);
       const clip = await generateItem({
         kind: "video",
         ...videoTarget,
@@ -281,6 +290,8 @@ export function TrendStudio() {
   const finished = chosen.map((s) => clipOf(s)).filter((c): c is MediaItem => c?.status === "succeeded" && Boolean(c.files[0]));
   const allDone = chosen.length > 0 && finished.length === chosen.length;
   const started = scenes.some((s) => s.step !== "idle");
+  // Something is still being made (a framed picture, or a clip in the works).
+  const working = chosen.some((s) => s.step === "frame" || (s.step === "clip" && clipOf(s)?.status !== "failed" && clipOf(s)?.status !== "succeeded"));
 
   return (
     <div className="video-studio">
@@ -470,7 +481,7 @@ export function TrendStudio() {
                 <WandSparkles size={17} /> Снять тренд — {chosen.length} {chosen.length === 1 ? "сцена" : chosen.length < 5 ? "сцены" : "сцен"}
               </button>
             )}
-            {started && !allDone && (
+            {working && (
               <p className="trend-hint">
                 <LoaderCircle className="mr-1 inline size-3.5 animate-spin" />
                 Сцены снимаются 1–5 минут. Можно уйти со страницы: готовые видео появятся в «Мои видео».

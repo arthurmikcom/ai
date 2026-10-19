@@ -41,7 +41,20 @@ export async function canFilmInChat(ownKey = false, photos = false): Promise<boo
  */
 export async function maryxMediaModels(kind: MediaKind, ownKey = false, photos = false): Promise<ModelInfo[]> {
   const models = await mediaModels(kind, ownKey, photos);
-  return [...models.filter((m) => m.featured), ...models.filter((m) => !m.featured)];
+  const ordered = [...models.filter((m) => m.featured), ...models.filter((m) => !m.featured)];
+  // A clip from a photo usually shows a real person, which some models refuse: they go last.
+  return photos && kind === "video"
+    ? [...ordered.filter((m) => !REFUSES_REAL_PEOPLE.test(m.id)), ...ordered.filter((m) => REFUSES_REAL_PEOPLE.test(m.id))]
+    : ordered;
+}
+
+/** Video models that won't start from a photo of a real person ("…may contain real person"). */
+const REFUSES_REAL_PEOPLE = /seedance/i;
+
+/** The provider turned the photo down because a real person is in it. */
+export function refusedRealPerson(err: unknown): boolean {
+  const e = err as { message?: string; detail?: string } | undefined;
+  return /PrivacyInformation|may contain real person|real[_ ]person/i.test(`${e?.message ?? ""} ${e?.detail ?? ""}`);
 }
 
 /** The first of maryxMediaModels, or an error saying what to set up. */
@@ -176,7 +189,8 @@ export async function startWithFallback(
   const price = (m: ModelInfo) => mediaCost(req.kind, m.id, req.duration);
   const tries = models.filter((m, i) => i === 0 || price(m) <= price(models[0])).slice(0, MAX_ATTEMPTS);
   let attempt: Attempt = { model: tries[0] };
-  for (const [i, model] of tries.entries()) {
+  for (let i = 0; i < tries.length; i++) {
+    const model = tries[i];
     const last = i === tries.length - 1 || Date.now() > until;
     try {
       const result = await startGeneration({ ...req, provider: model.provider, model: model.id }, call);
@@ -185,7 +199,12 @@ export async function startWithFallback(
       if (result.status !== "failed" || last || !/^Модель не вернула/.test(result.error)) return attempt;
     } catch (error) {
       attempt = { model, error };
-      if (last || !worthAnotherModel(error)) return attempt;
+      // A model that won't take a real person's photo: another one may, even a pricier one.
+      if (refusedRealPerson(error) && i === tries.length - 1 && Date.now() <= until) {
+        const next = models.find((m) => !tries.includes(m) && !REFUSES_REAL_PEOPLE.test(m.id));
+        if (next) tries.push(next);
+      }
+      if (i === tries.length - 1 || Date.now() > until || !worthAnotherModel(error)) return attempt;
     }
     console.error("[media] trying another model after", model.provider, model.id, attempt.error ?? attempt.result);
   }

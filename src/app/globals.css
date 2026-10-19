@@ -1834,3 +1834,10 @@ button, a, input, textarea { -webkit-tap-highlight-color: transparent; }
   .vs-tabs button { font-size: .64rem; padding-inline: 5px; }
   .trend-intro { padding: 19px; }
 }
+/* A provider's long reason (for admins) wraps instead of running off the card. */
+.video-tile-failed > span { overflow-wrap: anywhere; }
+/* The storyboard holds whatever the frames' own size: a card never grows past its column. */
+.trend-scenes { grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); }
+.trend-scene, .trend-scene-frames { min-width: 0; }
+.trend-scene-frames > img, .trend-scene-result { max-height: 300px; }
+.trend-scene-result video, .trend-scene-result img { display: block; max-width: 100%; }

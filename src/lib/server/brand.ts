@@ -59,6 +59,9 @@ export function publicNotices(stored: string): string | undefined {
 export function describeAiError(err: unknown, provider?: ProviderId, ownKey = false): string {
   if (!maryxOnly()) return describeError(err, provider, ownKey);
   if (err instanceof NotConfiguredError) return "MARYX временно недоступен. Попробуйте позже.";
+  if (/PrivacyInformation|may contain real person/i.test(`${(err as { message?: string })?.message ?? ""} ${(err as { detail?: string })?.detail ?? ""}`)) {
+    return "Видеомодель не приняла фото с реальным человеком. Попробуйте ещё раз — MARYX возьмёт другую модель.";
+  }
   switch (statusOf(err)) {
     case 400:
     case 422:
