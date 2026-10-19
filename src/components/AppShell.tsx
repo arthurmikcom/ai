@@ -116,7 +116,7 @@ function InstallApp() {
   const [hint, setHint] = useState(false);
   if (!install) return null;
   return (
-    <div className="mx-5 mb-3">
+    <div className="mx-5 mb-3 shrink-0">
       <button
         type="button"
         onClick={() => (install === "prompt" ? void installApp() : setHint((h) => !h))}
@@ -302,7 +302,7 @@ function Sidebar({ onNavigate, onPalette, onCollapse }: { onNavigate: () => void
       </div>
       <InstallApp />
       {app.me?.plan.id === "free" && (
-        <Link href="/pricing" onClick={onNavigate} className="sidebar-upgrade mx-5 mb-5 rounded-2xl border border-violet-300/15 p-4 hover:border-violet-300/35">
+        <Link href="/pricing" onClick={onNavigate} className="sidebar-upgrade mx-5 mb-5 shrink-0 rounded-2xl border border-violet-300/15 p-4 hover:border-violet-300/35">
           <div className="flex items-center justify-between text-xs font-medium text-violet-200">
             <span className="flex items-center gap-2"><Sparkles className="size-3.5" /> MARYX Pro</span>
             <ArrowUpRight className="size-4" />
