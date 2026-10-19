@@ -1,5 +1,5 @@
 import { PROVIDERS } from "@/lib/catalog";
-import { CAMERA_MOTIONS, IMAGE_STYLES } from "@/lib/effects";
+import { CAMERA_MOTIONS, IMAGE_STYLES, VIDEO_EFFECTS } from "@/lib/effects";
 import type { AspectRatio, ChatSendRequest, GenerateRequest, InlineFile, InlineImage, ProviderId } from "@/lib/types";
 import { maryxOnly } from "./config";
 import { isDocumentMime } from "./documents";
@@ -155,7 +155,7 @@ function parsePhotos(value: unknown): InlineImage[] | string {
 
 export function parseGenerateRequest(body: unknown): GenerateRequest | string {
   if (!isObject(body)) return "Пустой запрос";
-  const { kind, provider, model, prompt, aspectRatio, images, camera, style, character } = body;
+  const { kind, provider, model, prompt, aspectRatio, images, camera, effect, duration, style, character } = body;
   if (kind !== "image" && kind !== "video") return "Неизвестный тип генерации";
   if (!isProvider(provider) || provider === "browser") return "Неизвестный провайдер";
   if (maryxOnly() && provider !== "maryx") return ONLY_MARYX;
@@ -168,6 +168,10 @@ export function parseGenerateRequest(body: unknown): GenerateRequest | string {
   if (prompt.length > 4000) return "Описание слишком длинное: до 4000 символов";
   if (typeof aspectRatio !== "string" || !ASPECT_RATIOS.has(aspectRatio)) return "Неверное соотношение сторон";
   if (camera !== undefined && (kind !== "video" || !CAMERA_MOTIONS.some((m) => m.id === camera))) return "Неизвестное движение камеры";
+  if (effect !== undefined && (kind !== "video" || !VIDEO_EFFECTS.some((e) => e.id === effect))) return "Неизвестный эффект";
+  if (duration !== undefined && (kind !== "video" || !Number.isInteger(duration) || (duration as number) < 2 || (duration as number) > 20)) {
+    return "Длительность видео — от 2 до 20 секунд";
+  }
   if (style !== undefined && (kind !== "image" || !IMAGE_STYLES.some((s) => s.id === style))) return "Неизвестный стиль";
   if (character !== undefined && (kind !== "image" || photos || typeof character !== "string" || !isValidId(character))) return "Неизвестный персонаж";
   if (character !== undefined && !prompt.trim()) return "Опишите сцену: где и кем нарисовать персонажа";
@@ -179,6 +183,8 @@ export function parseGenerateRequest(body: unknown): GenerateRequest | string {
     aspectRatio: aspectRatio as AspectRatio,
     ...(photos ? { images: photos } : {}),
     ...(typeof camera === "string" ? { camera } : {}),
+    ...(typeof effect === "string" ? { effect } : {}),
+    ...(typeof duration === "number" ? { duration } : {}),
     ...(typeof style === "string" ? { style } : {}),
     ...(typeof character === "string" ? { character } : {}),
   };

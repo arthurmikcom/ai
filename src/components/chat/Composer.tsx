@@ -587,7 +587,7 @@ export function Composer({
           // One scrolling line on phones, so the text field keeps its room.
           <div role="group" aria-label="Движение камеры" className="flex items-center gap-1.5 overflow-x-auto px-2 pb-1 sm:flex-wrap">
             <span className="mr-0.5 shrink-0 text-xs text-zinc-500">Камера:</span>
-            {CAMERA_MOTIONS.map((m) => (
+            {CAMERA_MOTIONS.filter((m) => m.featured).map((m) => (
               <button
                 key={m.id}
                 type="button"

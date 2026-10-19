@@ -1,4 +1,5 @@
 import { and, desc, eq } from "drizzle-orm";
+import { VIDEO_EFFECTS } from "@/lib/effects";
 import type { GenerateRequest, GenerateResult, MediaItem, MediaKind } from "@/lib/types";
 import type { SessionUser } from "./auth";
 import { getDb, schema } from "./db";
@@ -41,6 +42,7 @@ function toItem(row: MediaRow, admin = false): MediaItem {
     files: row.files.map((f) => ({ url: fileUrl(f.key), mime: f.mime })),
     ...(row.inputs?.length ? { inputs: row.inputs.map((f) => ({ url: fileUrl(f.key), mime: f.mime })) } : {}),
     ...(row.characterId ? { character: row.characterId } : {}),
+    ...(row.settings ?? {}),
     createdAt: row.createdAt.getTime(),
   };
 }
@@ -78,7 +80,7 @@ function costOf(row: MediaRow, reported?: number): CostEntry {
     kind: row.kind,
     provider: row.provider,
     model: row.model,
-    usd: reported ?? mediaCost(row.kind, row.model),
+    usd: reported ?? mediaCost(row.kind, row.model, row.settings?.duration),
     estimated: reported === undefined,
   };
 }
@@ -94,6 +96,7 @@ export async function createMedia(user: SessionUser, req: GenerateRequest, paid:
       kind: req.kind,
       prompt:
         req.prompt ||
+        (req.effect ? `Эффект «${VIDEO_EFFECTS.find((e) => e.id === req.effect)?.label ?? req.effect}»` : "") ||
         (inputs?.length
           ? req.kind === "image"
             ? "Естественная ретушь фото"
@@ -103,6 +106,10 @@ export async function createMedia(user: SessionUser, req: GenerateRequest, paid:
           : req.prompt),
       inputs: inputs?.length ? inputs : null,
       characterId: req.character ?? null,
+      settings:
+        req.kind === "video" && (req.camera || req.effect || req.duration)
+          ? { ...(req.camera ? { camera: req.camera } : {}), ...(req.effect ? { effect: req.effect } : {}), ...(req.duration ? { duration: req.duration } : {}) }
+          : null,
       provider: req.provider,
       model: req.model,
       aspectRatio: req.aspectRatio,

@@ -2,7 +2,7 @@
 // and the chat (a video answer) both go through here, so the gallery item, its
 // charge and MARYX's fallback models work the same in both.
 
-import { CAMERA_MOTIONS, IMAGE_STYLES, withCameraMotion, withStyle } from "@/lib/effects";
+import { CAMERA_MOTIONS, IMAGE_STYLES, VIDEO_EFFECTS, withCameraMotion, withStyle, withVideoEffect } from "@/lib/effects";
 import type { GenerateRequest, MediaItem, ModelInfo } from "@/lib/types";
 import type { SessionUser } from "./auth";
 import { describeAiError } from "./brand";
@@ -46,13 +46,14 @@ export async function startMediaJob(
 
   const call = { key: paid.key, endUser: endUserId(user.id) };
   const { admin } = opts;
-  // The model gets the full ask: the photo's instructions, the camera move or the style (the gallery keeps the user's words).
+  // The model gets the full ask: the photo's instructions, the effect, the camera move or the style (the gallery keeps the user's words).
   const words = req.character
     ? characterPrompt(withStyle(req.prompt, IMAGE_STYLES.find((s) => s.id === req.style)))
     : photos.length
       ? photoPrompt(req.kind, req.prompt, photos.length)
       : withStyle(req.prompt, IMAGE_STYLES.find((s) => s.id === req.style));
-  const ask = { ...req, prompt: withCameraMotion(words, CAMERA_MOTIONS.find((m) => m.id === req.camera)) };
+  const filmed = withVideoEffect(words, VIDEO_EFFECTS.find((e) => e.id === req.effect));
+  const ask = { ...req, prompt: withCameraMotion(filmed, CAMERA_MOTIONS.find((m) => m.id === req.camera)) };
   try {
     const attempt = await startWithFallback(ask, models, call, opts.until);
     row = await recordModel(row, attempt.model.provider, attempt.model.id);

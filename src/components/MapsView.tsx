@@ -5,6 +5,8 @@ import type * as Leaflet from "leaflet";
 import Image from "next/image";
 import { useEffect, useRef, useState, type ComponentType } from "react";
 import { api } from "@/lib/client/api";
+import { findPlaces } from "@/lib/client/places";
+import { categoriesFor } from "@/lib/places";
 import { useStoredJson } from "@/lib/client/useStored";
 import type { Place, PlaceCategory } from "@/lib/types";
 import { useApp } from "./AppState";
@@ -82,19 +84,24 @@ const IDEAS = [
   "Где вкусно поужинать?",
 ];
 
-/** Public browser token; configured at build time, never hard-coded in source. */
+/** An admin's own tiles, or Mapbox with its public token (both set at build time, never in the source). */
 const CUSTOM_TILES = process.env.NEXT_PUBLIC_MAP_TILES;
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
-const MAP_PROVIDER = CUSTOM_TILES ? "custom" : MAPBOX_TOKEN ? "mapbox" : "osm";
-const ATTRIBUTION = `${MAP_PROVIDER === "mapbox" ? '&copy; <a href="https://www.mapbox.com/about/maps/">Mapbox</a> ' : ""}&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>`;
+const MAP_PROVIDER = CUSTOM_TILES ? "custom" : MAPBOX_TOKEN ? "mapbox" : "carto";
+/** Without them: free OpenStreetMap tiles by CARTO, dark or light like the site. */
+const CARTO = {
+  dark: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+  light: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+};
+const ATTRIBUTION = `${MAP_PROVIDER === "mapbox" ? '&copy; <a href="https://www.mapbox.com/about/maps/">Mapbox</a> ' : ""}&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>${MAP_PROVIDER === "carto" ? ' &copy; <a href="https://carto.com/attributions">CARTO</a>' : ""}`;
 
 function tileUrl(): string {
+  const light = document.documentElement.dataset.theme === "light";
   if (CUSTOM_TILES) return CUSTOM_TILES;
   if (MAPBOX_TOKEN) {
-    const style = document.documentElement.dataset.theme === "light" ? "light-v11" : "dark-v11";
-    return `https://api.mapbox.com/styles/v1/mapbox/${style}/tiles/256/{z}/{x}/{y}{r}?access_token=${encodeURIComponent(MAPBOX_TOKEN)}`;
+    return `https://api.mapbox.com/styles/v1/mapbox/${light ? "light-v11" : "dark-v11"}/tiles/256/{z}/{x}/{y}{r}?access_token=${encodeURIComponent(MAPBOX_TOKEN)}`;
   }
-  return "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+  return light ? CARTO.light : CARTO.dark;
 }
 
 /** "350 м", "1,2 км". */
@@ -207,7 +214,7 @@ export function MapsView() {
     let alive = true;
     const [at, kinds] = key.split(":");
     const [lat, lon] = at.split(",");
-    api<{ places: Place[]; near: string | null }>(`/api/maps/places?lat=${lat}&lon=${lon}&categories=${kinds}`).then(
+    findPlaces(Number(lat), Number(lon), kinds.split(",") as PlaceCategory[]).then(
       (got) => alive && setResult({ key, ...got }),
       (e) => alive && setResult({ key, places: [], near: null, error: e instanceof Error ? e.message : String(e) }),
     );
@@ -361,9 +368,20 @@ export function MapsView() {
     setAsking(true);
     setError(null);
     try {
+      // The places for the question, found from here (a walk away; farther when there are few).
+      const kinds = categoriesFor(q);
+      const around = await findPlaces(point.lat, point.lon, kinds)
+        .then((r) => (r.places.length >= 3 ? r : findPlaces(point.lat, point.lon, kinds, 4000)))
+        .catch(() => null);
       const got = await api<Omit<Answer, "question"> & { categories: PlaceCategory[] }>("/api/maps/ask", {
         method: "POST",
-        body: JSON.stringify({ question: q, lat: point.lat, lon: point.lon, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+        body: JSON.stringify({
+          question: q,
+          lat: point.lat,
+          lon: point.lon,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          ...(around ? { places: around.places, near: around.near } : {}),
+        }),
       });
       setAnswer({ question: q, answer: got.answer, picks: got.picks, places: got.places, near: got.near });
       if (got.categories.length) setCategories(got.categories);

@@ -284,6 +284,8 @@ export interface GenerateRequest {
   images?: InlineImage[];
   /** Video: how the camera moves (an id of CAMERA_MOTIONS). */
   camera?: string;
+  /** Video: a visual effect (an id of VIDEO_EFFECTS). */
+  effect?: string;
   /** A new picture's look (an id of IMAGE_STYLES). */
   style?: string;
   /** «Мой персонаж»: the user's character drawn in a new scene (its photos go to the model as references). */
@@ -323,6 +325,10 @@ export interface MediaItem {
   inputs?: MediaFile[];
   /** The character it was drawn with («Мой персонаж»). */
   character?: string;
+  /** Video: how it was filmed (to show it and to do it again). */
+  camera?: string;
+  effect?: string;
+  duration?: number;
   createdAt: number;
 }
 

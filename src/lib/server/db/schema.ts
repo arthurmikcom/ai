@@ -258,6 +258,8 @@ export const media = pgTable(
     inputs: jsonb("inputs").$type<StoredFile[]>(),
     /** The character it was drawn with («Мой персонаж»), to repeat it; kept when the character is deleted. */
     characterId: text("character_id"),
+    /** Video: the camera move, effect and length it was asked with (to show them and to do it again). */
+    settings: jsonb("settings").$type<{ camera?: string; effect?: string; duration?: number }>(),
     /** How the generation is paid for (null for items made before credits existed: the plan). */
     paidBy: text("paid_by").$type<PaidBy>(),
     /** Credits held when it started (paid with credits). */

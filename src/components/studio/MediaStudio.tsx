@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent } from "react";
 import { CAMERA_MOTIONS, IMAGE_STYLES, PHOTO_EFFECTS, PHOTOSHOOT_SCENES } from "@/lib/effects";
 import { useCharacters } from "@/lib/client/characters";
+import { clearSentFrame, sentFrame } from "@/lib/client/frames";
 import { enhancePrompt, generate, removeMedia, useMediaItems } from "@/lib/client/media";
 import { useModels } from "@/lib/client/useModels";
 import { useStoredJson } from "@/lib/client/useStored";
@@ -249,6 +250,28 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
       },
       () => alive && setPhotoError("Не удалось загрузить картинку — попробуйте ещё раз."),
     );
+    return () => {
+      alive = false;
+    };
+  }, [kind]);
+
+  // A still sent from the video studio («Кадр в фото») becomes the photo to edit.
+  useEffect(() => {
+    if (kind !== "image") return;
+    const sent = sentFrame();
+    if (!sent) return;
+    let alive = true;
+    fetch(`data:${sent.mime};base64,${sent.data}`)
+      .then((r) => r.blob())
+      .then(imageToAttachment)
+      .then(
+        (photo) => {
+          if (!alive) return;
+          setPhotos([photo]);
+          clearSentFrame();
+        },
+        () => alive && setPhotoError("Не удалось открыть кадр — попробуйте ещё раз."),
+      );
     return () => {
       alive = false;
     };

@@ -1,6 +1,6 @@
 import { describeAiError } from "@/lib/server/brand";
 import { jsonError, requireUser } from "@/lib/server/http";
-import { MAPS_DOWN, pointOf, radiusOf } from "@/lib/server/maps-input";
+import { MAPS_DOWN, placesOf, pointOf, radiusOf } from "@/lib/server/maps-input";
 import { recommendPlaces } from "@/lib/server/maryx";
 import { ownKey } from "@/lib/server/own-key";
 import { categoriesFor, nearby, placeName } from "@/lib/server/places";
@@ -24,7 +24,7 @@ export async function POST(request: Request) {
   const user = await requireUser(request);
   if (user instanceof Response) return user;
   const body = (await request.json().catch(() => null)) as
-    | { question?: unknown; lat?: unknown; lon?: unknown; radius?: unknown; timezone?: unknown }
+    | { question?: unknown; lat?: unknown; lon?: unknown; radius?: unknown; timezone?: unknown; places?: unknown; near?: unknown }
     | null;
   const question = typeof body?.question === "string" ? body.question.trim() : "";
   const point = pointOf(body?.lat, body?.lon);
@@ -33,21 +33,29 @@ export async function POST(request: Request) {
   if (!point) return jsonError("Сначала выберите место на карте", 400);
   const zone = typeof body?.timezone === "string" && isTimeZone(body.timezone) ? body.timezone : "Europe/Moscow";
 
-  // The places first: when there's nothing around, there's nothing to pay for.
+  // The places first: when there's nothing around, there's nothing to pay for. The browser
+  // usually found them itself (the map's servers turn busy cloud addresses away).
   const categories = categoriesFor(question);
+  const found = body?.places === undefined ? null : placesOf(body.places);
+  if (body?.places !== undefined && !found) return jsonError("Неверный список мест", 400);
   let places: Place[];
   let near: string | null;
-  try {
-    const radius = radiusOf(body?.radius);
-    [places, near] = await Promise.all([
-      nearby(point.lat, point.lon, categories, radius).then((list) =>
-        list.length >= 3 || radius >= 4000 ? list : nearby(point.lat, point.lon, categories, 4000),
-      ),
-      placeName(point.lat, point.lon).catch(() => null),
-    ]);
-  } catch (err) {
-    console.error("[maps] ask", err);
-    return jsonError(MAPS_DOWN, 502);
+  if (found) {
+    places = found;
+    near = typeof body?.near === "string" && body.near.trim() ? body.near.trim().slice(0, 120) : await placeName(point.lat, point.lon).catch(() => null);
+  } else {
+    try {
+      const radius = radiusOf(body?.radius);
+      [places, near] = await Promise.all([
+        nearby(point.lat, point.lon, categories, radius).then((list) =>
+          list.length >= 3 || radius >= 4000 ? list : nearby(point.lat, point.lon, categories, 4000),
+        ),
+        placeName(point.lat, point.lon).catch(() => null),
+      ]);
+    } catch (err) {
+      console.error("[maps] ask", err);
+      return jsonError(MAPS_DOWN, 502);
+    }
   }
   if (!places.length) {
     return Response.json({

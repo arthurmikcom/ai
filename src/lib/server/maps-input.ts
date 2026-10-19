@@ -1,6 +1,7 @@
 // What the «Карты» routes accept: a point on the map and a search radius.
 
-import type { PlaceCategory } from "@/lib/types";
+import { MAX_PLACES } from "@/lib/places";
+import type { Place, PlaceCategory } from "@/lib/types";
 import { isPlaceCategory } from "./places";
 
 /** A point, when both numbers are real coordinates. */
@@ -25,3 +26,35 @@ export function categoriesOf(value: unknown): PlaceCategory[] {
 }
 
 export const MAPS_DOWN = "Карта сейчас не отвечает. Попробуйте через минуту.";
+
+const text = (value: unknown, max: number): string | undefined =>
+  typeof value === "string" && value.trim() ? value.trim().slice(0, max) : undefined;
+
+/**
+ * Places the browser found itself (straight from OpenStreetMap), checked:
+ * real coordinates, known kinds, short words. Null when it isn't such a list.
+ */
+export function placesOf(value: unknown): Place[] | null {
+  if (!Array.isArray(value) || value.length > MAX_PLACES) return null;
+  const places: Place[] = [];
+  for (const raw of value as Record<string, unknown>[]) {
+    if (typeof raw !== "object" || raw === null) return null;
+    const at = pointOf(raw.lat, raw.lon);
+    const id = text(raw.id, 40);
+    const name = text(raw.name, 120);
+    const distance = Number(raw.distance);
+    if (!at || !id || !name || !isPlaceCategory(raw.category) || !Number.isFinite(distance) || distance < 0 || distance > 50_000) return null;
+    const optional = { address: text(raw.address, 160), hours: text(raw.hours, 160), website: text(raw.website, 200), phone: text(raw.phone, 60) };
+    places.push({
+      id,
+      name,
+      category: raw.category,
+      kind: text(raw.kind, 80) ?? name,
+      lat: Number(raw.lat),
+      lon: Number(raw.lon),
+      distance: Math.round(distance),
+      ...Object.fromEntries(Object.entries(optional).filter(([, v]) => v !== undefined)),
+    });
+  }
+  return places;
+}
