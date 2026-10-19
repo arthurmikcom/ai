@@ -115,3 +115,16 @@ export function relativeTime(ts: number): string {
   if (diff < 30 * day) return "В этом месяце";
   return "Раньше";
 }
+
+/** Saves text as a file (a chat, a page made in the chat). */
+export function downloadFile(name: string, text: string, type: string): void {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  // Attached for the click, so every browser keeps the file name.
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}

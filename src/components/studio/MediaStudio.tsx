@@ -117,6 +117,8 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
   const [camera, setCamera] = useState<string | null>(null);
   // A new picture's look, sent along as a direction.
   const [style, setStyle] = useState<string | null>(null);
+  // Pictures: how many to make at once.
+  const [variants, setVariants] = useState(1);
   // "✨ Улучшить": the rewrite in progress, and the words before it (to go back).
   const [enhancing, setEnhancing] = useState(false);
   const [before, setBefore] = useState<string | null>(null);
@@ -234,7 +236,7 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
   // Each click queues a job; its card in the gallery shows the progress.
   const submit = () => {
     if (!canGenerate || !target) return;
-    void generate({
+    const request = {
       kind,
       ...target,
       prompt: prompt.trim(),
@@ -243,7 +245,9 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
       ...(editing ? { images: photos.map((p) => ({ mime: p.mime, data: p.data! })) } : {}),
       ...(kind === "video" && camera ? { camera } : {}),
       ...(kind === "image" && !editing && style ? { style } : {}),
-    });
+    };
+    // Several pictures at once, to pick the best (each is its own picture).
+    for (let i = 0; i < (kind === "image" ? variants : 1); i++) void generate(request);
   };
 
   const enhance = async () => {
@@ -509,6 +513,29 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
                   placeholder="или любая модель Replicate: owner/name"
                   className="min-w-0 flex-1 rounded-xl bg-black/30 px-3 py-1.5 text-xs text-zinc-200 outline-none placeholder:text-zinc-600 sm:max-w-64"
                 />
+              )}
+
+              {kind === "image" && (
+                <div
+                  role="group"
+                  aria-label="Сколько вариантов"
+                  title="Сколько вариантов сделать сразу — каждый считается отдельной картинкой"
+                  className="flex items-center rounded-xl bg-black/30 p-0.5"
+                >
+                  {[1, 2, 4].map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      aria-pressed={variants === n}
+                      onClick={() => setVariants(n)}
+                      className={`rounded-lg px-2.5 py-1 text-xs transition ${
+                        variants === n ? "bg-white/10 text-zinc-100" : "text-zinc-500 hover:text-zinc-200"
+                      }`}
+                    >
+                      ×{n}
+                    </button>
+                  ))}
+                </div>
               )}
 
               <div className="flex-1" />

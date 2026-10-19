@@ -6,11 +6,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { BROWSER_MODELS } from "@/lib/catalog";
 import { autoModel, useLocalSupport } from "@/lib/client/local-ai";
 import { useModels } from "@/lib/client/useModels";
-import { imageToAttachment, uid } from "@/lib/client/util";
+import { downloadFile, imageToAttachment, uid } from "@/lib/client/util";
 import type { Attachment, ChatMessage, SendOptions } from "@/lib/types";
 import { speak, stopSpeaking, useVoiceSupport } from "@/lib/client/voice";
 import { useApp, type ModelChoice } from "../AppState";
 import { findModel, MaryxBadge, ModelPicker } from "../ModelPicker";
+import { ArtifactContext, ArtifactPanel, artifactTitle, artifactsOf } from "./artifacts";
 import { Composer, type ComposerInject } from "./Composer";
 import { MessageView } from "./MessageView";
 import { MaryxVisual } from "../Design";
@@ -168,6 +169,35 @@ export function ChatView() {
 
   const onPick = (c: ModelChoice) => (chat ? app.setChatModel(chat.id, c) : app.setModel(c));
   const lastQuestion = chat ? chat.messages.findLastIndex((m) => m.role === "user") : -1;
+  /** The photo a question carried (what an edit answer is compared with). */
+  const photoOf = (m: ChatMessage | undefined) => {
+    const a = m?.role === "user" ? m.attachments?.find((f) => f.mime.startsWith("image/")) : undefined;
+    return a ? (a.url ?? (a.data ? `data:${a.mime};base64,${a.data}` : undefined)) : undefined;
+  };
+
+  // The Canvas: every page (game, site, picture in code) the answers made is a version.
+  const versions = useMemo(
+    () => (chat ? chat.messages.filter((m) => m.role === "assistant").flatMap((m) => artifactsOf(m.content)) : []),
+    [chat],
+  );
+  const [panel, setPanel] = useState<{ chatId: string; index: number } | null>(null);
+  const canvas = {
+    versionOf: (code: string) => versions.indexOf(code) + 1,
+    open: (code: string) => {
+      if (!chat) return;
+      const i = versions.indexOf(code);
+      setPanel({ chatId: chat.id, index: i >= 0 ? i : versions.length - 1 });
+    },
+  };
+  // A new version opens by itself once its answer is done (pages already in an opened chat don't).
+  const [seen, setSeen] = useState<{ chatId?: string; loaded: boolean; count: number }>({ loaded: false, count: 0 });
+  const loadedNow = Boolean(chat?.loaded);
+  if (seen.chatId !== chat?.id || seen.loaded !== loadedNow) {
+    setSeen({ chatId: chat?.id, loaded: loadedNow, count: versions.length });
+  } else if (versions.length !== seen.count && (!streaming || versions.length < seen.count)) {
+    setSeen({ ...seen, count: versions.length });
+    if (chat && versions.length > seen.count) setPanel({ chatId: chat.id, index: versions.length - 1 });
+  }
 
   /** The chat as a Markdown file (pictures and files as links to this site). */
   const exportChat = () => {
@@ -180,15 +210,8 @@ export function ChatView() {
         if (a.url) lines.push(`[${a.name ?? (a.mime.startsWith("image/") ? "Изображение" : "Файл")}](${new URL(a.url, location.origin).href})`, "");
       }
     }
-    const url = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${chat.title.replace(/[\\/:*?"<>|]+/g, " ").trim().slice(0, 80) || "чат"}.md`;
-    // Attached for the click, so every browser keeps the file name.
-    document.body.append(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    const name = chat.title.replace(/[\\/:*?"<>|]+/g, " ").trim().slice(0, 80) || "чат";
+    downloadFile(`${name}.md`, lines.join("\n"), "text/markdown;charset=utf-8");
   };
   /** How an answer is made again: a video as a video, a picture (also a failed or stopped one) as a picture. */
   const answerMode = (m: ChatMessage): Partial<SendOptions> =>
@@ -245,7 +268,9 @@ export function ChatView() {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <ArtifactContext.Provider value={canvas}>
+    <div className="flex h-full min-h-0">
+    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
       <header className="chat-header flex shrink-0 items-center gap-2 px-4 md:px-8">
         {only ? <MaryxBadge /> : <ModelPicker models={models} value={choice} onChange={onPick} loading={loading} />}
         <span className="ml-auto hidden items-center gap-2 text-[11px] text-zinc-500 lg:flex">Ваш личный диалог</span>
@@ -314,6 +339,7 @@ export function ChatView() {
                 streaming={streaming && i === chat.messages.length - 1}
                 onEditPicture={canChangePictures ? (src, prompt) => void editPicture(src, prompt) : undefined}
                 onAnimatePicture={canAnimatePictures ? (src) => void animatePicture(src) : undefined}
+                before={m.role === "assistant" ? photoOf(chat.messages[i - 1]) : undefined}
                 onSuggest={
                   noProviders || localBlocked
                     ? undefined
@@ -472,5 +498,24 @@ export function ChatView() {
         </p>
       </div>
     </div>
+    {chat && panel?.chatId === chat.id && versions.length > 0 && (
+      <ArtifactPanel
+        versions={versions}
+        index={Math.min(panel.index, versions.length - 1)}
+        onIndex={(index) => setPanel({ chatId: chat.id, index })}
+        onClose={() => setPanel(null)}
+        busy={streaming}
+        onAsk={
+          noProviders || localBlocked
+            ? undefined
+            : (text, version) => {
+                const title = artifactTitle(versions[version - 1] ?? "");
+                sendNow(`Доработай «${title}» (версия ${version}): ${text}`, [], {});
+              }
+        }
+      />
+    )}
+    </div>
+    </ArtifactContext.Provider>
   );
 }

@@ -4,6 +4,7 @@ import {
   Brain,
   Check,
   Clapperboard,
+  Columns2,
   ChevronDown,
   Copy,
   CornerDownRight,
@@ -20,6 +21,7 @@ import {
   WandSparkles,
 } from "lucide-react";
 import { useMediaItem } from "@/lib/client/media";
+import { BeforeAfter } from "../BeforeAfter";
 import { speak, stopSpeaking, useSpeaking, useVoiceSupport } from "@/lib/client/voice";
 import { isDocumentAttachment } from "@/lib/client/util";
 import Link from "next/link";
@@ -45,6 +47,8 @@ interface Props {
   onAnimatePicture?: (src: string) => void;
   /** The user's last question can be corrected and sent again (its answer is made anew). */
   onEdit?: (text: string) => void;
+  /** The photo this answer's picture was made from (to compare before and after). */
+  before?: string;
 }
 
 /** Correcting a sent question in place. */
@@ -102,15 +106,24 @@ function PictureActions({
   src,
   onEdit,
   onAnimate,
+  comparing,
+  onCompare,
 }: {
   src: string;
   onEdit?: (src: string, prompt?: string) => void;
   onAnimate?: (src: string) => void;
+  comparing?: boolean;
+  onCompare?: () => void;
 }) {
   const [effects, setEffects] = useState(false);
   return (
     <div className="mb-3">
       <div className="flex flex-wrap gap-2">
+        {onCompare && (
+          <button type="button" onClick={onCompare} aria-pressed={comparing} title="Сравнить с исходным фото" className={CHIP}>
+            <Columns2 className="size-3.5 text-violet-300" /> {comparing ? "Обычный вид" : "До / после"}
+          </button>
+        )}
         {onEdit && (
           <button type="button" onClick={() => onEdit(src)} title="Написать, что изменить на картинке" className={CHIP}>
             <Pencil className="size-3.5 text-violet-300" /> Изменить
@@ -254,9 +267,11 @@ export function MessageView({
   onEditPicture,
   onAnimatePicture,
   onEdit,
+  before,
 }: Props) {
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [comparing, setComparing] = useState(false);
   const speaking = useSpeaking() === message.id;
   const canSpeak = useVoiceSupport()?.speak ?? false;
 
@@ -412,7 +427,9 @@ export function MessageView({
         </div>
       )}
 
-      {message.attachments && (
+      {comparing && before && picture ? (
+        <BeforeAfter before={before} after={picture} className="mb-3 inline-block max-w-full rounded-2xl border border-white/10" />
+      ) : message.attachments && (
         <div className="mb-3 flex flex-wrap gap-3">
           {message.attachments.map((a, i) => {
             const src = a.url ?? `data:${a.mime};base64,${a.data}`;
@@ -440,8 +457,14 @@ export function MessageView({
         </div>
       )}
 
-      {!streaming && (onEditPicture || onAnimatePicture) && picture && (
-        <PictureActions src={picture} onEdit={onEditPicture} onAnimate={onAnimatePicture} />
+      {!streaming && (onEditPicture || onAnimatePicture || before) && picture && (
+        <PictureActions
+          src={picture}
+          onEdit={onEditPicture}
+          onAnimate={onAnimatePicture}
+          comparing={comparing}
+          onCompare={before ? () => setComparing((c) => !c) : undefined}
+        />
       )}
 
       {message.content && !message.mediaId && <Markdown text={message.content} />}

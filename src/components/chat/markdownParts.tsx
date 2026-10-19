@@ -1,11 +1,13 @@
 "use client";
 
 import { Check, Copy, Download, Maximize2, Minimize2, Play, RotateCcw, X } from "lucide-react";
-import { isValidElement, useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
+import { isValidElement, useContext, useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import ReactMarkdown, { type Components, type Options } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
+import { downloadFile } from "@/lib/client/util";
+import { ArtifactCard, ArtifactContext, ArtifactFrame, pageOf, runnable } from "./artifacts";
 
 /** The plain text of highlighted code (its tokens are nested elements). */
 function textOf(node: ReactNode): string {
@@ -15,17 +17,9 @@ function textOf(node: ReactNode): string {
   return "";
 }
 
-/** Code a browser can show as a page: an HTML document (a game, a site, a chart) or an SVG picture. */
-function runnable(language: string | undefined, code: string): boolean {
-  const lang = language?.toLowerCase();
-  if (lang === "html" || lang === "svg") return true;
-  return /^\s*(<!doctype html|<html[\s>]|<svg[\s>])/i.test(code);
-}
-
 /**
- * Runs an answer's HTML in an isolated frame, like Canvas or Artifacts: scripts
- * work, but the frame has no access to this site (no same-origin), can't open
- * windows, navigate the page or submit forms.
+ * Runs an answer's page in a full-screen frame (where there's no Canvas, see
+ * artifacts.tsx), with restart and download.
  */
 function CodePreview({ code, onClose }: { code: string; onClose: () => void }) {
   const [run, setRun] = useState(0);
@@ -35,20 +29,6 @@ function CodePreview({ code, onClose }: { code: string; onClose: () => void }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
-  const page = /^\s*<svg/i.test(code)
-    ? `<!doctype html><html><body style="margin:0;display:grid;place-items:center;min-height:100vh;background:#fff">${code}</body></html>`
-    : code;
-  const download = () => {
-    const url = URL.createObjectURL(new Blob([page], { type: "text/html" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "maryx.html";
-    // Attached for the click, so every browser keeps the file name.
-    document.body.append(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  };
   const button = "rounded-lg p-1.5 text-zinc-400 hover:bg-white/5 hover:text-zinc-100";
   return createPortal(
     <div
@@ -74,7 +54,7 @@ function CodePreview({ code, onClose }: { code: string; onClose: () => void }) {
             <button type="button" title="Перезапустить" aria-label="Перезапустить" onClick={() => setRun((r) => r + 1)} className={button}>
               <RotateCcw className="size-4" />
             </button>
-            <button type="button" title="Скачать .html" aria-label="Скачать" onClick={download} className={button}>
+            <button type="button" title="Скачать .html" aria-label="Скачать" onClick={() => downloadFile("maryx.html", pageOf(code), "text/html")} className={button}>
               <Download className="size-4" />
             </button>
             <button
@@ -91,14 +71,7 @@ function CodePreview({ code, onClose }: { code: string; onClose: () => void }) {
             </button>
           </div>
         </div>
-        <iframe
-          key={run}
-          title="Предпросмотр кода"
-          srcDoc={page}
-          sandbox="allow-scripts allow-modals allow-pointer-lock"
-          referrerPolicy="no-referrer"
-          className="min-h-0 w-full flex-1 bg-white"
-        />
+        <ArtifactFrame key={run} code={code} className="min-h-0 flex-1" />
       </div>
     </div>,
     document.body,
@@ -111,8 +84,9 @@ function CodeBlock(props: ComponentProps<"pre">) {
   const [running, setRunning] = useState(false);
   const code = props.children as { props?: { className?: string; children?: ReactNode } } | undefined;
   const language = /language-(\S+)/.exec(code?.props?.className ?? "")?.[1];
-  const source = textOf(code?.props?.children);
+  const source = textOf(code?.props?.children).trim();
   const canRun = runnable(language, source);
+  const canvas = useContext(ArtifactContext);
 
   const copy = async () => {
     await navigator.clipboard.writeText(ref.current?.innerText ?? "");
@@ -120,11 +94,11 @@ function CodeBlock(props: ComponentProps<"pre">) {
     setTimeout(() => setCopied(false), 1500);
   };
 
-  return (
-    <div className="my-3 overflow-hidden rounded-xl border border-white/10 bg-black/40">
+  const block = (
+    <div className={canvas && canRun ? "bg-black/40" : "my-3 overflow-hidden rounded-xl border border-white/10 bg-black/40"}>
       <div className="flex items-center gap-3 border-b border-white/10 px-3 py-1.5 text-xs text-zinc-400">
         <span className="mr-auto">{language ?? "код"}</span>
-        {canRun && (
+        {canRun && !canvas && (
           <button
             type="button"
             onClick={() => setRunning(true)}
@@ -143,6 +117,8 @@ function CodeBlock(props: ComponentProps<"pre">) {
       {running && <CodePreview code={source} onClose={() => setRunning(false)} />}
     </div>
   );
+  // In the chat, a page is a card that opens in the Canvas; its code is a click away.
+  return canvas && canRun ? <ArtifactCard code={source}>{block}</ArtifactCard> : block;
 }
 
 const components: Components = {

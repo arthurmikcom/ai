@@ -153,6 +153,21 @@ export const message = pgTable(
   (t) => [index("message_chat_seq_idx").on(t.chatId, t.seq)],
 );
 
+/** A page made in the chat (a game, a site) shared by a public link: /s/<id>. */
+export const share = pgTable(
+  "share",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    html: text("html").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [index("share_user_created_idx").on(t.userId, t.createdAt)],
+);
+
 export const assistant = pgTable(
   "assistant",
   {

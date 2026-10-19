@@ -1,9 +1,10 @@
 "use client";
 
-import { Clapperboard, Download, ImagePlus, LoaderCircle, RotateCcw, Trash2, TriangleAlert, X } from "lucide-react";
+import { Clapperboard, Columns2, Download, ImagePlus, LoaderCircle, RotateCcw, Trash2, TriangleAlert, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { providerName } from "@/lib/catalog";
+import { BeforeAfter } from "../BeforeAfter";
 import type { MediaItem } from "@/lib/types";
 
 const ASPECT_CLASS: Record<MediaItem["aspectRatio"], string> = {
@@ -40,6 +41,8 @@ export function MediaCard({ item, modelLabel, onReuse, onEdit, onAnimate, onDele
   const file = item.files[0];
   const url = file?.url;
   const [zoom, setZoom] = useState(false);
+  // An edited photo next to its source: drag to compare.
+  const [compare, setCompare] = useState(false);
   const isVideo = file?.mime.startsWith("video/") ?? item.kind === "video";
   const ext = file?.mime.split("/")[1]?.split(";")[0] ?? (isVideo ? "mp4" : "png");
 
@@ -68,7 +71,9 @@ export function MediaCard({ item, modelLabel, onReuse, onEdit, onAnimate, onDele
             )}
           </div>
         )}
-        {item.status === "succeeded" && url &&
+        {item.status === "succeeded" && url && compare && source && !isVideo ? (
+          <BeforeAfter before={source.url} after={url} fill className="absolute inset-0" />
+        ) : item.status === "succeeded" && url &&
           (isVideo ? (
             <video src={url} controls loop playsInline className="absolute inset-0 size-full object-contain" />
           ) : (
@@ -80,7 +85,7 @@ export function MediaCard({ item, modelLabel, onReuse, onEdit, onAnimate, onDele
               className="absolute inset-0 size-full cursor-zoom-in object-cover"
             />
           ))}
-        {source && (
+        {source && !compare && (
           // eslint-disable-next-line @next/next/no-img-element -- stored file or local data URL
           <img
             src={source.url}
@@ -117,6 +122,17 @@ export function MediaCard({ item, modelLabel, onReuse, onEdit, onAnimate, onDele
               className="rounded-lg p-1.5 text-zinc-400 hover:bg-white/5 hover:text-zinc-100"
             >
               <ImagePlus className="size-4" />
+            </button>
+          )}
+          {source && item.status === "succeeded" && url && !isVideo && (
+            <button
+              type="button"
+              onClick={() => setCompare((c) => !c)}
+              aria-pressed={compare}
+              title={compare ? "Обычный вид" : "Сравнить до и после"}
+              className={`rounded-lg p-1.5 hover:bg-white/5 hover:text-zinc-100 ${compare ? "text-violet-300" : "text-zinc-400"}`}
+            >
+              <Columns2 className="size-4" />
             </button>
           )}
           {onAnimate && item.status === "succeeded" && url && !isVideo && (

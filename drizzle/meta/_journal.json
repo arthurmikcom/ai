@@ -85,6 +85,13 @@
       "when": 1792366998681,
       "tag": "0011_chat_video",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1792373064369,
+      "tag": "0012_share",
+      "breakpoints": true
     }
   ]
 }

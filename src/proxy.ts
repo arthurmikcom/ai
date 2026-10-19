@@ -3,8 +3,9 @@ import { NextResponse, type NextRequest } from "next/server";
 
 // /api/health is the owner's setup check; it reports only whether settings are present.
 // The legal pages are public: payment providers and visitors read them before signing up.
-// The app manifest and icons are read by browsers (to install the app) without a session.
-const PUBLIC_PATHS = ["/login", "/api/auth", "/api/health", "/terms", "/refund", "/privacy", "/manifest.webmanifest", "/icons"];
+// The app manifest and icons are read by browsers (to install the app) without a session,
+// and pages shared by a link (/s/<id>) open for anyone who has it.
+const PUBLIC_PATHS = ["/login", "/api/auth", "/api/health", "/terms", "/refund", "/privacy", "/manifest.webmanifest", "/icons", "/s"];
 /** Called by payment providers and Vercel Cron; each route authenticates itself. */
 const MACHINE_PATHS = ["/api/billing/stripe/webhook", "/api/billing/yookassa/webhook", "/api/cron"];
 
