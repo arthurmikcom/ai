@@ -16,6 +16,7 @@ import {
   Paperclip,
   Sparkles,
   Square,
+  Telescope,
   Undo2,
   X,
 } from "lucide-react";
@@ -56,6 +57,9 @@ interface Props {
   /** Search the web while answering (models with `search`). */
   webSearch: boolean;
   onWebSearchChange: (value: boolean) => void;
+  /** Deep research (MARYX): several searches, then a report with sources. */
+  research?: boolean;
+  onResearchChange?: (value: boolean) => void;
   /** An image model is available, so the "draw" toggle can be offered. */
   canDraw: boolean;
   /** An image model edits photos: in "draw" mode, attached photos are what it edits. */
@@ -139,6 +143,8 @@ export function Composer({
   onDeepThinkingChange,
   webSearch,
   onWebSearchChange,
+  research = false,
+  onResearchChange,
   canDraw,
   canEditPhotos = false,
   imageMode,
@@ -554,7 +560,9 @@ export function Composer({
                   : canAnimate
                     ? "Опишите видео — или прикрепите фото, чтобы оживить"
                     : "Опишите видео: что происходит, атмосфера, звук…"
-                : imageMode
+                : research && !mediaMode
+                ? "О чём исследование? Например: какой электромобиль выбрать в 2026 году"
+              : imageMode
                   ? sending.length
                     ? "Что сделать с фото? Например: естественная ретушь, другой фон…"
                     : canEditPhotos
@@ -746,7 +754,23 @@ export function Composer({
             </button>
           )}
 
-          {model?.search && !mediaMode && (
+          {model?.search && !mediaMode && onResearchChange && (
+            <button
+              type="button"
+              onClick={() => onResearchChange(!research)}
+              aria-pressed={research}
+              title="Глубокое исследование: MARYX ищет по нескольким направлениям и пишет отчёт со ссылками"
+              aria-label="Исследование"
+              className={`flex items-center gap-1.5 rounded-full px-2 py-1.5 text-sm transition sm:px-3 ${
+                research ? "bg-violet-500/20 text-violet-200" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-100"
+              }`}
+            >
+              <Telescope className="size-4" />
+              <span className="hidden sm:inline">Исследование</span>
+            </button>
+          )}
+
+          {model?.search && !mediaMode && !research && (
             <button
               type="button"
               onClick={() => onWebSearchChange(!webSearch)}

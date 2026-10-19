@@ -5,7 +5,7 @@
 // for it, speaks with its own persona and remembers facts about the user.
 
 import { and, asc, eq, inArray } from "drizzle-orm";
-import type { ChatRequest, ChatUsage, ModelInfo, ProviderId } from "@/lib/types";
+import type { ChatRequest, ChatUsage, ModelInfo, ProviderId, Source } from "@/lib/types";
 import { streamChat } from "./chat";
 import { isConfigured, maryxOnly } from "./config";
 import { getDb, schema } from "./db";
@@ -196,6 +196,8 @@ export async function planRoute(input: {
   previous?: { provider?: ProviderId; model?: string; content: string };
   /** The user brings their own OpenRouter key: MARYX picks only OpenRouter models, which it pays for. */
   ownKey?: boolean;
+  /** A research report: a strong model writes it from what was found (it doesn't search itself). */
+  research?: boolean;
 }): Promise<MaryxPlan> {
   const { models } = await listModels("chat", { ownKey: input.ownKey });
   // Only server models: the browser ones run on the visitor's device, not here.
@@ -204,8 +206,8 @@ export async function planRoute(input: {
   );
   if (available.length === 0) throw new Error("MARYX не может ответить: не подключена ни одна модель.");
 
-  const search = (input.ownKey || isConfigured("openrouter")) && (input.webSearch || wantsSearch(input.text));
-  let tier: Tier = input.deepThinking ? "deep" : needsSmart(input.text, input.hasDocuments) ? "smart" : "fast";
+  const search = !input.research && (input.ownKey || isConfigured("openrouter")) && (input.webSearch || wantsSearch(input.text));
+  let tier: Tier = input.deepThinking ? "deep" : input.research || needsSmart(input.text, input.hasDocuments) ? "smart" : "fast";
   // A short follow-up ("а подробнее?", "исправь ошибку") to a strong answer or to
   // code stays on a strong model: alone it looks simple, in context it isn't.
   const prev = input.previous;
@@ -237,17 +239,24 @@ export async function planRoute(input: {
 
 /**
  * The fast model MARYX uses for its own small jobs (memory, titles,
- * suggestions). What each call costs is recorded against the user's request
- * (`meter`), with their own key when the request had one.
+ * suggestions, research searches). What each call costs is recorded against
+ * the user's request (`meter`), with their own key when the request had one.
+ * With `webSearch` it searches the web and returns the pages it read.
  */
-async function quickText(system: string, user: string, timeoutMs: number, meter: Meter): Promise<string> {
+async function quickCall(
+  system: string,
+  user: string,
+  timeoutMs: number,
+  meter: Meter,
+  opts: { webSearch?: boolean; maxTokens?: number } = {},
+): Promise<{ text: string; sources: Source[] }> {
   const ownKey = meter.paidBy === "byok" && meter.key ? meter.key : undefined;
   const plan = await planRoute({
     text: "",
     hasImages: false,
     hasDocuments: false,
     deepThinking: false,
-    webSearch: false,
+    webSearch: Boolean(opts.webSearch),
     ownKey: Boolean(ownKey),
   });
   const signal = AbortSignal.timeout(timeoutMs);
@@ -256,6 +265,7 @@ async function quickText(system: string, user: string, timeoutMs: number, meter:
   for (const model of [first, second]) {
     if (!model) break;
     let out = "";
+    const sources: Source[] = [];
     let usage: ChatUsage | undefined;
     let complete = false;
     const request: ChatRequest = {
@@ -263,20 +273,22 @@ async function quickText(system: string, user: string, timeoutMs: number, meter:
       model: model.id,
       system,
       light: true,
+      webSearch: Boolean(opts.webSearch && plan.webSearch),
       messages: [{ role: "user", content: user }],
       apiKey: model.provider === "openrouter" ? ownKey : undefined,
       endUser: endUserId(meter.userId),
       // Titles, follow-ups and memory notes are short.
-      maxTokens: model.provider === "ollama" || model.provider === "custom" ? undefined : 4000,
+      maxTokens: model.provider === "ollama" || model.provider === "custom" ? undefined : (opts.maxTokens ?? 4000),
     };
     try {
       for await (const event of streamChat(request, signal)) {
         if (event.type === "text") out += event.text;
+        else if (event.type === "source" && !sources.some((x) => x.url === event.url)) sources.push({ url: event.url, title: event.title });
         else if (event.type === "usage") usage = event.usage;
       }
       complete = true;
       // A self-hosted server without a reasoning parser leaves the model's thinking in the text.
-      return out.replace(/^[\s\S]*<\/think>/, "").trim();
+      return { text: out.replace(/^[\s\S]*<\/think>/, "").trim(), sources };
     } catch (err) {
       if (model === second || !second || signal.aborted) throw err;
     } finally {
@@ -300,8 +312,100 @@ async function quickText(system: string, user: string, timeoutMs: number, meter:
       }
     }
   }
-  return "";
+  throw new Error("MARYX не смог ответить");
 }
+
+async function quickText(system: string, user: string, timeoutMs: number, meter: Meter): Promise<string> {
+  return (await quickCall(system, user, timeoutMs, meter)).text;
+}
+
+// ---------- Deep research ----------
+
+/** What one line of research found: a short summary and the pages it read. */
+export interface Finding {
+  query: string;
+  summary: string;
+  sources: Source[];
+}
+
+const RESEARCH_PLAN =
+  "Ты планируешь веб-исследование. По вопросу пользователя составь от 3 до 5 разных поисковых запросов, которые вместе " +
+  "покроют тему: факты и цифры, свежие новости, мнения экспертов, сравнения и подводные камни. Пиши запросы на том языке, " +
+  "на котором по теме больше хороших источников. Верни только JSON-массив строк, без пояснений.";
+const RESEARCH_SEARCH =
+  "Найди в интернете самые надёжные и свежие сведения по запросу. Ответь сжато (до 250 слов): ключевые факты, цифры, " +
+  "даты и кто что утверждает, с указанием источника каждого утверждения. Если источники расходятся — так и скажи. Не выдумывай.";
+/** Research lines at most, and how long the searches may take together. */
+const RESEARCH_QUERIES = 5;
+const RESEARCH_SEARCH_MS = 75_000;
+
+/**
+ * Deep research: MARYX plans several searches for the question, runs them at
+ * once and returns what each found (the report itself is the chat's answer).
+ * `progress` tells the user each step. Searches that fail are left out.
+ */
+export async function research(question: string, meter: Meter, progress: (step: string) => void): Promise<Finding[]> {
+  progress("Составляю план исследования");
+  let queries: string[] = [];
+  try {
+    const out = await quickText(RESEARCH_PLAN, question.slice(0, 3000), 20_000, meter);
+    const parsed: unknown = JSON.parse(out.slice(out.indexOf("["), out.lastIndexOf("]") + 1));
+    if (Array.isArray(parsed)) {
+      queries = parsed
+        .filter((q): q is string => typeof q === "string" && q.trim().length > 0)
+        .map((q) => q.trim().slice(0, 200))
+        .slice(0, RESEARCH_QUERIES);
+    }
+  } catch {
+    // No plan: the question itself is searched.
+  }
+  if (queries.length === 0) queries = [question.trim().slice(0, 200)];
+  progress(`Ищу по ${queries.length} направлениям: ${queries.map((q) => `«${q}»`).join(", ")}`);
+  const findings = await Promise.all(
+    queries.map(async (query): Promise<Finding> => {
+      try {
+        const { text, sources } = await quickCall(RESEARCH_SEARCH, query, RESEARCH_SEARCH_MS, meter, { webSearch: true, maxTokens: 1500 });
+        return { query, summary: text.slice(0, 4000), sources };
+      } catch (err) {
+        console.error("[research] search failed", query, err);
+        return { query, summary: "", sources: [] };
+      }
+    }),
+  );
+  const found = findings.filter((f) => f.summary);
+  const pages = new Set(found.flatMap((f) => f.sources.map((s) => s.url))).size;
+  progress(found.length ? `Изучил ${pages} источников. Пишу отчёт` : "Свежих источников не нашлось — отвечаю по своим знаниям");
+  return found;
+}
+
+/**
+ * The research for the report's writer: every source numbered once (as the
+ * browser lists them), each line's findings citing those numbers.
+ */
+export function researchBrief(findings: Finding[]): { brief: string; sources: Source[] } {
+  const sources: Source[] = [];
+  const number = (s: Source) => {
+    let i = sources.findIndex((x) => x.url === s.url);
+    if (i < 0) i = sources.push(s) - 1;
+    return i + 1;
+  };
+  const parts = findings.map((f) => {
+    const refs = f.sources.map((s) => `[${number(s)}] ${s.title ?? s.url} — ${s.url}`).join("\n");
+    return `### Запрос: ${f.query}\n${f.summary}${refs ? `\nИсточники:\n${refs}` : ""}`;
+  });
+  if (!parts.length) return { brief: "", sources };
+  const brief = [
+    "Ниже — результаты веб-исследования по вопросу пользователя. Напиши по ним подробный отчёт:",
+    "сначала «Коротко» — главный вывод в 3–5 пунктах, затем разделы с заголовками; для сравнений — таблица.",
+    "После каждого факта ставь номер источника в квадратных скобках, например [2], по нумерации ниже.",
+    "Если источники расходятся или данных мало — скажи об этом прямо. Не выдумывай того, чего нет в результатах.",
+    "Список источников в конце не нужен: он показывается под ответом.",
+    "",
+    ...parts,
+  ].join("\n");
+  return { brief, sources };
+}
+
 
 /** How answers should look, for MARYX and for every other model in the chat. */
 export const ANSWER_STYLE = [

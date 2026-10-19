@@ -35,6 +35,8 @@ import {
   mightHaveFacts,
   maryxSystem,
   planRoute,
+  research,
+  researchBrief,
   rememberFrom,
   suggestFollowUps,
   suggestTitle,
@@ -91,6 +93,9 @@ const HISTORY_BUDGET = 60_000;
 
 /** Pictures sent again from earlier turns; older ones are mentioned in words. */
 const HISTORY_IMAGES = 4;
+
+/** What deep research's searches may cost on top of the report, held with it. */
+const RESEARCH_HOLD_USD = 0.08;
 
 /** A video answer tries MARYX's next model only this soon (starting a clip is quick; making it is in the background). */
 const VIDEO_FALLBACK_WINDOW_MS = 60_000;
@@ -522,6 +527,9 @@ export async function POST(request: Request) {
 
     // MARYX: pick the real model for this message, then speak as MARYX with its memory.
     let route: MaryxPlan | undefined;
+    // Deep research: searches run first (in the answer's stream), and the report is written from them.
+    const researching = maryx && req.research === true;
+    let researchText = "";
     // Stored facts go into every MARYX answer (regenerations too); new ones are learned from new messages.
     const memoryOn = maryx && prefs.memory;
     let facts: string[] = [];
@@ -530,6 +538,7 @@ export async function POST(request: Request) {
       const previous = recent.findLast((m) => m.role === "assistant");
       try {
         route = await planRoute({
+          research: researching,
           text: last.m.content,
           hasImages: last.images.length > 0,
           hasDocuments: loaded.some((l) => l.docs.some((d) => d.max > 0)),
@@ -595,6 +604,7 @@ export async function POST(request: Request) {
                 webSearch: plan.webSearch,
               }),
               ...omitted,
+              ...(researchText ? [researchText] : []),
             ].join("\n"),
             deepThinking: req.deepThinking,
             webSearch: plan.webSearch,
@@ -621,7 +631,14 @@ export async function POST(request: Request) {
 
     // Now the model and the input are known: hold what the answer may cost while it runs.
     const firstCall = baseRequest(candidates[0]);
-    const refused = await reserve(bill, holdOf(firstCall), { provider: firstCall.provider, model: firstCall.model });
+    const firstHold = holdOf(firstCall);
+    // Research's searches are paid on top (they're recorded as MARYX's own jobs).
+    const extra = researching ? RESEARCH_HOLD_USD : 0;
+    const refused = await reserve(
+      bill,
+      { expected: firstHold.expected + extra, most: firstHold.most + extra, least: firstHold.least + extra },
+      { provider: firstCall.provider, model: firstCall.model },
+    );
     if (refused) {
       await undoMessage();
       await refundCharge(bill);
@@ -717,6 +734,16 @@ export async function POST(request: Request) {
           send({ type: "notice", text: CUT_OFF });
         };
         try {
+          if (researching) {
+            const findings = await research(last.m.content, meter, (step) => send({ type: "progress", text: step }));
+            const found = researchBrief(findings);
+            researchText = found.brief;
+            // The report cites these numbers; the browser lists them in the same order.
+            for (const s of found.sources) {
+              sources.push(s);
+              send({ type: "source", url: s.url, title: s.title });
+            }
+          }
           for (let attempt = 0; ; ) {
             const current = candidates[attempt];
             if (plan) send({ type: "route", ...shown(provider, model), search: plan.webSearch || undefined, retry: attempt > 0 || undefined });

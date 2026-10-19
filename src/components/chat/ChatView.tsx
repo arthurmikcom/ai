@@ -43,6 +43,7 @@ export function ChatView() {
   const [deepThinking, setDeepThinking] = useState(false);
   const [imageMode, setImageMode] = useState(false);
   const [webSearch, setWebSearch] = useState(false);
+  const [research, setResearch] = useState(false);
   const [voiceMode, setVoiceMode] = useState(false);
   const voice = useVoiceSupport();
   // Dictation runs on our server when it can (works in every browser); else the browser's own.
@@ -483,6 +484,8 @@ export function ChatView() {
           onDeepThinkingChange={setDeepThinking}
           webSearch={webSearch && Boolean(current?.search)}
           onWebSearchChange={setWebSearch}
+          research={research && only && !onDevice}
+          onResearchChange={only && !onDevice ? setResearch : undefined}
           canDraw={canDraw && !onDevice}
           canEditPhotos={canEditPhotos}
           imageMode={imageMode && canDraw && !onDevice}
@@ -510,6 +513,7 @@ export function ChatView() {
               sendOptions({
                 image: drawing,
                 video: filming,
+                research: research && only && !onDevice && !drawing && !filming,
                 camera: filming ? (camera ?? undefined) : undefined,
                 style: drawing ? (style ?? undefined) : undefined,
               }),

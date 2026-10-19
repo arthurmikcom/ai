@@ -387,6 +387,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           camera: options.video ? options.camera : undefined,
           style: options.image ? options.style : undefined,
           webSearch: options.webSearch,
+          research: options.research,
           message: message && {
             id: message.id,
             content: message.content,
@@ -423,6 +424,14 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           }
           if (event.type === "suggestions") {
             patchMessage(chatId, answerId, { suggestions: event.items });
+            continue;
+          }
+          if (event.type === "progress") {
+            // A step of the work before the answer: the steps so far show as a list.
+            update(chatId, (c) => ({
+              ...c,
+              messages: c.messages.map((m) => (m.id === answerId ? { ...m, status: m.status ? `${m.status}\n${event.text}` : event.text } : m)),
+            }));
             continue;
           }
           if (event.type === "attached") {

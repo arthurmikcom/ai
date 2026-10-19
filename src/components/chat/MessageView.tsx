@@ -389,11 +389,27 @@ export function MessageView({
         <Reasoning text={message.reasoning} active={streaming && !message.content} />
       )}
 
-      {waiting && message.status && (
+      {waiting && message.status && !message.status.includes("\n") && (
         <div className="flex items-center gap-2 py-2 text-sm text-zinc-400" role="status">
           <LoaderCircle className="size-4 animate-spin text-violet-300" />
           {message.status}
         </div>
+      )}
+
+      {/* The steps of deep research: done ones ticked, the current one spinning. */}
+      {waiting && message.status?.includes("\n") && (
+        <ol role="status" aria-label="Исследование" className="space-y-2 rounded-2xl border border-violet-300/15 bg-violet-300/[0.04] p-4 text-sm">
+          {message.status.split("\n").map((step, i, steps) => (
+            <li key={i} className={`flex items-start gap-2 ${i < steps.length - 1 ? "text-zinc-500" : "text-zinc-200"}`}>
+              {i < steps.length - 1 ? (
+                <Check className="mt-0.5 size-4 shrink-0 text-violet-300" />
+              ) : (
+                <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin text-violet-300" />
+              )}
+              <span>{step}</span>
+            </li>
+          ))}
+        </ol>
       )}
 
       {waiting && !message.status && message.generating === "search" && (

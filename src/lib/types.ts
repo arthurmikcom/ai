@@ -160,6 +160,8 @@ export interface SendOptions {
   style?: string;
   /** Let the model search the web. */
   webSearch?: boolean;
+  /** Deep research: several web searches first, then a report with sources. */
+  research?: boolean;
   /** Answer with this model in the browser (see client/local-ai.ts) instead of the server. */
   local?: { model: string };
 }
@@ -182,6 +184,8 @@ export interface ChatSendRequest {
   style?: string;
   /** Let the model search the web (models with `search`). */
   webSearch?: boolean;
+  /** Deep research (MARYX): several web searches first, then a report with sources. */
+  research?: boolean;
   /** The new user message; omitted when regenerating the last answer. */
   message?: { id: string; content: string; attachments?: InlineFile[] };
   /** Id for the assistant message the server will store. */
@@ -238,6 +242,8 @@ export type ChatStreamEvent =
   | { type: "attached"; messageId: string; url: string; mime: string }
   /** A video answer started: its gallery item, which the browser follows until it's ready. */
   | { type: "media"; item: MediaItem }
+  /** A step of the work before the answer (deep research: planning, searching, writing). */
+  | { type: "progress"; text: string }
   | { type: "error"; message: string }
   | { type: "done" }
   /** Tokens and cost of the call (server-side only, never sent to the browser). */
