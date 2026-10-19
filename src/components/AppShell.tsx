@@ -453,7 +453,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <main className="app-main relative flex min-w-0 flex-1 flex-col">
         <header className="workspace-topbar">
-          <div className="workspace-breadcrumb"><span className="hidden items-center gap-2 md:flex"><LockKeyhole size={12} />Личное пространство<ChevronRight size={13} /></span><Link href="/" className="flex items-center gap-2 md:hidden"><BrandMark className="!size-7 !rounded-lg" /><BrandName className="!text-base" /></Link><strong className="hidden md:block">{NAV.find(n => n.href === pathname)?.label || "MARYX Ai"}</strong></div>
+          <div className="workspace-breadcrumb"><span className="hidden items-center gap-2 md:flex"><LockKeyhole size={12} />Личное пространство<ChevronRight size={13} /></span><Link href="/" className="flex items-center gap-2 md:hidden"><BrandMark className="!size-7 !rounded-lg" /><BrandName className="!text-base" /></Link><strong className="hidden md:block">{NAV.find(n => n.href === pathname || (n.href !== "/" && pathname.startsWith(`${n.href}/`)))?.label || "MARYX Ai"}</strong></div>
         <div className="workspace-topbar-actions">
           {me?.plan.id === "free" && <Link href="/pricing" className="workspace-plan-link"><Sparkles size={13} /><span>Возможности Pro</span></Link>}
         <button

@@ -1899,8 +1899,8 @@ a.vs-reel-button { text-decoration: none; }
 .plugins-installed, .plugins-category { display: grid; gap: 12px; }
 .plugins-installed h2, .plugins-category h2 { color: var(--color-zinc-100); font-size: 15px; font-weight: 600; }
 .plugins-installed ul { display: flex; flex-wrap: wrap; gap: 10px; }
-.plugins-installed button { border-radius: 14px; transition: transform 160ms; }
-.plugins-installed button:hover { transform: translateY(-2px); }
+.plugins-installed a { display: block; border-radius: 14px; transition: transform 160ms; }
+.plugins-installed a:hover { transform: translateY(-2px); }
 .plugins-category ul { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 28px; }
 .plugin-row { display: flex; align-items: center; gap: 12px; padding: 8px 6px; border-radius: 14px; }
 .plugin-row:hover { background: color-mix(in oklab, var(--surface) 70%, transparent); }
@@ -1923,18 +1923,51 @@ a.vs-reel-button { text-decoration: none; }
 .plugin-icon[data-plugin="github"] { background: linear-gradient(140deg, #3a3f47, #0d1117); }
 .plugins-empty, .plugins-note { color: var(--color-zinc-500); font-size: 13px; line-height: 1.6; }
 .plugins-note { max-width: 720px; padding-top: 8px; border-top: 1px solid var(--line); }
-.plugin-dialog-backdrop { position: fixed; z-index: 60; inset: 0; display: grid; place-items: center; padding: 16px; background: #05030ccc; backdrop-filter: blur(6px); }
-.plugin-dialog { position: relative; display: grid; gap: 14px; width: min(480px, 100%); max-height: calc(100dvh - 32px); overflow-y: auto; padding: 24px; border: 1px solid var(--line-strong); border-radius: 24px; background: var(--surface); box-shadow: 0 24px 80px #0008; }
-.plugin-dialog-close { position: absolute; top: 14px; right: 14px; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 999px; color: var(--color-zinc-400); }
-.plugin-dialog-close:hover { background: var(--bg); color: var(--color-zinc-100); }
-.plugin-dialog-head { display: flex; align-items: center; gap: 14px; padding-right: 36px; }
-.plugin-dialog-head h2 { color: var(--color-zinc-50); font-size: 19px; font-weight: 600; }
-.plugin-dialog-head p { margin-top: 2px; color: var(--color-zinc-400); font-size: 13px; }
-.plugin-dialog h3 { color: var(--color-zinc-300); font-size: 12.5px; font-weight: 500; }
-.plugin-examples { display: grid; gap: 6px; }
-.plugin-examples button { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--color-zinc-200); font-size: 13px; text-align: left; }
-.plugin-examples button:hover:not(:disabled) { border-color: color-mix(in oklab, var(--color-violet-300) 45%, transparent); }
-.plugin-examples button:disabled { opacity: .55; }
-.plugin-dialog-source { color: var(--color-zinc-500); font-size: 12px; line-height: 1.55; }
-.plugin-dialog-source a { color: var(--color-violet-300); text-decoration: underline; text-underline-offset: 3px; }
 @media (max-width: 760px) { .plugins-category ul { grid-template-columns: 1fr; } }
+
+/* A plugin's own page (like ChatGPT's). */
+.page-content.plugin-page, .workspace-content .page-content.plugin-page { display: grid; gap: 24px; max-width: 800px; }
+.plugin-crumbs { display: flex; align-items: center; gap: 6px; color: var(--color-zinc-500); font-size: 13px; }
+.plugin-crumbs a:hover { color: var(--color-zinc-200); }
+.plugin-crumbs [aria-current] { color: var(--color-zinc-200); }
+.plugin-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: end; gap: 16px; }
+.plugin-head-name h1 { color: var(--color-zinc-50); font-size: 24px; font-weight: 600; letter-spacing: -.02em; }
+.plugin-head-name p { margin-top: 2px; color: var(--color-zinc-400); font-size: 13px; }
+.plugin-head-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.plugin-manage, .plugin-try { display: inline-flex; align-items: center; gap: 7px; min-height: 38px; padding: 0 16px; border-radius: 999px; font-size: 13.5px; font-weight: 500; transition: background 160ms, border-color 160ms, opacity 160ms; }
+.plugin-manage { border: 1px solid var(--line-strong); color: var(--color-zinc-100); }
+.plugin-manage:hover:not(:disabled) { border-color: color-mix(in oklab, var(--color-violet-300) 55%, transparent); }
+.plugin-manage[data-on] { border-color: transparent; background: color-mix(in oklab, var(--color-violet-500) 22%, transparent); color: var(--color-violet-100); }
+.plugin-try { background: #f6f3ff; color: #120b24; }
+.plugin-try:hover:not(:disabled) { background: #fff; }
+.plugin-manage:disabled, .plugin-try:disabled { opacity: .55; }
+.plugin-showcase { display: grid; gap: 10px; padding: clamp(18px, 4vw, 34px) clamp(14px, 6vw, 64px); border: 1px solid var(--line); border-radius: 26px; background: radial-gradient(ellipse at 15% 0%, #8a5cff66, transparent 60%), radial-gradient(ellipse at 100% 100%, #2f7bff55, transparent 55%), linear-gradient(140deg, #1b1240, #0b1630); }
+.plugin-showcase[data-plugin="weather"] { background: radial-gradient(ellipse at 10% 0%, #ff9f4388, transparent 60%), radial-gradient(ellipse at 100% 100%, #5aa7ff55, transparent 55%), linear-gradient(140deg, #2a1636, #10203a); }
+.plugin-showcase[data-plugin="currency"], .plugin-showcase[data-plugin="crypto"] { background: radial-gradient(ellipse at 10% 0%, #34d39977, transparent 60%), radial-gradient(ellipse at 100% 100%, #f2b23455, transparent 55%), linear-gradient(140deg, #0f2a26, #1d1735); }
+.plugin-showcase[data-plugin="github"] { background: radial-gradient(ellipse at 10% 0%, #7c5cff66, transparent 60%), radial-gradient(ellipse at 100% 100%, #3b82f655, transparent 55%), linear-gradient(140deg, #161b26, #0d1117); }
+.plugin-prompt { display: flex; align-items: center; justify-content: space-between; gap: 14px; width: 100%; padding: 13px 14px 13px 16px; border: 1px solid #ffffff1a; border-radius: 16px; background: #0a0716d9; color: #f1edff; font-size: 14px; line-height: 1.5; text-align: left; backdrop-filter: blur(10px); transition: transform 160ms, border-color 160ms; }
+.plugin-prompt:hover:not(:disabled) { transform: translateY(-1px); border-color: #ffffff3a; }
+.plugin-prompt-chip { display: inline-flex; align-items: center; gap: 5px; margin-right: 4px; color: #a99fc8; }
+.plugin-prompt-chip .plugin-icon { border-radius: 5px; box-shadow: none; }
+.plugin-prompt-go { display: grid; flex-shrink: 0; place-items: center; width: 28px; height: 28px; border-radius: 999px; background: #ffffff14; }
+.plugin-about { color: var(--color-zinc-300); font-size: 14.5px; line-height: 1.65; }
+.plugin-section { display: grid; gap: 4px; }
+.plugin-section h2 { display: flex; align-items: baseline; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--line); color: var(--color-zinc-50); font-size: 17px; font-weight: 600; }
+.plugin-section h2 span { color: var(--color-zinc-500); font-size: 14px; font-weight: 400; }
+.plugin-features li { display: flex; align-items: center; gap: 12px; padding: 12px 2px; }
+.plugin-features li + li { border-top: 1px solid color-mix(in oklab, var(--line) 60%, transparent); }
+.plugin-features strong { display: block; color: var(--color-zinc-100); font-size: 14px; font-weight: 500; }
+.plugin-features small { color: var(--color-zinc-500); font-size: 12.5px; }
+.plugin-info > div { display: grid; grid-template-columns: minmax(120px, 190px) minmax(0, 1fr); gap: 12px; padding: 11px 2px; }
+.plugin-info > div + div { border-top: 1px solid color-mix(in oklab, var(--line) 60%, transparent); }
+.plugin-info dt { color: var(--color-zinc-500); font-size: 13.5px; }
+.plugin-info dd { color: var(--color-zinc-100); font-size: 13.5px; line-height: 1.5; }
+.plugin-info a { color: var(--color-violet-300); text-decoration: underline; text-underline-offset: 3px; }
+.plugin-remove { display: inline-flex; justify-self: start; align-items: center; gap: 6px; padding: 8px 14px; border: 1px solid color-mix(in oklab, #f87171 45%, transparent); border-radius: 999px; color: #fca5a5; font-size: 13px; }
+.plugin-remove:hover:not(:disabled) { background: color-mix(in oklab, #f87171 12%, transparent); }
+@media (max-width: 640px) {
+  .plugin-head { grid-template-columns: auto minmax(0, 1fr); align-items: center; }
+  .plugin-head-actions { grid-column: 1 / -1; }
+  .plugin-head-actions > button { flex: 1; justify-content: center; }
+  .plugin-info > div { grid-template-columns: 1fr; gap: 2px; }
+}
