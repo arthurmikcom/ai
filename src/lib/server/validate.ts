@@ -155,7 +155,7 @@ function parsePhotos(value: unknown): InlineImage[] | string {
 
 export function parseGenerateRequest(body: unknown): GenerateRequest | string {
   if (!isObject(body)) return "Пустой запрос";
-  const { kind, provider, model, prompt, aspectRatio, images, camera, effect, duration, style, character } = body;
+  const { kind, provider, model, prompt, aspectRatio, images, camera, effect, duration, style, character, recast, consent } = body;
   if (kind !== "image" && kind !== "video") return "Неизвестный тип генерации";
   if (!isProvider(provider) || provider === "browser") return "Неизвестный провайдер";
   if (maryxOnly() && provider !== "maryx") return ONLY_MARYX;
@@ -173,8 +173,13 @@ export function parseGenerateRequest(body: unknown): GenerateRequest | string {
     return "Длительность видео — от 2 до 20 секунд";
   }
   if (style !== undefined && (kind !== "image" || !IMAGE_STYLES.some((s) => s.id === style))) return "Неизвестный стиль";
-  if (character !== undefined && (kind !== "image" || photos || typeof character !== "string" || !isValidId(character))) return "Неизвестный персонаж";
-  if (character !== undefined && !prompt.trim()) return "Опишите сцену: где и кем нарисовать персонажа";
+  if (recast !== undefined) {
+    // A frame of a video, and who takes the main person's place: a saved character or a second photo.
+    if (recast !== true || kind !== "image" || !photos || photos.length !== (character === undefined ? 2 : 1)) return "Нужен кадр из видео и фото персонажа";
+    if (consent !== true) return "Подтвердите, что на фото вы или человек, который разрешил использовать своё лицо";
+  }
+  if (character !== undefined && (kind !== "image" || (photos && recast !== true) || typeof character !== "string" || !isValidId(character))) return "Неизвестный персонаж";
+  if (character !== undefined && !recast && !prompt.trim()) return "Опишите сцену: где и кем нарисовать персонажа";
   return {
     kind,
     provider,
@@ -187,6 +192,7 @@ export function parseGenerateRequest(body: unknown): GenerateRequest | string {
     ...(typeof duration === "number" ? { duration } : {}),
     ...(typeof style === "string" ? { style } : {}),
     ...(typeof character === "string" ? { character } : {}),
+    ...(recast === true ? { recast: true, consent: true } : {}),
   };
 }
 

@@ -168,3 +168,28 @@ export function useMediaItems(kind: MediaKind): MediaItem[] {
     () => EMPTY,
   );
 }
+
+/** Starts a generation and gives back its gallery item (a chain waits on it: a frame, then its clip). */
+export async function generateItem(req: GenerateRequest): Promise<MediaItem> {
+  const item = await api<MediaItem>("/api/generate", { method: "POST", body: JSON.stringify(req) });
+  put(item);
+  return item;
+}
+
+/** The item once it's done (succeeded or failed), followed by the poller meanwhile; gone: an error. */
+export function whenDone(id: string): Promise<MediaItem> {
+  return new Promise((resolve, reject) => {
+    const check = () => {
+      const item = items.get(id);
+      if (item?.status === "pending") return false;
+      listeners.delete(check);
+      if (item) resolve(item);
+      else reject(new Error("Удалено"));
+      return true;
+    };
+    if (!check()) {
+      listeners.add(check);
+      startPolling();
+    }
+  });
+}

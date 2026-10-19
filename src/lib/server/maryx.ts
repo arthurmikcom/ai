@@ -5,7 +5,7 @@
 // for it, speaks with its own persona and remembers facts about the user.
 
 import { and, asc, eq, inArray } from "drizzle-orm";
-import type { ChatRequest, ChatUsage, ModelInfo, Place, ProviderId, Source } from "@/lib/types";
+import type { ChatRequest, ChatUsage, InlineImage, ModelInfo, Place, ProviderId, Source } from "@/lib/types";
 import { streamChat } from "./chat";
 import { isConfigured, maryxOnly } from "./config";
 import { getDb, schema } from "./db";
@@ -276,7 +276,7 @@ async function callModels(
   user: string,
   timeoutMs: number,
   meter: Meter,
-  opts: { webSearch?: boolean; maxTokens?: number; light?: boolean },
+  opts: { webSearch?: boolean; maxTokens?: number; light?: boolean; images?: InlineImage[] },
 ): Promise<{ text: string; sources: Source[]; model: ModelInfo }> {
   const ownKey = meter.paidBy === "byok" && meter.key ? meter.key : undefined;
   const signal = AbortSignal.timeout(timeoutMs);
@@ -291,7 +291,7 @@ async function callModels(
       system,
       light: opts.light,
       webSearch: Boolean(opts.webSearch),
-      messages: [{ role: "user", content: user }],
+      messages: [{ role: "user", content: user, ...(opts.images?.length ? { attachments: opts.images } : {}) }],
       apiKey: model.provider === "openrouter" ? ownKey : undefined,
       endUser: endUserId(meter.userId),
       // Titles, follow-ups and memory notes are short.
@@ -800,6 +800,68 @@ export async function recommendPlaces(
     // Not JSON after all: the words are still an answer.
     return { answer: text.replace(/```\w*/g, "").trim(), picks: [] };
   }
+}
+
+// ---------- «Тренд» ----------
+
+/** One scene of a trend video, as MARYX reads it. */
+export interface TrendShot {
+  /** 2–4 words in Russian, for the storyboard. */
+  title: string;
+  /** What happens, one sentence in Russian. */
+  action: string;
+  /** What the video model is told (English). */
+  prompt: string;
+}
+
+const TREND_SYSTEM =
+  "Ты — режиссёр монтажа MARYX. Тебе дают кадры из сцен короткого трендового видео (по одному кадру на сцену, по порядку, " +
+  "с длительностью каждой сцены). Пользователь хочет повторить этот тренд со своим персонажем: персонаж займёт место главного " +
+  "человека в каждой сцене. Для каждой сцены напиши: title — 2–4 слова по-русски; action — что происходит, одно предложение " +
+  "по-русски; prompt — по-английски, для видеомодели, которая оживит кадр: что делает главный человек (движения тела, жесты, " +
+  "танец, походка, мимика), как движется камера (селфи на вытянутой руке, общий план, крупный план, проход к камере), темп и " +
+  "атмосфера, 1–3 предложения. Внешность лица не описывай — её даст фото персонажа. Также style — общая атмосфера ролика " +
+  "по-русски, одной фразой. Если в видео есть обнажённость, сексуальный контент, насилие или дети — не разбирай его, верни " +
+  '{"refuse": "причина по-русски"}. Ответь строго JSON без блока кода: {"style": "...", "shots": [{"title": "...", "action": "...", "prompt": "..."}]}';
+
+/**
+ * «Тренд»: MARYX looks at one frame of each scene of someone's video and
+ * writes what happens in it, for the user's character to repeat.
+ */
+export async function analyzeTrend(
+  shots: { seconds: number; frame: InlineImage }[],
+  meter: Meter,
+): Promise<{ refuse: string } | { style: string; shots: TrendShot[] }> {
+  const plan = await planRoute({
+    text: "",
+    hasImages: true,
+    hasDocuments: false,
+    deepThinking: false,
+    webSearch: false,
+    ownKey: meter.paidBy === "byok" && Boolean(meter.key),
+  });
+  const ask = shots.map((s, i) => `Сцена ${i + 1}: ${s.seconds.toFixed(1)} с (кадр ${i + 1})`).join("\n");
+  const { text } = await callModels([plan.model, ...plan.fallbacks].slice(0, 2), TREND_SYSTEM, ask, 90_000, meter, {
+    maxTokens: 2500,
+    images: shots.map((s) => s.frame),
+  });
+  const json = /\{[\s\S]*\}/.exec(text)?.[0];
+  let parsed: { refuse?: unknown; style?: unknown; shots?: unknown };
+  try {
+    parsed = JSON.parse(json ?? "");
+  } catch {
+    throw new Error("MARYX не смог разобрать видео. Попробуйте ещё раз.");
+  }
+  if (typeof parsed.refuse === "string" && parsed.refuse.trim()) return { refuse: parsed.refuse.trim().slice(0, 300) };
+  const list = Array.isArray(parsed.shots) ? (parsed.shots as Record<string, unknown>[]) : [];
+  const words = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+  const read = shots.map((_, i) => ({
+    title: words(list[i]?.title, 60) || `Сцена ${i + 1}`,
+    action: words(list[i]?.action, 300),
+    prompt: words(list[i]?.prompt, 1200),
+  }));
+  if (read.every((s) => !s.prompt)) throw new Error("MARYX не смог разобрать видео. Попробуйте ещё раз.");
+  return { style: words(parsed.style, 200), shots: read.map((s) => ({ ...s, prompt: s.prompt || s.action })) };
 }
 
 /** What «Холст для текстов» can do with a document or its selected part, in one click. */

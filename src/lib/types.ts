@@ -290,6 +290,13 @@ export interface GenerateRequest {
   style?: string;
   /** «Мой персонаж»: the user's character drawn in a new scene (its photos go to the model as references). */
   character?: string;
+  /**
+   * «Тренд»: the first photo is a frame of someone's video; the main person in it
+   * becomes the user's character (a saved one, or the second photo).
+   */
+  recast?: boolean;
+  /** The user confirmed the face is theirs, or used with the person's permission (a recast). */
+  consent?: boolean;
 }
 
 export type MediaOutput =

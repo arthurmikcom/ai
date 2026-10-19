@@ -97,6 +97,7 @@ export async function createMedia(user: SessionUser, req: GenerateRequest, paid:
       prompt:
         req.prompt ||
         (req.effect ? `Эффект «${VIDEO_EFFECTS.find((e) => e.id === req.effect)?.label ?? req.effect}»` : "") ||
+        (req.recast ? "Кадр тренда с персонажем" : "") ||
         (inputs?.length
           ? req.kind === "image"
             ? "Естественная ретушь фото"

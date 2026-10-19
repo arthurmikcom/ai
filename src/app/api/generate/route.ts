@@ -37,7 +37,8 @@ export async function POST(request: Request) {
   if (req.character) {
     const references = await characterPhotos(user.id, req.character);
     if (!references) return jsonError("Персонаж не найден — добавьте его заново.", 404);
-    req = { ...req, images: references };
+    // A recast keeps the video's frame first: the character takes the main person's place in it.
+    req = { ...req, images: req.recast ? [...(req.images ?? []), ...references] : references };
   }
   const photos = req.images ?? [];
   // Video with two photos: a clip from the first to the second.

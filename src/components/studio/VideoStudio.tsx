@@ -15,6 +15,7 @@ import {
   Sparkles,
   Type,
   Undo2,
+  UserRound,
   WandSparkles,
   X,
 } from "@/components/MaryxIcons";
@@ -29,16 +30,18 @@ import { useApp, type ModelChoice } from "../AppState";
 import { PageHeading } from "../Design";
 import { findModel, MaryxBadge, ModelPicker } from "../ModelPicker";
 import { PresetArt } from "./PresetArt";
+import { TrendStudio } from "./TrendStudio";
 import { PromptGallery } from "./PromptGallery";
 import { VideoGallery } from "./VideoGallery";
 
-type Mode = "text" | "photo" | "frames" | "effects";
+type Mode = "text" | "photo" | "frames" | "effects" | "trend";
 
 const MODES: { id: Mode; label: string; Icon: typeof Type; hint: string }[] = [
   { id: "text", label: "Текст в видео", Icon: Type, hint: "Опишите сцену — MARYX снимет её" },
   { id: "photo", label: "Оживить фото", Icon: ImagePlus, hint: "Ваше фото станет первым кадром" },
   { id: "frames", label: "Начало и конец", Icon: Columns2, hint: "Плавный переход от первого кадра ко второму" },
   { id: "effects", label: "Эффекты", Icon: WandSparkles, hint: "Взрыв, левитация, портал — в один клик" },
+  { id: "trend", label: "Тренд", Icon: UserRound, hint: "Повторите трендовое видео со своим персонажем" },
 ];
 
 const RATIOS: AspectRatio[] = ["16:9", "9:16"];
@@ -55,6 +58,7 @@ const IDEAS: Record<Mode, string[]> = {
   photo: ["Улыбается и смотрит в камеру", "Лёгкий ветер, волосы и одежда развеваются", "Поворачивает голову и подмигивает", "Вокруг появляются волшебные искры"],
   frames: ["Плавное превращение одного в другое", "Камера пролетает от первого кадра ко второму", "День сменяется ночью", "Время ускоряется, всё меняется вокруг"],
   effects: [],
+  trend: [],
 };
 
 const PLACEHOLDER: Record<Mode, string> = {
@@ -62,9 +66,10 @@ const PLACEHOLDER: Record<Mode, string> = {
   photo: "Что происходит на фото? Например: улыбается и машет рукой, ветер в волосах. Можно оставить пустым",
   frames: "Что происходит между кадрами? Например: день сменяется ночью. Можно оставить пустым",
   effects: "Кто или что в кадре? Например: девушка в красном платье на крыше. С фото можно оставить пустым",
+  trend: "",
 };
 
-const BUTTON: Record<Mode, string> = { text: "Создать видео", photo: "Оживить", frames: "Создать переход", effects: "Применить эффект" };
+const BUTTON: Record<Mode, string> = { text: "Создать видео", photo: "Оживить", frames: "Создать переход", effects: "Применить эффект", trend: "" };
 
 /** The image studio hands a picture here ("Оживить" on a card): it becomes the first frame. */
 const ANIMATE_KEY = "maryx:animate";
@@ -454,6 +459,29 @@ export function VideoStudio() {
     toPanel();
   };
 
+  // The kinds of video, at the top of the panel (the trend has its own panel).
+  const tabs = (
+    <div role="tablist" aria-label="Что снимаем" className="vs-modes">
+      {MODES.map(({ id, label, Icon, hint }) => {
+        const off = (id === "photo" && !photoOk) || (id === "frames" && !lastFrameOk);
+        return (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={mode === id}
+            disabled={off}
+            title={off ? "Подключённые модели этого пока не умеют" : hint}
+            onClick={() => switchMode(id)}
+          >
+            <Icon size={17} />
+            <span>{label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+
   const chosenCamera = CAMERA_MOTIONS.find((m) => m.id === camera);
   const chosenEffect = VIDEO_EFFECTS.find((e) => e.id === effect);
   const featured = CAMERA_MOTIONS.filter((m) => m.featured);
@@ -491,28 +519,12 @@ export function VideoStudio() {
               <p className="text-zinc-400">Эта функция скоро появится.</p>
             )}
           </div>
+        ) : mode === "trend" ? (
+          <TrendStudio tabs={tabs} />
         ) : (
           <div className="video-studio">
             <div ref={panel} className="vs-panel composer-panel" aria-label="Создать видео">
-              <div role="tablist" aria-label="Что снимаем" className="vs-modes">
-                {MODES.map(({ id, label, Icon, hint }) => {
-                  const off = (id === "photo" && !photoOk) || (id === "frames" && !lastFrameOk);
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      role="tab"
-                      aria-selected={mode === id}
-                      disabled={off}
-                      title={off ? "Подключённые модели этого пока не умеют" : hint}
-                      onClick={() => switchMode(id)}
-                    >
-                      <Icon size={17} />
-                      <span>{label}</span>
-                    </button>
-                  );
-                })}
-              </div>
+              {tabs}
 
               {mode !== "text" && (mode !== "effects" || photoOk) && (
                 <div className={mode === "frames" ? "vs-frames" : ""}>

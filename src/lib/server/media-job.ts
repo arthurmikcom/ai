@@ -6,7 +6,7 @@ import { CAMERA_MOTIONS, IMAGE_STYLES, VIDEO_EFFECTS, withCameraMotion, withStyl
 import type { GenerateRequest, MediaItem, ModelInfo } from "@/lib/types";
 import type { SessionUser } from "./auth";
 import { describeAiError } from "./brand";
-import { characterPrompt, failureDetail, photoPrompt, startWithFallback } from "./chat/image";
+import { characterPrompt, failureDetail, photoPrompt, recastPrompt, startWithFallback } from "./chat/image";
 import type { StoredFile } from "./db/schema";
 import { applyResult, createMedia, recordModel } from "./gallery";
 import { endUserId } from "./own-key";
@@ -26,8 +26,8 @@ export async function startMediaJob(
   models: ModelInfo[],
   opts: { until: number; admin: boolean },
 ): Promise<MediaItem> {
-  // A character's photos are already stored with the character.
-  const photos = req.character ? [] : (req.images ?? []);
+  // A character's photos are already stored with the character (a recast keeps only the video's frame).
+  const photos = req.character ? (req.recast ? (req.images ?? []).slice(0, 1) : []) : (req.images ?? []);
   // The photos are kept with the item (shown as its source, deleted with it).
   const inputs: StoredFile[] = [];
   let row;
@@ -47,7 +47,9 @@ export async function startMediaJob(
   const call = { key: paid.key, endUser: endUserId(user.id) };
   const { admin } = opts;
   // The model gets the full ask: the photo's instructions, the effect, the camera move or the style (the gallery keeps the user's words).
-  const words = req.character
+  const words = req.recast
+    ? recastPrompt(req.prompt)
+    : req.character
     ? characterPrompt(withStyle(req.prompt, IMAGE_STYLES.find((s) => s.id === req.style)))
     : photos.length
       ? photoPrompt(req.kind, req.prompt, photos.length)

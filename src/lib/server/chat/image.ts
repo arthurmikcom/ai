@@ -117,6 +117,20 @@ export function characterPrompt(scene: string): string {
 }
 
 /**
+ * «Тренд»: the first picture is a frame of someone's video; the main person in
+ * it becomes the person of the other pictures, everything else stays.
+ */
+export function recastPrompt(text: string): string {
+  return (
+    "The first image is a frame from a video. Replace the main person in it with the person shown in the other images " +
+    "(they all show the same person). Keep everything else from the first image exactly: framing, camera angle, pose, " +
+    "gesture and body position, clothing, background, cars and objects, lighting, colors and mood. The face, hair, skin " +
+    "tone and build must be unmistakably the person from the other images, as an adult, natural and photorealistic, as " +
+    `if they had been filmed in this scene. ${text.trim() ? `Also: ${text.trim()}` : ""}`
+  ).trim();
+}
+
+/**
  * What the video model is told for a clip between two frames: it starts
  * exactly on the first photo and ends exactly on the second.
  */
