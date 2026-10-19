@@ -27,7 +27,7 @@ export async function startMediaJob(
   opts: { until: number; admin: boolean },
 ): Promise<MediaItem> {
   // A character's photos are already stored with the character (a recast keeps only the video's frame).
-  const photos = req.character ? (req.recast ? (req.images ?? []).slice(0, 1) : []) : (req.images ?? []);
+  const photos = req.recast ? (req.images ?? []).slice(0, 1) : req.character ? [] : (req.images ?? []);
   // The photos are kept with the item (shown as its source, deleted with it).
   const inputs: StoredFile[] = [];
   let row;
@@ -48,7 +48,7 @@ export async function startMediaJob(
   const { admin } = opts;
   // The model gets the full ask: the photo's instructions, the effect, the camera move or the style (the gallery keeps the user's words).
   const words = req.recast
-    ? recastPrompt(req.prompt)
+    ? recastPrompt(req.prompt, req.castPlan)
     : req.character
     ? characterPrompt(withStyle(req.prompt, IMAGE_STYLES.find((s) => s.id === req.style)))
     : photos.length

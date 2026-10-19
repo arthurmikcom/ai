@@ -155,7 +155,7 @@ function parsePhotos(value: unknown): InlineImage[] | string {
 
 export function parseGenerateRequest(body: unknown): GenerateRequest | string {
   if (!isObject(body)) return "Пустой запрос";
-  const { kind, provider, model, prompt, aspectRatio, images, camera, effect, duration, style, character, recast, consent } = body;
+  const { kind, provider, model, prompt, aspectRatio, images, camera, effect, duration, style, character, recast, consent, cast } = body;
   if (kind !== "image" && kind !== "video") return "Неизвестный тип генерации";
   if (!isProvider(provider) || provider === "browser") return "Неизвестный провайдер";
   if (maryxOnly() && provider !== "maryx") return ONLY_MARYX;
@@ -173,9 +173,21 @@ export function parseGenerateRequest(body: unknown): GenerateRequest | string {
     return "Длительность видео — от 2 до 20 секунд";
   }
   if (style !== undefined && (kind !== "image" || !IMAGE_STYLES.some((s) => s.id === style))) return "Неизвестный стиль";
+  // Several people of a trend recast at once: who becomes whom (a saved character, or the next photo).
+  let roles: { who: string; character?: string }[] | undefined;
+  if (cast !== undefined) {
+    if (recast !== true || character !== undefined || !Array.isArray(cast) || cast.length < 1 || cast.length > 3) return "Неверный выбор персонажей";
+    roles = [];
+    for (const role of cast as unknown[]) {
+      if (!isObject(role) || typeof role.who !== "string" || !role.who.trim() || role.who.length > 120) return "Неверный выбор персонажей";
+      if (role.character !== undefined && (typeof role.character !== "string" || !isValidId(role.character))) return "Неизвестный персонаж";
+      roles.push({ who: role.who.trim(), ...(typeof role.character === "string" ? { character: role.character } : {}) });
+    }
+  }
   if (recast !== undefined) {
-    // A frame of a video, and who takes the main person's place: a saved character or a second photo.
-    if (recast !== true || kind !== "image" || !photos || photos.length !== (character === undefined ? 2 : 1)) return "Нужен кадр из видео и фото персонажа";
+    // A frame of a video, and who takes the people's places: saved characters or photos after the frame.
+    const needed = roles ? 1 + roles.filter((r) => !r.character).length : character === undefined ? 2 : 1;
+    if (recast !== true || kind !== "image" || !photos || photos.length !== needed) return "Нужен кадр из видео и фото персонажа";
     if (consent !== true) return "Подтвердите, что на фото вы или человек, который разрешил использовать своё лицо";
   }
   if (character !== undefined && (kind !== "image" || (photos && recast !== true) || typeof character !== "string" || !isValidId(character))) return "Неизвестный персонаж";
@@ -193,6 +205,7 @@ export function parseGenerateRequest(body: unknown): GenerateRequest | string {
     ...(typeof style === "string" ? { style } : {}),
     ...(typeof character === "string" ? { character } : {}),
     ...(recast === true ? { recast: true, consent: true } : {}),
+    ...(roles ? { cast: roles } : {}),
   };
 }
 

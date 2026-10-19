@@ -1841,3 +1841,34 @@ button, a, input, textarea { -webkit-tap-highlight-color: transparent; }
 .trend-scene, .trend-scene-frames { min-width: 0; }
 .trend-scene-frames > img, .trend-scene-result { max-height: 300px; }
 .trend-scene-result video, .trend-scene-result img { display: block; max-width: 100%; }
+/* «Тренд» in one click: who plays whom, and how the run goes. */
+.trend-role { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 18px; background: color-mix(in oklab, var(--color-black) 18%, transparent); }
+.trend-role-who { display: flex; align-items: center; gap: 10px; }
+.trend-role-who img { width: 46px; height: 46px; flex-shrink: 0; border-radius: 12px; object-fit: cover; }
+.trend-role-who div { display: grid; min-width: 0; gap: 1px; }
+.trend-role-who strong { color: var(--color-zinc-100); font-size: 13px; }
+.trend-role-who span { overflow: hidden; color: var(--color-zinc-300); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.trend-role-who small { color: var(--color-zinc-500); font-size: 11px; }
+.trend-retry { display: inline-flex; justify-self: start; align-items: center; gap: 6px; color: var(--color-violet-200); font-size: 12.5px; }
+.trend-progress { display: grid; gap: 6px; padding: 14px; border: 1px solid color-mix(in oklab, var(--color-violet-300) 25%, transparent); border-radius: 20px; background: color-mix(in oklab, var(--color-violet-500) 7%, transparent); }
+.trend-progress li { display: flex; align-items: center; gap: 10px; color: var(--color-zinc-500); font-size: 13.5px; }
+.trend-progress li[data-state="now"] { color: var(--color-zinc-50); font-weight: 600; }
+.trend-progress li[data-state="done"] { color: var(--color-zinc-300); }
+.trend-progress small { margin-left: auto; color: var(--color-zinc-500); font-size: 11.5px; font-weight: 400; font-variant-numeric: tabular-nums; }
+.trend-progress-mark { display: flex; width: 22px; height: 22px; flex-shrink: 0; align-items: center; justify-content: center; border: 1px solid var(--line-strong); border-radius: 999px; font-size: 11px; }
+.trend-progress li[data-state="done"] .trend-progress-mark { border-color: transparent; background: color-mix(in oklab, var(--color-violet-500) 35%, transparent); color: var(--color-violet-100); }
+.trend-progress li[data-state="now"] .trend-progress-mark { border-color: var(--color-violet-300); color: var(--color-violet-200); }
+.trend-notes { display: grid; gap: 4px; }
+.trend-notes li { display: flex; align-items: flex-start; gap: 6px; color: var(--color-amber-300, #fcd34d); font-size: 12px; line-height: 1.45; }
+.trend-notes svg { margin-top: 2px; flex-shrink: 0; }
+.trend-details > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin-bottom: 12px; color: var(--color-zinc-100); font-size: 16px; font-weight: 600; cursor: pointer; list-style: none; }
+.trend-details > summary::-webkit-details-marker { display: none; }
+.trend-details > summary span { color: var(--color-zinc-500); font-size: 12px; font-weight: 500; }
+.trend-details > summary em { color: var(--color-zinc-400); font-size: 12.5px; font-style: normal; font-weight: 400; }
+.trend-details > summary::after { content: "▾"; color: var(--color-zinc-500); font-size: 12px; }
+.trend-details:not([open]) > summary::after { content: "▸"; }
+.trend-scene-people { display: flex; flex-wrap: wrap; gap: 4px; }
+.trend-scene-people span { padding: 1px 8px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--color-zinc-400); font-size: 10.5px; }
+.trend-scene-people span[data-changed] { border-color: color-mix(in oklab, var(--color-violet-300) 40%, transparent); background: color-mix(in oklab, var(--color-violet-500) 14%, transparent); color: var(--color-violet-100); }
+.trend-scene-wait small { color: var(--color-zinc-500); font-size: 11px; }
+a.vs-reel-button { text-decoration: none; }

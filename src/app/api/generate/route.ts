@@ -34,6 +34,21 @@ export async function POST(request: Request) {
   if (typeof parsed === "string") return jsonError(parsed, 400);
   let req = parsed;
   // «Мой персонаж»: the character's photos go to the model as references (models that take photos only).
+  // A recast of several people: the frame first, then each one's pictures (a saved character's, or their photo).
+  if (req.cast) {
+    const [frame, ...uploaded] = req.images ?? [];
+    const images = [frame];
+    const castPlan: NonNullable<typeof req.castPlan> = [];
+    for (const role of req.cast) {
+      let refs = role.character ? await characterPhotos(user.id, role.character) : uploaded.splice(0, 1);
+      if (!refs?.length) return jsonError("Персонаж не найден — добавьте его заново.", 404);
+      // With several people, one picture each keeps the ask within what image models take.
+      refs = refs.slice(0, req.cast.length > 1 ? 1 : 3);
+      castPlan.push({ who: role.who, first: images.length + 1, count: refs.length });
+      images.push(...refs);
+    }
+    req = { ...req, images, castPlan };
+  }
   if (req.character) {
     const references = await characterPhotos(user.id, req.character);
     if (!references) return jsonError("Персонаж не найден — добавьте его заново.", 404);

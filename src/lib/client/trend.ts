@@ -16,7 +16,7 @@ export interface TrendScene {
 }
 
 /** Scenes a trend is cut into at most (each becomes a picture and a clip). */
-export const MAX_SCENES = 4;
+export const MAX_SCENES = 6;
 /** A scene shorter than this joins its neighbour (a flash, a quick cut). */
 const MIN_SCENE = 1.2;
 /** How different two moments must look to be a cut (0…1). */
@@ -144,48 +144,53 @@ export function clipSeconds(scene: { start: number; end: number }): number {
   return scene.end - scene.start > 7.5 ? 10 : 5;
 }
 
-function playThrough(video: HTMLVideoElement, draw: () => void): Promise<void> {
+/** One piece of the finished trend: a part of a video, shown for its scene's length. */
+export interface Segment {
+  src: string;
+  /** Where in `src` it starts, in seconds. */
+  from: number;
+  /** How long it's on screen (the original scene's length). */
+  seconds: number;
+}
+
+function loaded(video: HTMLVideoElement, src: string, at: number): Promise<void> {
   return new Promise((resolve, reject) => {
-    let frame = 0;
-    const tick = () => {
-      draw();
-      frame = requestAnimationFrame(tick);
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = "auto";
+    video.onerror = () => reject(new Error("Не удалось открыть сцену"));
+    video.onloadedmetadata = () => {
+      if (at <= 0) return resolve();
+      video.onseeked = () => resolve();
+      video.currentTime = Math.min(at, Math.max(0, video.duration - 0.05));
     };
-    video.onended = () => {
-      cancelAnimationFrame(frame);
-      draw();
-      resolve();
-    };
-    video.onerror = () => {
-      cancelAnimationFrame(frame);
-      reject(new Error("Не удалось проиграть сцену"));
-    };
-    video.play().then(tick, reject);
+    video.src = src;
   });
 }
 
 /**
- * Plays the clips one after another into a canvas with the original video's
- * sound underneath and records it: one file, as long as the clips. It takes
- * as long as the clips play.
+ * Plays the pieces one after another into a canvas, each for its scene's
+ * length (a longer clip is cut, a shorter one holds its last frame), with
+ * the original video's sound underneath, and records it: one file, in time
+ * with the music. It takes as long as the trend plays.
  */
-export async function renderReel(
-  clips: string[],
+export async function renderTrend(
+  segments: Segment[],
   music: Blob | null,
   onProgress: (part: number) => void,
+  /** The original's proportions (a vertical trend stays vertical); else the first piece's. */
+  shape?: { width: number; height: number },
 ): Promise<{ blob: Blob; ext: string }> {
   if (typeof MediaRecorder === "undefined") throw new Error("Этот браузер не умеет записывать видео — попробуйте Chrome или Safari.");
-  const first = document.createElement("video");
-  first.src = clips[0];
-  first.muted = true;
-  await new Promise<void>((resolve, reject) => {
-    first.onloadedmetadata = () => resolve();
-    first.onerror = () => reject(new Error("Не удалось открыть сцену"));
-  });
-  const scale = Math.min(1, 1280 / Math.max(first.videoWidth, first.videoHeight));
+  const videos = segments.map(() => document.createElement("video"));
+  // The first two are ready before recording starts; each next one loads while the one before plays.
+  const ready = segments.map((s, i) => (i < 2 ? loaded(videos[i], s.src, s.from) : null));
+  await ready[0];
+  const size = shape ?? { width: videos[0].videoWidth, height: videos[0].videoHeight };
+  const scale = 1280 / Math.max(size.width, size.height);
   const canvas = document.createElement("canvas");
-  canvas.width = Math.round(first.videoWidth * scale) & ~1;
-  canvas.height = Math.round(first.videoHeight * scale) & ~1;
+  canvas.width = Math.round(size.width * scale) & ~1;
+  canvas.height = Math.round(size.height * scale) & ~1;
   const ctx = canvas.getContext("2d")!;
   const stream = canvas.captureStream(30);
 
@@ -206,22 +211,39 @@ export async function renderReel(
   const chunks: Blob[] = [];
   recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
   const stopped = new Promise<void>((resolve) => (recorder.onstop = () => resolve()));
+  const draw = (video: HTMLVideoElement) => {
+    const k = Math.max(canvas.width / video.videoWidth, canvas.height / video.videoHeight);
+    const dw = video.videoWidth * k;
+    const dh = video.videoHeight * k;
+    ctx.drawImage(video, (canvas.width - dw) / 2, (canvas.height - dh) / 2, dw, dh);
+  };
+  const total = segments.reduce((sum, s) => sum + s.seconds, 0);
   recorder.start(250);
   try {
-    await audio?.play().catch(() => {});
-    for (const [i, src] of clips.entries()) {
-      const video = i === 0 ? first : document.createElement("video");
-      if (i > 0) video.src = src;
-      video.muted = true;
-      video.playsInline = true;
-      // Each clip covers the frame (they may differ slightly in size).
-      await playThrough(video, () => {
-        const k = Math.max(canvas.width / video.videoWidth, canvas.height / video.videoHeight);
-        const dw = video.videoWidth * k;
-        const dh = video.videoHeight * k;
-        ctx.drawImage(video, (canvas.width - dw) / 2, (canvas.height - dh) / 2, dw, dh);
+    if (audio) {
+      audio.currentTime = segments[0].from;
+      await audio.play().catch(() => {});
+    }
+    let elapsed = 0;
+    for (const [i, segment] of segments.entries()) {
+      await (ready[i] ?? loaded(videos[i], segment.src, segment.from));
+      if (i + 2 < segments.length) ready[i + 2] = loaded(videos[i + 2], segments[i + 2].src, segments[i + 2].from);
+      const video = videos[i];
+      await video.play().catch(() => {});
+      // On screen for the scene's length, by the clock (so the pictures keep time with the music).
+      const start = performance.now();
+      await new Promise<void>((resolve) => {
+        const tick = () => {
+          draw(video);
+          const t = (performance.now() - start) / 1000;
+          onProgress(Math.min(1, (elapsed + t) / total));
+          if (t >= segment.seconds) resolve();
+          else requestAnimationFrame(tick);
+        };
+        tick();
       });
-      onProgress((i + 1) / clips.length);
+      video.pause();
+      elapsed += segment.seconds;
     }
   } finally {
     recorder.stop();
@@ -229,6 +251,10 @@ export async function renderReel(
     await stopped;
     await sound?.close();
     if (musicUrl) URL.revokeObjectURL(musicUrl);
+    videos.forEach((v) => {
+      v.removeAttribute("src");
+      v.load();
+    });
   }
   const mime = recorder.mimeType || type || "video/webm";
   return { blob: new Blob(chunks, { type: mime.split(";")[0] }), ext: mime.includes("mp4") ? "mp4" : "webm" };

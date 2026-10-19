@@ -125,6 +125,34 @@ export async function createMedia(user: SessionUser, req: GenerateRequest, paid:
 }
 
 /** The model that took the job, when MARYX's first choice refused it and another one tried. */
+/**
+ * A finished video the user put together themselves (a trend's scenes glued
+ * in the browser), uploaded beforehand: it joins the gallery as is, nothing to pay.
+ */
+export async function importVideo(
+  userId: string,
+  input: { key: string; mime: string; prompt: string; aspectRatio: MediaRow["aspectRatio"]; inputs?: StoredFile[]; duration?: number },
+): Promise<MediaItem> {
+  const db = await getDb();
+  const [row] = await db
+    .insert(schema.media)
+    .values({
+      id: crypto.randomUUID(),
+      userId,
+      kind: "video",
+      prompt: input.prompt,
+      provider: "maryx",
+      model: "maryx-trend",
+      aspectRatio: input.aspectRatio,
+      status: "succeeded",
+      files: [{ key: input.key, mime: input.mime }],
+      inputs: input.inputs?.length ? input.inputs : null,
+      settings: input.duration ? { duration: input.duration } : null,
+    })
+    .returning();
+  return toItem(row);
+}
+
 export async function recordModel(row: MediaRow, provider: MediaRow["provider"], model: string): Promise<MediaRow> {
   if (row.provider === provider && row.model === model) return row;
   return update(row, { provider, model });

@@ -297,6 +297,13 @@ export interface GenerateRequest {
   recast?: boolean;
   /** The user confirmed the face is theirs, or used with the person's permission (a recast). */
   consent?: boolean;
+  /**
+   * A recast of several people: who in the frame (as the image model can find
+   * them) becomes whom — a saved character, or else the next photo after the frame.
+   */
+  cast?: { who: string; character?: string }[];
+  /** Server only: where each cast person's reference pictures are among `images` (1-based). */
+  castPlan?: { who: string; first: number; count: number }[];
 }
 
 export type MediaOutput =

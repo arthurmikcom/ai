@@ -812,26 +812,45 @@ export interface TrendShot {
   action: string;
   /** What the video model is told (English). */
   prompt: string;
+  /** Who of the trend's people is in it (their ids), the main one first; none: no one to recast. */
+  people: number[];
 }
+
+/** One of the people of a trend: whom the user casts their character as. */
+export interface TrendPerson {
+  id: number;
+  /** As the user sees it: «парень в белой футболке». */
+  who: string;
+  /** As the image model is told, to find them in a frame. */
+  whoEn: string;
+}
+
+/** The most people of a trend the user can recast at once. */
+export const MAX_TREND_PEOPLE = 3;
 
 const TREND_SYSTEM =
   "Ты — режиссёр монтажа MARYX. Тебе дают кадры из сцен короткого трендового видео (по одному кадру на сцену, по порядку, " +
-  "с длительностью каждой сцены). Пользователь хочет повторить этот тренд со своим персонажем: персонаж займёт место главного " +
-  "человека в каждой сцене. Для каждой сцены напиши: title — 2–4 слова по-русски; action — что происходит, одно предложение " +
-  "по-русски; prompt — по-английски, для видеомодели, которая оживит кадр: что делает главный человек (движения тела, жесты, " +
-  "танец, походка, мимика), как движется камера (селфи на вытянутой руке, общий план, крупный план, проход к камере), темп и " +
-  "атмосфера, 1–3 предложения. Внешность лица не описывай — её даст фото персонажа. Также style — общая атмосфера ролика " +
-  "по-русски, одной фразой. Если в видео есть обнажённость, сексуальный контент, насилие или дети — не разбирай его, верни " +
-  '{"refuse": "причина по-русски"}. Ответь строго JSON без блока кода: {"style": "...", "shots": [{"title": "...", "action": "...", "prompt": "..."}]}';
+  "с длительностью каждой сцены). Пользователь хочет повторить этот тренд со своими персонажами: они займут места людей из " +
+  "видео. Сначала найди главных людей ролика (до 3, тех, кто в кадре крупно и важен для сюжета; одного и того же человека " +
+  "в разных сценах узнавай по одежде и внешности) и дай каждому id (1, 2, 3), who — как его узнать по-русски, 3–6 слов " +
+  "(«парень в белой футболке», «девушка в чёрной куртке»), и whoEn — то же по-английски. Для каждой сцены напиши: title — " +
+  "2–4 слова по-русски; action — что происходит, одно предложение по-русски; prompt — по-английски, для видеомодели, которая " +
+  "оживит кадр: что делают люди (движения тела, жесты, танец, походка, мимика), как движется камера (селфи на вытянутой руке, " +
+  "общий план, крупный план, проход к камере), темп и атмосфера, 1–3 предложения; people — id людей, которые видны в этой " +
+  "сцене, главный первым (пустой список, если людей не видно: машины, пейзаж). Внешность лиц не описывай. Также style — общая " +
+  "атмосфера ролика по-русски, одной фразой. Если в видео есть обнажённость, сексуальный контент, насилие или дети — не " +
+  'разбирай его, верни {"refuse": "причина по-русски"}. Ответь строго JSON без блока кода: {"style": "...", "people": ' +
+  '[{"id": 1, "who": "...", "whoEn": "..."}], "shots": [{"title": "...", "action": "...", "prompt": "...", "people": [1]}]}';
 
 /**
- * «Тренд»: MARYX looks at one frame of each scene of someone's video and
- * writes what happens in it, for the user's character to repeat.
+ * «Тренд»: MARYX looks at one frame of each scene of someone's video, finds
+ * the people in it and writes what happens in each scene, for the user's
+ * characters to repeat.
  */
 export async function analyzeTrend(
   shots: { seconds: number; frame: InlineImage }[],
   meter: Meter,
-): Promise<{ refuse: string } | { style: string; shots: TrendShot[] }> {
+): Promise<{ refuse: string } | { style: string; people: TrendPerson[]; shots: TrendShot[] }> {
   const plan = await planRoute({
     text: "",
     hasImages: true,
@@ -842,26 +861,33 @@ export async function analyzeTrend(
   });
   const ask = shots.map((s, i) => `Сцена ${i + 1}: ${s.seconds.toFixed(1)} с (кадр ${i + 1})`).join("\n");
   const { text } = await callModels([plan.model, ...plan.fallbacks].slice(0, 2), TREND_SYSTEM, ask, 90_000, meter, {
-    maxTokens: 2500,
+    maxTokens: 3000,
     images: shots.map((s) => s.frame),
   });
   const json = /\{[\s\S]*\}/.exec(text)?.[0];
-  let parsed: { refuse?: unknown; style?: unknown; shots?: unknown };
+  let parsed: { refuse?: unknown; style?: unknown; people?: unknown; shots?: unknown };
   try {
     parsed = JSON.parse(json ?? "");
   } catch {
     throw new Error("MARYX не смог разобрать видео. Попробуйте ещё раз.");
   }
   if (typeof parsed.refuse === "string" && parsed.refuse.trim()) return { refuse: parsed.refuse.trim().slice(0, 300) };
-  const list = Array.isArray(parsed.shots) ? (parsed.shots as Record<string, unknown>[]) : [];
   const words = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+  const people: TrendPerson[] = (Array.isArray(parsed.people) ? (parsed.people as Record<string, unknown>[]) : [])
+    .map((p, i) => ({ id: Number.isInteger(p?.id) ? Number(p.id) : i + 1, who: words(p?.who, 80), whoEn: words(p?.whoEn, 120) }))
+    .filter((p, i, list) => p.who && list.findIndex((q) => q.id === p.id) === i)
+    .slice(0, MAX_TREND_PEOPLE)
+    .map((p) => ({ ...p, whoEn: p.whoEn || p.who }));
+  const known = new Set(people.map((p) => p.id));
+  const list = Array.isArray(parsed.shots) ? (parsed.shots as Record<string, unknown>[]) : [];
   const read = shots.map((_, i) => ({
     title: words(list[i]?.title, 60) || `Сцена ${i + 1}`,
     action: words(list[i]?.action, 300),
     prompt: words(list[i]?.prompt, 1200),
+    people: (Array.isArray(list[i]?.people) ? (list[i].people as unknown[]) : []).map(Number).filter((id) => known.has(id)),
   }));
   if (read.every((s) => !s.prompt)) throw new Error("MARYX не смог разобрать видео. Попробуйте ещё раз.");
-  return { style: words(parsed.style, 200), shots: read.map((s) => ({ ...s, prompt: s.prompt || s.action })) };
+  return { style: words(parsed.style, 200), people, shots: read.map((s) => ({ ...s, people: [...new Set(s.people)], prompt: s.prompt || s.action })) };
 }
 
 /** What «Холст для текстов» can do with a document or its selected part, in one click. */

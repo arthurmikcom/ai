@@ -133,7 +133,17 @@ export function characterPrompt(scene: string): string {
  * «Тренд»: the first picture is a frame of someone's video; the main person in
  * it becomes the person of the other pictures, everything else stays.
  */
-export function recastPrompt(text: string): string {
+export function recastPrompt(text: string, plan?: { who: string; first: number; count: number }[]): string {
+  if (plan?.length) {
+    const swaps = plan.map((p) => `the ${p.who} becomes the person in image${p.count > 1 ? `s ${p.first}–${p.first + p.count - 1}` : ` ${p.first}`}`);
+    return (
+      `The first image is a frame from a video. Replace these people in it: ${swaps.join("; ")}. Everyone and everything ` +
+      "else in the frame stays exactly as it is: framing, camera angle, poses, gestures and body positions, clothing, " +
+      "background, cars and objects, lighting, colors and mood. Each new face, hair, skin tone and build must be " +
+      "unmistakably the person from their reference image(s), as an adult, natural and photorealistic, as if they had been " +
+      `filmed in this scene. ${text.trim() ? `Also: ${text.trim()}` : ""}`
+    ).trim();
+  }
   return (
     "The first image is a frame from a video. Replace the main person in it with the person shown in the other images " +
     "(they all show the same person). Keep everything else from the first image exactly: framing, camera angle, pose, " +
