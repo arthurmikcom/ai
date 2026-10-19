@@ -90,12 +90,13 @@ export function PricingView() {
   const anyMethod = Boolean(options?.methods.yookassa || stripeMethod);
 
   const plans: { id: PlanId; name: string; tagline: string; price: string }[] = [
-    { id: "free", name: "Бесплатный", tagline: "Чтобы попробовать", price: "0 ₽" },
+    { id: "free", name: "Бесплатный", tagline: "Чтобы попробовать", price: "Бесплатно" },
     {
       id: "pro",
       name: "Pro",
       tagline: "Для тех, кто работает с ИИ каждый день",
-      price: options?.methods.yookassa?.price ?? options?.methods.stripe?.price ?? options?.proPrice ?? "—",
+      // International first: the card price (Stripe), roubles only where they're the one way set up.
+      price: options?.methods.stripe?.price ?? options?.proPrice ?? options?.methods.yookassa?.price ?? "—",
     },
   ];
 
@@ -197,32 +198,32 @@ export function PricingView() {
                               </span>
                             </label>
                           )}
-                          {options.methods.yookassa && (
-                            <button
-                              type="button"
-                              disabled={busy !== null || !consent}
-                              onClick={() => checkout("yookassa")}
-                              className="maryx-button flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm"
-                            >
-                              {busy === "yookassa" ? <LoaderCircle className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
-                              Оплатить картой или СБП · {options.methods.yookassa.price}
-                            </button>
-                          )}
                           {stripeMethod && (
                             <button
                               type="button"
                               disabled={busy !== null || !consent}
                               onClick={() => checkout("stripe")}
-                              className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 py-2.5 text-sm font-medium text-zinc-100 hover:bg-white/10 disabled:opacity-50"
+                              className="maryx-button flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm"
                             >
                               {busy === "stripe" ? <LoaderCircle className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
-                              Международная карта · {stripeMethod.price}
+                              Оплатить картой · {stripeMethod.price}
+                            </button>
+                          )}
+                          {options.methods.yookassa && (
+                            <button
+                              type="button"
+                              disabled={busy !== null || !consent}
+                              onClick={() => checkout("yookassa")}
+                              className={`flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-sm ${stripeMethod ? "border border-white/15 bg-white/5 font-medium text-zinc-100 hover:bg-white/10 disabled:opacity-50" : "maryx-button py-3"}`}
+                            >
+                              {busy === "yookassa" ? <LoaderCircle className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
+                              Оплата в рублях · {options.methods.yookassa.price}
                             </button>
                           )}
                           {!anyMethod && (
                             <p className="rounded-xl bg-black/30 p-3 text-center text-xs text-zinc-400">
                               {me?.admin
-                                ? "Оплата не подключена: задайте ключи ЮKassa или Stripe. Пока можно выдавать Pro промокодами в настройках."
+                                ? "Оплата не подключена: задайте ключи Stripe. Пока можно выдавать Pro промокодами в настройках."
                                 : "Онлайн-оплата скоро появится. Если у вас есть промокод — введите его ниже."}
                             </p>
                           )}
@@ -262,26 +263,26 @@ export function PricingView() {
                     </div>
                     <div className="text-sm text-zinc-500">кредитов</div>
                     <div className="mt-5 space-y-2">
-                      {pack.rub && (
-                        <button
-                          type="button"
-                          disabled={busy !== null}
-                          onClick={() => buyCredits("yookassa", pack.id)}
-                          className="maryx-button flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-sm"
-                        >
-                          {busy === `yookassa:${pack.id}` ? <LoaderCircle className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
-                          {pack.rub} · картой или СБП
-                        </button>
-                      )}
                       {pack.usd && (
                         <button
                           type="button"
                           disabled={busy !== null}
                           onClick={() => buyCredits("stripe", pack.id)}
-                          className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 py-2.5 text-sm font-medium text-zinc-100 hover:bg-white/10 disabled:opacity-50"
+                          className="maryx-button flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-sm"
                         >
                           {busy === `stripe:${pack.id}` ? <LoaderCircle className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
-                          {pack.usd} · международная карта
+                          {pack.usd} · картой
+                        </button>
+                      )}
+                      {pack.rub && (
+                        <button
+                          type="button"
+                          disabled={busy !== null}
+                          onClick={() => buyCredits("yookassa", pack.id)}
+                          className={`flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-sm ${pack.usd ? "border border-white/15 bg-white/5 font-medium text-zinc-100 hover:bg-white/10 disabled:opacity-50" : "maryx-button"}`}
+                        >
+                          {busy === `yookassa:${pack.id}` ? <LoaderCircle className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
+                          {pack.rub} · в рублях
                         </button>
                       )}
                     </div>
@@ -291,7 +292,7 @@ export function PricingView() {
             ) : (
               <p className="mt-4 rounded-xl bg-black/30 p-3 text-xs text-zinc-400">
                 {me?.admin
-                  ? "Продажа кредитов включится, когда будут заданы ключи ЮKassa или Stripe. Пока можно начислять кредиты вручную или промокодами в настройках."
+                  ? "Продажа кредитов включится, когда будут заданы ключи Stripe. Пока можно начислять кредиты вручную или промокодами в настройках."
                   : "Покупка кредитов скоро появится. Кредиты также можно получить по промокоду."}
               </p>
             )}

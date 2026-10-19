@@ -3,7 +3,7 @@
 import "leaflet/dist/leaflet.css";
 import type * as Leaflet from "leaflet";
 import Image from "next/image";
-import { useEffect, useRef, useState, type ComponentType } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ComponentType } from "react";
 import { api } from "@/lib/client/api";
 import { findPlaces } from "@/lib/client/places";
 import { categoriesFor } from "@/lib/places";
@@ -57,7 +57,61 @@ interface Answer {
   near: string | null;
 }
 
-const DEFAULT_POINT: Point = { lat: 55.7558, lon: 37.6173, label: "Москва, центр" };
+/** Where the map opens before the user picks a place: the big city of their time zone (London when it's unknown). */
+const CITIES: Record<string, [number, number, string]> = {
+  "Europe/London": [51.5074, -0.1278, "Лондон"],
+  "Europe/Dublin": [53.3498, -6.2603, "Дублин"],
+  "Europe/Paris": [48.8566, 2.3522, "Париж"],
+  "Europe/Berlin": [52.52, 13.405, "Берлин"],
+  "Europe/Madrid": [40.4168, -3.7038, "Мадрид"],
+  "Europe/Rome": [41.9028, 12.4964, "Рим"],
+  "Europe/Amsterdam": [52.3676, 4.9041, "Амстердам"],
+  "Europe/Prague": [50.0755, 14.4378, "Прага"],
+  "Europe/Warsaw": [52.2297, 21.0122, "Варшава"],
+  "Europe/Vilnius": [54.6872, 25.2797, "Вильнюс"],
+  "Europe/Riga": [56.9496, 24.1052, "Рига"],
+  "Europe/Tallinn": [59.437, 24.7536, "Таллин"],
+  "Europe/Helsinki": [60.1699, 24.9384, "Хельсинки"],
+  "Europe/Kyiv": [50.4501, 30.5234, "Киев"],
+  "Europe/Kiev": [50.4501, 30.5234, "Киев"],
+  "Europe/Chisinau": [47.0105, 28.8638, "Кишинёв"],
+  "Europe/Minsk": [53.9006, 27.559, "Минск"],
+  "Europe/Moscow": [55.7558, 37.6173, "Москва"],
+  "Europe/Istanbul": [41.0082, 28.9784, "Стамбул"],
+  "Asia/Tbilisi": [41.7151, 44.8271, "Тбилиси"],
+  "Asia/Yerevan": [40.1792, 44.4991, "Ереван"],
+  "Asia/Baku": [40.4093, 49.8671, "Баку"],
+  "Asia/Almaty": [43.2389, 76.8897, "Алматы"],
+  "Asia/Tashkent": [41.2995, 69.2401, "Ташкент"],
+  "Asia/Bishkek": [42.8746, 74.5698, "Бишкек"],
+  "Asia/Dubai": [25.2048, 55.2708, "Дубай"],
+  "Asia/Jerusalem": [31.7683, 35.2137, "Иерусалим"],
+  "Asia/Kolkata": [28.6139, 77.209, "Нью-Дели"],
+  "Asia/Bangkok": [13.7563, 100.5018, "Бангкок"],
+  "Asia/Singapore": [1.3521, 103.8198, "Сингапур"],
+  "Asia/Shanghai": [31.2304, 121.4737, "Шанхай"],
+  "Asia/Seoul": [37.5665, 126.978, "Сеул"],
+  "Asia/Tokyo": [35.6762, 139.6503, "Токио"],
+  "Australia/Sydney": [-33.8688, 151.2093, "Сидней"],
+  "America/New_York": [40.7128, -74.006, "Нью-Йорк"],
+  "America/Toronto": [43.6532, -79.3832, "Торонто"],
+  "America/Chicago": [41.8781, -87.6298, "Чикаго"],
+  "America/Denver": [39.7392, -104.9903, "Денвер"],
+  "America/Los_Angeles": [34.0522, -118.2437, "Лос-Анджелес"],
+  "America/Mexico_City": [19.4326, -99.1332, "Мехико"],
+  "America/Sao_Paulo": [-23.5505, -46.6333, "Сан-Паулу"],
+  "America/Argentina/Buenos_Aires": [-34.6037, -58.3816, "Буэнос-Айрес"],
+};
+const LONDON: Point = { lat: 51.5074, lon: -0.1278, label: "Лондон, центр" };
+let home: Point | null = null;
+function homePoint(): Point {
+  if (!home) {
+    const city = CITIES[Intl.DateTimeFormat().resolvedOptions().timeZone];
+    home = city ? { lat: city[0], lon: city[1], label: `${city[2]}, центр` } : LONDON;
+  }
+  return home;
+}
+const noChange = () => () => {};
 const POINT_KEY = "maryx.maps.point";
 
 const CATEGORIES: { id: PlaceCategory; label: string; Icon: ComponentType<{ className?: string }> }[] = [
@@ -178,7 +232,9 @@ interface MapParts {
 export function MapsView() {
   const app = useApp();
   const [stored, setStored] = useStoredJson<Point>(POINT_KEY);
-  const point = stored ?? DEFAULT_POINT;
+  // The server doesn't know the user's time zone: London there, their city once in the browser.
+  const fallback = useSyncExternalStore(noChange, homePoint, () => LONDON);
+  const point = stored ?? fallback;
   const [categories, setCategories] = useState<PlaceCategory[]>(["cafe"]);
   const [result, setResult] = useState<{ key: string; places: Place[]; near: string | null; error?: string } | null>(null);
   const [answer, setAnswer] = useState<Answer | null>(null);
@@ -236,7 +292,8 @@ export function MapsView() {
     let observer: MutationObserver | undefined;
     void import("leaflet").then(({ default: L }) => {
       if (!alive || !box.current) return;
-      const map = L.map(box.current, { zoomControl: false }).setView([DEFAULT_POINT.lat, DEFAULT_POINT.lon], 15);
+      const start = homePoint();
+      const map = L.map(box.current, { zoomControl: false }).setView([start.lat, start.lon], 15);
       L.control.zoom({ position: "bottomright", zoomInTitle: "Приблизить", zoomOutTitle: "Отдалить" }).addTo(map);
       map.attributionControl.setPrefix(false);
       let loadedTiles = false;
@@ -256,7 +313,7 @@ export function MapsView() {
       // The map follows the site's light or dark look.
       observer = new MutationObserver(() => { loadedTiles = false; setTilesFailed(false); shade(); tiles.setUrl(tileUrl(mirror)); });
       observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-      const here = L.marker([DEFAULT_POINT.lat, DEFAULT_POINT.lon], {
+      const here = L.marker([start.lat, start.lon], {
         icon: L.divIcon({ className: "maryx-here", html: "<span></span>", iconSize: [22, 22], iconAnchor: [11, 11] }),
         keyboard: false,
         interactive: false,
@@ -625,12 +682,12 @@ export function MapsView() {
                           <Navigation className="size-3.5" /> Маршрут
                         </a>
                         <a
-                          href={`https://yandex.ru/maps/?rtext=~${place.lat},${place.lon}&rtt=auto`}
+                          href={`https://www.openstreetmap.org/directions?route=%3B${place.lat}%2C${place.lon}#map=17/${place.lat}/${place.lon}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="flex items-center gap-1.5 rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-white/5"
                         >
-                          <ExternalLink className="size-3.5" /> Яндекс Карты
+                          <ExternalLink className="size-3.5" /> OpenStreetMap
                         </a>
                         {tel && (
                           <a href={`tel:${tel}`} className="flex items-center gap-1.5 rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-white/5">

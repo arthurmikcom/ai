@@ -29,10 +29,10 @@ function fake(): FakeLocalAI | undefined {
 }
 
 const NO_WEBGPU =
-  "Этот браузер не умеет запускать ИИ на устройстве. Откройте сайт в Chrome, Edge или Яндекс Браузере на компьютере либо в Chrome на Android.";
+  "Этот браузер не умеет запускать ИИ на устройстве. Откройте сайт в Chrome или Edge на компьютере либо в Chrome на Android.";
 
 const NO_GPU =
-  "На этом устройстве не нашлась видеокарта для ИИ. Откройте сайт в Chrome, Edge или Яндекс Браузере на компьютере либо в Chrome на Android.";
+  "На этом устройстве не нашлась видеокарта для ИИ. Откройте сайт в Chrome или Edge на компьютере либо в Chrome на Android.";
 
 let support: Promise<LocalSupport> | null = null;
 

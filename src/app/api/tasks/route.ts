@@ -24,7 +24,7 @@ export async function POST(request: Request) {
   if (prompt.length > 2000) return jsonError("Задача слишком длинная: до 2000 символов", 400);
   const schedule = parseSchedule(body?.schedule);
   if (typeof schedule === "string") return jsonError(schedule, 400);
-  const timezone = typeof body?.timezone === "string" && isTimeZone(body.timezone) ? body.timezone : "Europe/Moscow";
+  const timezone = typeof body?.timezone === "string" && isTimeZone(body.timezone) ? body.timezone : "UTC";
   const title = typeof body?.title === "string" && body.title.trim() ? body.title.trim().slice(0, 80) : titleOf(prompt);
   const made = await createTask(user.id, { title, prompt, schedule, timezone, search: body?.search === true });
   return typeof made === "string" ? jsonError(made, 400) : Response.json(made);

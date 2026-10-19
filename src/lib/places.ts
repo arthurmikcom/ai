@@ -25,7 +25,6 @@ export const PLACE_CATEGORIES: Record<PlaceCategory, { label: string; tags: stri
 export const OVERPASS_SERVERS = [
   "https://overpass-api.de/api/interpreter",
   "https://overpass.private.coffee/api/interpreter",
-  "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
   "https://overpass.kumi.systems/api/interpreter",
 ];
 

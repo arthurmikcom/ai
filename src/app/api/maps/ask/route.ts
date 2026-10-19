@@ -31,7 +31,7 @@ export async function POST(request: Request) {
   if (question.length < 2) return jsonError("Напишите, что ищете", 400);
   if (question.length > 500) return jsonError("Вопрос слишком длинный: до 500 символов", 400);
   if (!point) return jsonError("Сначала выберите место на карте", 400);
-  const zone = typeof body?.timezone === "string" && isTimeZone(body.timezone) ? body.timezone : "Europe/Moscow";
+  const zone = typeof body?.timezone === "string" && isTimeZone(body.timezone) ? body.timezone : "UTC";
 
   // The places first: when there's nothing around, there's nothing to pay for. The browser
   // usually found them itself (the map's servers turn busy cloud addresses away).

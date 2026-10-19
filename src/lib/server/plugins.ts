@@ -43,12 +43,12 @@ const HINTS: Record<PluginId, RegExp> = {
 const PLAN =
   "Ты выбираешь плагины, из которых MARYX возьмёт свежие данные для ответа. Плагины и их аргументы:\n" +
   '- weather: {"place": "город или место по-русски", "days": число дней прогноза 1–7}\n' +
-  '- currency: {"from": ["USD"], "to": "RUB", "amount": сумма или null} — коды валют ISO 4217\n' +
+  '- currency: {"from": ["EUR"], "to": "USD", "amount": сумма или null} — коды валют ISO 4217 (если валюта ответа не названа — USD)\n' +
   '- crypto: {"coins": ["bitcoin"], "vs": ["usd", "rub"]} — id монет CoinGecko (bitcoin, ethereum, the-open-network, solana, tether, ripple, dogecoin…)\n' +
-  '- wikipedia: {"query": "о чём статья", "lang": "ru" или "en"}\n' +
-  '- news: {"query": "тема новостей по-русски"}\n' +
+  '- wikipedia: {"query": "о чём статья", "lang": "код языка Википедии — на языке вопроса (ru, en, de…)"}\n' +
+  '- news: {"query": "тема новостей по-английски, 2–5 слов (поиск по новостям всего мира)"}\n' +
   '- github: {"repo": "владелец/название"} если назван проект, иначе {"query": "что искать, по-английски"}\n' +
-  '- holidays: {"country": "RU" — код страны ISO 3166-1, "year": год}\n' +
+  '- holidays: {"country": "DE" — код страны ISO 3166-1, названной в вопросе, "year": год}\n' +
   '- arxiv: {"query": "тема по-английски"}\n' +
   '- time: {"zones": ["Asia/Tokyo"] — часовые пояса IANA для названных мест}\n' +
   "Из предложенных выбери только те, без которых ответ будет неточным или устаревшим, и заполни аргументы по сообщению " +
@@ -62,7 +62,7 @@ interface Found {
   sources: Source[];
 }
 
-const UA = { "User-Agent": "MARYX-Ai/1.0 (plugins; +https://github.com/arthurmikcom/ai)", "Accept-Language": "ru" };
+const UA = { "User-Agent": "MARYX-Ai/1.0 (plugins; +https://github.com/arthurmikcom/ai)" };
 
 /** Tests send every lookup to one stand-in server (PLUGINS_TEST_URL), by the service's host. */
 function at(url: string): string {
@@ -149,28 +149,22 @@ async function weather(args: Record<string, unknown>): Promise<Found | null> {
   return { plugin: "weather", text: lines.join("\n"), sources: [{ url: `https://www.yr.no/en/forecast/daily-table/${lat},${lon}`, title: `Погода: ${where.label} — MET Norway` }] };
 }
 
-// ---------- Курсы: Банк России (через cbr-xml-daily.ru), иначе ЕЦБ (Frankfurter) ----------
+// ---------- Курсы: ExchangeRate-API (open access, 160+ currencies, daily) ----------
 
 async function currency(args: Record<string, unknown>): Promise<Found | null> {
   const from = list(args.from).map((c) => c.toUpperCase()).filter((c) => /^[A-Z]{3}$/.test(c));
-  const to = (str(args.to, 3) || "RUB").toUpperCase();
+  const to = (str(args.to, 3) || "USD").toUpperCase();
   const amount = num(args.amount) ?? 1;
-  if (!from.length) return null;
-  const cbr = await getJson<{ Date: string; Valute: Record<string, { Nominal: number; Value: number; Previous: number; Name: string }> }>("https://www.cbr-xml-daily.ru/daily_json.js");
-  const rub = (code: string) => (code === "RUB" ? { now: 1, before: 1, name: "Российский рубль" } : cbr.Valute[code] ? { now: cbr.Valute[code].Value / cbr.Valute[code].Nominal, before: cbr.Valute[code].Previous / cbr.Valute[code].Nominal, name: cbr.Valute[code].Name } : null);
-  const target = rub(to);
-  const lines: string[] = [`Официальные курсы ЦБ РФ на ${new Date(cbr.Date).toLocaleDateString("ru-RU")}:`];
+  if (!from.length || !/^[A-Z]{3}$/.test(to)) return null;
+  const latest = await getJson<{ result: string; time_last_update_utc: string; rates: Record<string, number> }>(`https://open.er-api.com/v6/latest/${to}`);
+  if (latest.result !== "success") throw new Error("rates unavailable");
+  const lines = [`Курсы валют на ${new Date(latest.time_last_update_utc).toLocaleDateString("ru-RU", { timeZone: "UTC" })}:`];
   for (const code of from) {
-    const source = rub(code);
-    if (!source || !target) {
-      lines.push(`${code}→${to}: такой валюты нет в курсах ЦБ.`);
-      continue;
-    }
-    const rate = source.now / target.now;
-    const change = rate - source.before / target.before;
-    lines.push(`${amount === 1 ? "1" : fixed(amount)} ${code} (${source.name}) = ${fixed(rate * amount, 4)} ${to} (за день ${change >= 0 ? "+" : ""}${fixed(change * amount, 4)}).`);
+    // The rates are per one `to`: one `code` is 1 / rate of them.
+    const rate = latest.rates[code];
+    lines.push(rate ? `${fixed(amount)} ${code} = ${fixed(amount / rate, 4)} ${to}.` : `${code}: такой валюты нет в курсах.`);
   }
-  return { plugin: "currency", text: lines.join("\n"), sources: [{ url: "https://www.cbr.ru/currency_base/daily/", title: "Официальные курсы валют — Банк России" }] };
+  return { plugin: "currency", text: lines.join("\n"), sources: [{ url: "https://www.exchangerate-api.com", title: "Rates By Exchange Rate API" }] };
 }
 
 // ---------- Криптовалюты: CoinGecko ----------
@@ -197,7 +191,7 @@ async function cryptoPrices(args: Record<string, unknown>): Promise<Found | null
 
 async function wikipedia(args: Record<string, unknown>): Promise<Found | null> {
   const query = str(args.query, 150);
-  const lang = args.lang === "en" ? "en" : "ru";
+  const lang = typeof args.lang === "string" && /^[a-z]{2,3}$/.test(args.lang) ? args.lang : "en";
   if (!query) return null;
   const search = await getJson<{ pages: { key: string; title: string }[] }>(`https://${lang}.wikipedia.org/w/rest.php/v1/search/page?q=${encodeURIComponent(query)}&limit=1`);
   const page = search.pages[0];
@@ -206,7 +200,7 @@ async function wikipedia(args: Record<string, unknown>): Promise<Found | null> {
     `https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(page.key)}`,
   );
   const url = summary.content_urls?.desktop?.page ?? `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(page.key)}`;
-  return { plugin: "wikipedia", text: `«${summary.title}» (Википедия): ${summary.extract.slice(0, 1800)}`, sources: [{ url, title: `${summary.title} — Википедия` }] };
+  return { plugin: "wikipedia", text: `«${summary.title}» (Wikipedia, ${lang}): ${summary.extract.slice(0, 1800)}`, sources: [{ url, title: `${summary.title} — Wikipedia` }] };
 }
 
 // ---------- Новости: Google News RSS ----------
@@ -226,16 +220,29 @@ const tag = (block: string, name: string) => xmlText(new RegExp(`<${name}[^>]*>(
 async function news(args: Record<string, unknown>): Promise<Found | null> {
   const query = str(args.query, 150);
   if (!query) return null;
-  const rss = await getText(`https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=ru&gl=RU&ceid=RU:ru`);
-  const items = [...rss.matchAll(/<item>([\s\S]*?)<\/item>/g)].slice(0, 6).map(([, block]) => ({
-    title: tag(block, "title"),
-    link: tag(block, "link"),
-    date: tag(block, "pubDate"),
-    from: tag(block, "source"),
-  }));
+  let items: { title: string; link: string; date: string; from: string }[] = [];
+  try {
+    // GDELT: news from all over the world, in every language.
+    const found = await getJson<{ articles?: { url: string; title: string; seendate: string; domain: string }[] }>(
+      `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(query)}&mode=artlist&format=json&maxrecords=8&sort=datedesc&timespan=3d`,
+    );
+    items = (found.articles ?? []).map((a) => ({
+      title: a.title,
+      link: a.url,
+      date: a.seendate.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/, "$1-$2-$3T$4:$5:$6Z"),
+      from: a.domain,
+    }));
+  } catch (err) {
+    console.error("[plugins] GDELT unavailable, Google News instead", err);
+  }
+  if (!items.length) {
+    const rss = await getText(`https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`);
+    items = [...rss.matchAll(/<item>([\s\S]*?)<\/item>/g)].map(([, block]) => ({ title: tag(block, "title"), link: tag(block, "link"), date: tag(block, "pubDate"), from: tag(block, "source") }));
+  }
+  items = items.filter((i) => i.title && /^https:\/\//.test(i.link)).slice(0, 6);
   if (!items.length) return { plugin: "news", text: `Новостей по запросу «${query}» не нашлось.`, sources: [] };
   const lines = items.map((i, n) => `${n + 1}. ${i.title}${i.from && !i.title.endsWith(i.from) ? ` — ${i.from}` : ""} (${new Date(i.date).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })})`);
-  return { plugin: "news", text: `Свежие новости «${query}»:\n${lines.join("\n")}`, sources: items.filter((i) => /^https:\/\//.test(i.link)).map((i) => ({ url: i.link, title: i.title })) };
+  return { plugin: "news", text: `Свежие новости «${query}» (со всего мира):\n${lines.join("\n")}`, sources: items.map((i) => ({ url: i.link, title: i.title })) };
 }
 
 // ---------- GitHub ----------
@@ -276,7 +283,7 @@ async function github(args: Record<string, unknown>): Promise<Found | null> {
 // ---------- Праздники: Nager.Date ----------
 
 async function holidays(args: Record<string, unknown>): Promise<Found | null> {
-  const country = (str(args.country, 2) || "RU").toUpperCase();
+  const country = str(args.country, 2).toUpperCase();
   const year = Math.round(num(args.year) ?? new Date().getUTCFullYear());
   if (!/^[A-Z]{2}$/.test(country) || year < 1975 || year > 2100) return null;
   const days = await getJson<{ date: string; localName: string; name: string }[]>(`https://date.nager.at/api/v3/PublicHolidays/${year}/${country}`);
