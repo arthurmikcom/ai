@@ -132,7 +132,7 @@ export function LoginView({ social }: Props) {
                 type="button"
                 disabled={busy}
                 onClick={() => socialSignIn("vk")}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#0077FF] py-2.5 text-sm font-medium text-white transition hover:brightness-110 disabled:opacity-50"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#0077FF] py-2.5 text-sm font-medium text-[#fff] transition hover:brightness-110 disabled:opacity-50"
               >
                 <span className="font-bold">VK</span> Продолжить с VK ID
               </button>

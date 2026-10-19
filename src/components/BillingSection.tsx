@@ -89,7 +89,7 @@ export function BillingSection() {
           {plan.id === "free" && !plan.stripeLive && (
             <Link
               href="/pricing"
-              className="rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 px-4 py-2 text-sm font-medium text-white hover:brightness-110"
+              className="rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 px-4 py-2 text-sm font-medium text-[#fff] hover:brightness-110"
             >
               Перейти на Pro
             </Link>
@@ -107,7 +107,7 @@ export function BillingSection() {
           {plan.id === "pro" && plan.repay && (
             <Link
               href="/pricing"
-              className="rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 px-4 py-2 text-sm font-medium text-white hover:brightness-110"
+              className="rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 px-4 py-2 text-sm font-medium text-[#fff] hover:brightness-110"
             >
               Оплатить заново
             </Link>

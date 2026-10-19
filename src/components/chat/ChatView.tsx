@@ -2,7 +2,7 @@
 
 import { ArrowRight, ArrowUpRight, Clapperboard, Code2, Compass, Download, FileText, Gamepad2, Image as ImageIcon, KeyRound, Lightbulb, LoaderCircle, Plus, Presentation, Sparkles, X, Zap } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { BROWSER_MODELS } from "@/lib/catalog";
 import { autoModel, useLocalSupport } from "@/lib/client/local-ai";
 import { useModels } from "@/lib/client/useModels";
@@ -30,6 +30,12 @@ const SUGGESTIONS = [
   { title: "Презентация", icon: Presentation, text: "Сделай презентацию на 8 слайдов: как искусственный интеллект меняет образование" },
 ];
 
+/** "Добрый вечер": by the hour on this device (null on the server, which doesn't know it). */
+function greetingAt(hour: number): string {
+  return hour >= 5 && hour < 12 ? "Доброе утро" : hour >= 12 && hour < 18 ? "Добрый день" : hour >= 18 && hour < 23 ? "Добрый вечер" : "Доброй ночи";
+}
+const noSubscribe = () => () => {};
+
 const ASSISTANT_LINKS = [
   { name: "Программист", emoji: "💻", detail: "Код и сложные задачи" },
   { name: "Переводчик", emoji: "🌐", detail: "Слова без границ" },
@@ -41,6 +47,9 @@ const ASSISTANT_LINKS = [
 
 export function ChatView() {
   const app = useApp();
+  const hour = useSyncExternalStore(noSubscribe, () => new Date().getHours(), () => null);
+  const greeting = hour === null ? null : greetingAt(hour);
+  const firstName = app.me?.user.name?.trim().split(/\s+/)[0] ?? "";
   const { data, loading, error: modelsError } = useModels("chat");
   const models = useMemo(() => data?.models ?? [], [data]);
   const chat = app.activeChat;
@@ -413,7 +422,13 @@ export function ChatView() {
           <div className="home-dashboard">
             <div className="home-hero">
               <div className="home-intro">
-                <div className="section-label mb-4">{assistant ? "Ваш персональный ассистент" : "Добро пожаловать в"}</div>
+                <div className="section-label mb-4">
+                  {assistant
+                    ? "Ваш персональный ассистент"
+                    : greeting
+                      ? `${greeting}${firstName ? `, ${firstName}` : ""} — добро пожаловать в`
+                      : "Добро пожаловать в"}
+                </div>
                 <h1>{assistant ? <>{assistant.emoji} {assistant.name}</> : <>MARYX <span>Ai</span></>}</h1>
                 <p>
                   {assistant?.description ||

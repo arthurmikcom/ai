@@ -11,10 +11,12 @@ import {
   Menu,
   MessageSquare,
   MessageSquarePlus,
+  Moon,
   Pencil,
   Search,
   Settings,
   Sparkles,
+  Sun,
   Trash2,
   X,
 } from "lucide-react";
@@ -22,9 +24,11 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "@/lib/client/api";
+import { useAppearance, useApplyAppearance } from "@/lib/client/appearance";
 import { installApp, useInstall } from "@/lib/client/install";
 import { relativeTime } from "@/lib/client/util";
 import { useApp } from "./AppState";
+import { CommandPalette } from "./CommandPalette";
 import { BrandMark } from "./Design";
 
 const LEGAL_PATHS = ["/terms", "/refund", "/privacy"];
@@ -40,6 +44,7 @@ const NAV = [
 
 function UserMenu() {
   const { me, signOut } = useApp();
+  const [look, setLook] = useAppearance();
   if (!me) return null;
   const { used, limit } = me.usage.chat;
   return (
@@ -61,6 +66,16 @@ function UserMenu() {
             {limit === null ? "Без лимитов" : `${used} / ${limit} сообщений сегодня`}
           </div>
         </div>
+        <button
+          type="button"
+          // "Как в системе" switches to the other of what's shown now.
+          onClick={() => setLook({ theme: document.documentElement.dataset.theme === "light" ? "dark" : "light" })}
+          title="Светлая или тёмная тема (ещё цвета — в Настройках)"
+          aria-label="Сменить тему"
+          className="rounded-lg p-1.5 text-zinc-500 hover:bg-white/5 hover:text-zinc-200"
+        >
+          {look.theme === "light" ? <Moon className="size-4" /> : <Sun className="size-4" />}
+        </button>
         <button
           type="button"
           onClick={() => void signOut()}
@@ -97,7 +112,7 @@ function InstallApp() {
   );
 }
 
-function Sidebar({ onNavigate }: { onNavigate: () => void }) {
+function Sidebar({ onNavigate, onPalette }: { onNavigate: () => void; onPalette: () => void }) {
   const app = useApp();
   const pathname = usePathname();
   const router = useRouter();
@@ -146,6 +161,16 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
           className="maryx-button flex w-full items-center gap-3 rounded-xl px-4 py-3 text-[13px]"
         >
           <MessageSquarePlus className="size-4" /> Новый чат
+        </button>
+        <button
+          type="button"
+          onClick={onPalette}
+          title="Найти чат, раздел или команду"
+          className="mt-2 flex w-full items-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2 text-xs text-zinc-500 transition hover:border-violet-300/30 hover:text-zinc-200"
+        >
+          <Search className="size-3.5 shrink-0" />
+          <span className="min-w-0 flex-1 truncate text-left">Поиск и команды</span>
+          <kbd className="shrink-0 whitespace-nowrap rounded border border-white/10 px-1.5 py-px font-sans text-[10px] text-zinc-500">Ctrl K</kbd>
         </button>
       </div>
 
@@ -267,9 +292,25 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
+  useApplyAppearance();
   const [open, setOpen] = useState(false);
+  // The command palette: Ctrl/⌘+K anywhere (the key, whatever the keyboard layout).
+  const [palette, setPalette] = useState(false);
   const menu = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
+  const standalone = pathname === "/login" || LEGAL_PATHS.includes(pathname);
+
+  useEffect(() => {
+    if (standalone) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.code === "KeyK" && (event.metaKey || event.ctrlKey) && !event.altKey) {
+        event.preventDefault();
+        setPalette((shown) => !shown);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [standalone]);
 
   useEffect(() => {
     if (!open) return;
@@ -300,12 +341,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [open]);
 
   // The login and legal pages stand on their own (they are seen without signing in).
-  if (pathname === "/login" || LEGAL_PATHS.includes(pathname)) return <>{children}</>;
+  if (standalone) return <>{children}</>;
 
   return (
     <div className="flex h-dvh overflow-hidden bg-zinc-950 text-zinc-100">
       <aside className="app-sidebar hidden shrink-0 border-r border-white/5 md:block">
-        <Sidebar onNavigate={() => {}} />
+        <Sidebar onNavigate={() => {}} onPalette={() => setPalette(true)} />
       </aside>
 
       {open && (
@@ -320,7 +361,13 @@ export function AppShell({ children }: { children: ReactNode }) {
             >
               <X className="size-5" />
             </button>
-            <Sidebar onNavigate={() => setOpen(false)} />
+            <Sidebar
+              onNavigate={() => setOpen(false)}
+              onPalette={() => {
+                setOpen(false);
+                setPalette(true);
+              }}
+            />
           </aside>
         </div>
       )}
@@ -328,6 +375,16 @@ export function AppShell({ children }: { children: ReactNode }) {
       <main className="app-main relative min-w-0 flex-1">
         <header className="mobile-bar">
           <div className="flex items-center gap-2.5"><BrandMark className="!size-7 !rounded-lg" /><span className="brand-wordmark !text-base">MARYX <span>Ai</span></span></div>
+        <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setPalette(true)}
+          className="rounded-lg border border-white/10 p-2 text-zinc-300 hover:bg-white/5"
+          title="Поиск и команды"
+          aria-label="Поиск и команды"
+        >
+          <Search className="size-5" />
+        </button>
         <button
           type="button"
           onClick={() => setOpen(true)}
@@ -338,9 +395,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         >
           <Menu className="size-5" />
         </button>
+        </div>
         </header>
         {children}
       </main>
+      {palette && <CommandPalette onClose={() => setPalette(false)} />}
     </div>
   );
 }

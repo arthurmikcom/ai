@@ -12,6 +12,7 @@ import { InstructionsSection } from "./InstructionsSection";
 import { MemorySection } from "./MemorySection";
 import { OwnKeySection } from "./OwnKeySection";
 import { PageHeading } from "./Design";
+import { AppearanceSection } from "./AppearanceSection";
 
 const CAPABILITY_LABEL: Record<Capability, string> = {
   chat: "чат",
@@ -160,7 +161,7 @@ function DeleteAccount() {
           type="button"
           onClick={remove}
           disabled={busy}
-          className="rounded-lg bg-red-500 px-3 py-1.5 font-medium text-white hover:bg-red-400 disabled:opacity-50"
+          className="rounded-lg bg-red-500 px-3 py-1.5 font-medium text-[#fff] hover:bg-red-400 disabled:opacity-50"
         >
           Удалить навсегда
         </button>
@@ -259,6 +260,9 @@ export function SettingsView() {
             <p className="text-sm text-zinc-500">Загрузка…</p>
           )}
         </div>
+
+        <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wider text-zinc-500">Оформление</h2>
+        <AppearanceSection />
 
         <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wider text-zinc-500">Подписка</h2>
         <BillingSection />

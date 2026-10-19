@@ -292,7 +292,7 @@ export function MessageView({
 
   if (message.role === "user") {
     return (
-      <div className="group/question flex flex-col items-end gap-2">
+      <div className="message-enter group/question flex flex-col items-end gap-2">
         {message.attachments && (
           <div className="flex flex-wrap justify-end gap-2">
             {message.attachments.map((a, i) =>
@@ -387,7 +387,7 @@ export function MessageView({
   };
 
   return (
-    <div className="group">
+    <div className="message-enter group">
       <div className="mb-4 flex items-center gap-2.5 text-xs font-medium text-zinc-300"><BrandMark className="!size-7 !rounded-lg [&_svg]:!size-5" />
         {maryxOnly ? (
           "MARYX"
@@ -405,9 +405,9 @@ export function MessageView({
       )}
 
       {waiting && message.status && !message.status.includes("\n") && (
-        <div className="flex items-center gap-2 py-2 text-sm text-zinc-400" role="status">
+        <div className="flex items-center gap-2 py-2 text-sm" role="status">
           <LoaderCircle className="size-4 animate-spin text-violet-300" />
-          {message.status}
+          <span className="shimmer-text">{message.status}</span>
         </div>
       )}
 
@@ -428,17 +428,19 @@ export function MessageView({
       )}
 
       {waiting && !message.status && message.generating === "search" && (
-        <div className="flex items-center gap-2 py-2 text-sm text-zinc-400">
+        <div className="flex items-center gap-2 py-2 text-sm" role="status">
           <Globe className="size-4 animate-pulse text-violet-300" />
-          Ищу в интернете…
+          <span className="shimmer-text">Ищу в интернете…</span>
         </div>
       )}
 
       {waiting && !message.status && message.generating !== "search" && (
-        <div className="flex items-center gap-1.5 py-2">
-          <span className="size-2 animate-bounce rounded-full bg-zinc-400 [animation-delay:-0.3s]" />
-          <span className="size-2 animate-bounce rounded-full bg-zinc-400 [animation-delay:-0.15s]" />
-          <span className="size-2 animate-bounce rounded-full bg-zinc-400" />
+        <div className="flex items-center gap-2.5 py-2 text-sm" role="status">
+          <span className="relative flex size-2.5">
+            <span className="absolute inline-flex size-full animate-ping rounded-full bg-violet-400 opacity-60" />
+            <span className="relative inline-flex size-2.5 rounded-full bg-violet-400" />
+          </span>
+          <span className="shimmer-text">{maryxOnly ? "MARYX думает…" : "Думает…"}</span>
         </div>
       )}
 

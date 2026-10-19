@@ -71,7 +71,7 @@ export function ArtifactFrame({ code, className = "", ref }: { code: string; cla
       srcDoc={pageOf(code) + PRINT_HOOK}
       sandbox="allow-scripts allow-modals allow-pointer-lock"
       referrerPolicy="no-referrer"
-      className={`w-full bg-white ${className}`}
+      className={`w-full bg-[#fff] ${className}`}
     />
   );
 }

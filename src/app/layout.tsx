@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { AppShell } from "@/components/AppShell";
 import { AppStateProvider } from "@/components/AppState";
+import { APPEARANCE_SCRIPT } from "@/lib/appearance";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -14,12 +15,16 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#09090b",
+  themeColor: "#09080f",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="ru" className="dark h-full antialiased">
+    // The saved theme is set on <html> by the script before React hydrates.
+    <html lang="ru" className="dark h-full antialiased" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: APPEARANCE_SCRIPT }} />
+      </head>
       <body className="h-full bg-zinc-950">
         <AppStateProvider>
           <AppShell>{children}</AppShell>
