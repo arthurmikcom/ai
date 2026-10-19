@@ -11,6 +11,8 @@ import {
   Menu,
   MessageSquare,
   MessageSquarePlus,
+  CalendarClock,
+  MapIcon,
   ChevronRight,
   LockKeyhole,
   PanelLeftClose,
@@ -28,6 +30,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "@/lib/client/api";
+import type { Task } from "@/lib/types";
 import { useAppearance, useApplyAppearance } from "@/lib/client/appearance";
 import { installApp, useInstall } from "@/lib/client/install";
 import { relativeTime } from "@/lib/client/util";
@@ -42,9 +45,20 @@ const NAV = [
   { href: "/", label: "Чат", icon: MessageSquare },
   { href: "/images", label: "Изображения", icon: ImageIcon },
   { href: "/video", label: "Видео", icon: Clapperboard },
+  { href: "/maps", label: "Карты", icon: MapIcon },
+  { href: "/scheduled", label: "Задачи", icon: CalendarClock },
   { href: "/assistants", label: "Мои ассистенты", icon: Bot },
   { href: "/pricing", label: "Тарифы", icon: Gem },
   { href: "/settings", label: "Настройки", icon: Settings },
+];
+
+/** The phone's bottom bar: five places; the rest are in the menu. */
+const MOBILE_NAV = [
+  { href: "/", label: "Чат", icon: MessageSquare },
+  { href: "/images", label: "Фото", icon: ImageIcon },
+  { href: "/video", label: "Видео", icon: Clapperboard },
+  { href: "/maps", label: "Карты", icon: MapIcon },
+  { href: "/scheduled", label: "Задачи", icon: CalendarClock },
 ];
 
 function UserMenu() {
@@ -135,9 +149,11 @@ function Sidebar({ onNavigate, onPalette, onCollapse }: { onNavigate: () => void
     }, 300);
     return () => clearTimeout(timer);
   }, [q]);
+  // A temporary chat is never listed (it's kept nowhere).
+  const kept = app.chats.filter((c) => !c.temporary);
   const chats = q
-    ? app.chats.filter((c) => c.title.toLowerCase().includes(q) || (found?.query === q && found.ids.has(c.id)))
-    : app.chats;
+    ? kept.filter((c) => c.title.toLowerCase().includes(q) || (found?.query === q && found.ids.has(c.id)))
+    : kept;
 
   const goToChat = (id: string | null) => {
     app.openChat(id);
@@ -205,7 +221,7 @@ function Sidebar({ onNavigate, onPalette, onCollapse }: { onNavigate: () => void
 
       <div className="mt-6 flex-1 px-5 pb-4">
         <div className="section-label px-1">Ваши диалоги</div>
-        {app.chats.length > 0 && (
+        {kept.length > 0 && (
           <label className="mt-3 flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 focus-within:border-violet-300/40">
             <Search className="size-3.5 shrink-0 text-zinc-500" />
             <input
@@ -313,7 +329,16 @@ function NavigationRail({ onExpand, onPalette }: { onExpand: () => void; onPalet
 export function AppShell({ children }: { children: ReactNode }) {
   useApplyAppearance();
   // The top bar's «Возможности Pro» is for the free plan only (like the sidebar's card).
-  const { me } = useApp();
+  const { me, reloadChats, openChat } = useApp();
+  const router = useRouter();
+  // «Задачи»: while the app is open, the user's due tasks run (checked every minute);
+  // a finished one says so here, with a way to its results.
+  const [done, setDone] = useState<{ text: string; chatId?: string } | null>(null);
+  const reload = useRef(reloadChats);
+  useEffect(() => {
+    reload.current = reloadChats;
+  }, [reloadChats]);
+  const signedIn = Boolean(me);
   const [open, setOpen] = useState(false);
   // The command palette: Ctrl/⌘+K anywhere (the key, whatever the keyboard layout).
   const [palette, setPalette] = useState(false);
@@ -363,6 +388,35 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [open]);
 
   // The login and legal pages stand on their own (they are seen without signing in).
+  useEffect(() => {
+    if (standalone || !signedIn) return;
+    let stopped = false;
+    const tick = () => {
+      if (document.visibilityState !== "visible") return;
+      api<{ ran: Task[] }>("/api/tasks/tick", { method: "POST" }).then(
+        ({ ran }) => {
+          if (stopped || !ran.length) return;
+          reload.current();
+          const ok = ran.filter((t) => t.lastStatus === "ok");
+          if (ok.length) setDone({ text: ok.length === 1 ? `Задача «${ok[0].title}» выполнена` : `Выполнено задач: ${ok.length}`, chatId: ok[0].chatId });
+        },
+        () => {},
+      );
+    };
+    tick();
+    const timer = setInterval(tick, 60_000);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [standalone, signedIn]);
+
+  useEffect(() => {
+    if (!done) return;
+    const timer = setTimeout(() => setDone(null), 10_000);
+    return () => clearTimeout(timer);
+  }, [done]);
+
   if (standalone) return <>{children}</>;
 
   return (
@@ -422,10 +476,32 @@ export function AppShell({ children }: { children: ReactNode }) {
         </header>
         <div className="workspace-content">{children}</div>
         <nav className="mobile-workspace-nav" aria-label="Быстрая навигация">
-          {NAV.filter(n => n.href !== "/pricing").map(({ href, label, icon: Icon }) => <Link key={href} href={href} aria-current={pathname === href ? "page" : undefined}><Icon size={21} /><span>{href === "/assistants" ? "Ассистенты" : label}</span></Link>)}
+          {MOBILE_NAV.map(({ href, label, icon: Icon }) => <Link key={href} href={href} aria-current={pathname === href ? "page" : undefined}><Icon size={21} /><span>{label}</span></Link>)}
         </nav>
       </main>
       {palette && <CommandPalette onClose={() => setPalette(false)} />}
+      {done && (
+        <div role="status" className="palette-enter fixed bottom-20 right-4 z-50 flex max-w-sm items-center gap-3 rounded-2xl border border-violet-300/25 bg-zinc-950 p-3 pl-4 text-sm text-zinc-100 shadow-2xl md:bottom-6">
+          <CalendarClock className="size-5 shrink-0 text-violet-300" />
+          <span className="min-w-0 flex-1">{done.text}</span>
+          {done.chatId && (
+            <button
+              type="button"
+              onClick={() => {
+                openChat(done.chatId!);
+                router.push("/");
+                setDone(null);
+              }}
+              className="rounded-lg bg-violet-500/20 px-2.5 py-1 text-xs text-violet-100 hover:bg-violet-500/30"
+            >
+              Открыть
+            </button>
+          )}
+          <button type="button" onClick={() => setDone(null)} aria-label="Скрыть" className="text-zinc-500 hover:text-zinc-200">
+            <X className="size-4" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

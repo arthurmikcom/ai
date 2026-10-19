@@ -3,6 +3,9 @@
 import {
   Bot,
   ArrowUpRight,
+  CalendarClock,
+  Ghost,
+  MapIcon,
   Clapperboard,
   CornerDownLeft,
   Gem,
@@ -91,6 +94,19 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
     { id: "draw", group: "Действия", label: "Создать картинку", keywords: "нарисовать изображение фото", icon: ImageIcon, run: go("/images") },
     { id: "film", group: "Действия", label: "Создать видео", keywords: "снять оживить ролик", icon: Clapperboard, run: go("/video") },
     { id: "character", group: "Действия", label: "Фотосессия с моим персонажем", keywords: "персонаж фото себя", icon: UserRound, run: go("/images") },
+    { id: "maps", group: "Разделы", label: "Карты: что рядом", keywords: "карта места кафе рядом поблизости", icon: MapIcon, run: go("/maps") },
+    { id: "tasks", group: "Разделы", label: "Задачи по расписанию", keywords: "расписание напоминание мониторинг каждый день", icon: CalendarClock, run: go("/scheduled") },
+    {
+      id: "temporary",
+      group: "Действия",
+      label: "Временный чат",
+      keywords: "не сохранять приватный инкогнито",
+      icon: Ghost,
+      run: () => {
+        app.setTemporary(true);
+        router.push("/");
+      },
+    },
     { id: "assistants", group: "Разделы", label: "Мои ассистенты", keywords: "боты", icon: Bot, run: go("/assistants") },
     { id: "pricing", group: "Разделы", label: "Тарифы и кредиты", keywords: "pro оплата подписка", icon: Gem, run: go("/pricing") },
     { id: "settings", group: "Разделы", label: "Настройки", keywords: "аккаунт профиль память", icon: Settings, run: go("/settings") },
@@ -119,6 +135,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 
   const inMessages = found && found.query === q ? new Set(found.ids) : null;
   const chats = app.chats
+    .filter((c) => !c.temporary)
     .filter((c) => !q || c.title.toLowerCase().includes(q) || inMessages?.has(c.id))
     .slice(0, q ? 20 : RECENT_CHATS)
     .map(

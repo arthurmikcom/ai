@@ -109,6 +109,27 @@ export const LoaderCircle = glyph("Loading", <><circle cx="12" cy="12" r="9" opa
 export const GraduationCap = glyph("Learning", <><path d="m2 8 10-5 10 5-10 5L2 8Z" fill="currentColor" fillOpacity=".12" /><path d="M6 10v7c4 3 8 3 12 0v-7M22 8v9" /></>);
 export const Chart = glyph("Analysis", <><rect x="3" y="12" width="4" height="9" rx="1.5" fill="currentColor" fillOpacity=".15" /><rect x="10" y="7" width="4" height="14" rx="1.5" fill="currentColor" fillOpacity=".1" /><rect x="17" y="3" width="4" height="18" rx="1.5" fill="currentColor" fillOpacity=".07" /></>);
 export const ChefHat = glyph("Cooking", <><path d="M7 14C1 14 1 5 7 5c1-4 9-4 10 0 6 0 6 9 0 9v7H7Z" fill="currentColor" fillOpacity=".1" /><path d="M7 17h10M10 10v3M14 10v3" /></>);
+// Maps, scheduled tasks and the temporary chat.
+export const MapPin = glyph("Place", <><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21Z" fill="currentColor" fillOpacity=".12" /><circle cx="12" cy="9.5" r="2.5" /></>);
+export const MapIcon = glyph("Map", <><path d="M3.5 6.5 9 4l6 2.5 5.5-2.5v13.5L15 20l-6-2.5-5.5 2.5Z" fill="currentColor" fillOpacity=".09" /><path d="M9 4v13.5M15 6.5V20" /></>);
+export const Navigation = glyph("Route", <path d="m3.5 11 17-7.5-7.5 17-2-7.5Z" fill="currentColor" fillOpacity=".12" />);
+export const LocateFixed = glyph("MyLocation", <><circle cx="12" cy="12" r="6.5" fill="currentColor" fillOpacity=".08" /><circle cx="12" cy="12" r="2" /><path d="M12 2v3.5M12 18.5V22M2 12h3.5M18.5 12H22" /></>);
+export const Clock = glyph("Time", <><circle cx="12" cy="12" r="9" fill="currentColor" fillOpacity=".09" /><path d="M12 7v5l3.5 2" /></>);
+export const CalendarClock = glyph("Scheduled", <><path d="M11 19.5H7.5C5 19.5 3.5 18 3.5 15.5v-7C3.5 6 5 4.5 7.5 4.5h7c2.5 0 4 1.5 4 4V11" fill="currentColor" fillOpacity=".09" /><path d="M7.5 2.5v4M14.5 2.5v4M3.5 9.5h15" /><circle cx="17" cy="17" r="4.5" /><path d="M17 15v2.2l1.4 1" /></>);
+export const Ghost = glyph("Temporary", <><path d="M5 20.5V11a7 7 0 0 1 14 0v9.5l-2.4-1.8-2.3 1.8-2.3-1.8-2.3 1.8-2.3-1.8Z" fill="currentColor" fillOpacity=".1" /><path d="M9.5 11h.01M14.5 11h.01" strokeWidth="2.4" /></>);
+export const Pause = glyph("Pause", <><rect x="6" y="5" width="4" height="14" rx="1.5" fill="currentColor" fillOpacity=".12" /><rect x="14" y="5" width="4" height="14" rx="1.5" fill="currentColor" fillOpacity=".12" /></>);
+export const Bell = glyph("Notice", <><path d="M6 10a6 6 0 0 1 12 0c0 5 2 6.5 2 6.5H4S6 15 6 10Z" fill="currentColor" fillOpacity=".1" /><path d="M10 20a2.2 2.2 0 0 0 4 0" /></>);
+export const Phone = glyph("Call", <path d="M5 3h3l2 5-2.5 1.5a11 11 0 0 0 5 5L14 12l5 2v3a2 2 0 0 1-2 2A15 15 0 0 1 3 5a2 2 0 0 1 2-2Z" fill="currentColor" fillOpacity=".1" />);
+export const Coffee = glyph("Cafe", <><path d="M4 9h12v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5Z" fill="currentColor" fillOpacity=".12" /><path d="M16 10.5h1.5a2.5 2.5 0 0 1 0 5H16M8 3c-1 1.5 1 2.5 0 4M12 3c-1 1.5 1 2.5 0 4M3 21.5h14" /></>);
+export const Utensils = glyph("Restaurant", <path d="M6 2.5v6a2.5 2.5 0 0 0 5 0v-6M8.5 2.5v19M17 21.5V2.5c-2.5 1-3.5 4-3.5 7.5 0 2 1 3 3.5 3" />);
+export const Pill = glyph("Pharmacy", <><rect x="2.8" y="8.2" width="18.4" height="7.6" rx="3.8" transform="rotate(-45 12 12)" fill="currentColor" fillOpacity=".12" /><path d="m9 9 6 6" /></>);
+export const Banknote = glyph("Cash", <><rect x="2.5" y="6" width="19" height="12" rx="3.5" fill="currentColor" fillOpacity=".1" /><circle cx="12" cy="12" r="2.6" /><path d="M6 9.5h.01M18 14.5h.01" strokeWidth="2.4" /></>);
+export const ShoppingCart = glyph("Shop", <><path d="M3 3.5h2.5l2.3 11h10.4l2.3-8H7" fill="currentColor" fillOpacity=".09" /><circle cx="9" cy="19.5" r="1.5" /><circle cx="17" cy="19.5" r="1.5" /></>);
+export const Fuel = glyph("Fuel", <><rect x="4" y="3.5" width="10" height="17" rx="2.5" fill="currentColor" fillOpacity=".1" /><path d="M4 10h10M14 8l3.5 3v6.5a1.5 1.5 0 0 0 3 0V8L17 5M2.5 20.5h13" /></>);
+export const BedDouble = glyph("Hotel", <><path d="M3 18v-5.5A2.5 2.5 0 0 1 5.5 10h13a2.5 2.5 0 0 1 2.5 2.5V18Z" fill="currentColor" fillOpacity=".1" /><path d="M3 18v3M21 18v3M5 10V6.5A2.5 2.5 0 0 1 7.5 4h9A2.5 2.5 0 0 1 19 6.5V10M12 4v6" /></>);
+export const Landmark = glyph("Museum", <><path d="m12 2.5 9 5H3Z" fill="currentColor" fillOpacity=".12" /><path d="M5 10.5v7M9.7 10.5v7M14.3 10.5v7M19 10.5v7M3 21h18M4 18h16" /></>);
+export const Trees = glyph("Park", <><path d="M9 3 3.5 13h11Z" fill="currentColor" fillOpacity=".12" /><path d="M9 13v8M15.5 8a4.5 4.5 0 0 1 4.5 4.5c0 3-2 4.5-4.5 4.5M17 17v4M2 21h20" /></>);
+export const Wine = glyph("Bar", <><path d="M7 2.5h10l-.5 5.5a4.5 4.5 0 0 1-9 0Z" fill="currentColor" fillOpacity=".12" /><path d="M12 12.5v8.5M8 21h8" /></>);
 
 const PERSONAS: Record<string, MaryxIconType> = { "👨‍💻": Code2, "💻": Code2, "🌍": Globe, "🌐": Globe, "✍️": PenLine, "🇬🇧": GraduationCap, "🎓": GraduationCap, "📊": Chart, "👨‍🍳": ChefHat, "🤖": Bot };
 export function PersonaSymbol({ emoji, className = "" }: { emoji: string; className?: string }) {

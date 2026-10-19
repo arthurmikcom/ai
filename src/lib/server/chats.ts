@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, ilike, or } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, lt, or } from "drizzle-orm";
 import type { Assistant, Chat, ChatMessage, ChatSummary, InlineFile, ProviderId } from "@/lib/types";
 import { isImageModel, maryxOnly, publicError, publicNotices } from "./brand";
 import { isDocumentMime } from "./documents";
@@ -19,6 +19,7 @@ function toSummary(row: ChatRow): ChatSummary {
     provider: masked ? "maryx" : row.provider,
     model: masked ? "maryx" : row.model,
     assistantId: row.assistantId ?? undefined,
+    ...(row.temporary ? { temporary: true } : {}),
     createdAt: row.createdAt.getTime(),
     updatedAt: row.updatedAt.getTime(),
   };
@@ -45,7 +46,7 @@ function toMessage(row: MessageRow): ChatMessage {
     role: row.role,
     content: row.content,
     reasoning: row.reasoning ?? undefined,
-    attachments: row.attachments?.map((f) => ({ mime: f.mime, name: f.name, url: fileUrl(f.key) })),
+    attachments: row.attachments?.map((f) => ({ mime: f.mime, name: f.name, url: fileUrl(f.key), ...(f.hidden ? { hidden: true } : {}) })),
     provider: masked ? "maryx" : (row.provider ?? undefined),
     model: masked ? (row.mediaId ? "maryx-video" : drawn ? "maryx-image" : "maryx") : (row.model ?? undefined),
     error: row.error ? publicError(row.error) : undefined,
@@ -76,10 +77,26 @@ export async function listChats(userId: string): Promise<ChatSummary[]> {
   const rows = await db
     .select()
     .from(schema.chat)
-    .where(eq(schema.chat.userId, userId))
+    .where(and(eq(schema.chat.userId, userId), eq(schema.chat.temporary, false)))
     .orderBy(desc(schema.chat.updatedAt))
     .limit(500);
   return rows.map(toSummary);
+}
+
+/** Temporary chats live a day at most (the browser deletes them sooner, when they're left). */
+const TEMPORARY_MS = 24 * 60 * 60 * 1000;
+
+/** Deletes temporary chats left over a day ago (with their files): one user's, or everyone's. */
+export async function purgeTemporaryChats(userId?: string): Promise<number> {
+  const db = await getDb();
+  const old = and(eq(schema.chat.temporary, true), lt(schema.chat.updatedAt, new Date(Date.now() - TEMPORARY_MS)));
+  const rows = await db
+    .select({ id: schema.chat.id, userId: schema.chat.userId })
+    .from(schema.chat)
+    .where(userId ? and(old, eq(schema.chat.userId, userId)) : old)
+    .limit(200);
+  for (const row of rows) await deleteChat(row.userId, row.id);
+  return rows.length;
 }
 
 /** The user's chats whose title or any message contains `query` (newest first). */
@@ -91,7 +108,13 @@ export async function searchChats(userId: string, query: string): Promise<string
     .selectDistinct({ id: schema.chat.id, updatedAt: schema.chat.updatedAt })
     .from(schema.chat)
     .leftJoin(schema.message, eq(schema.message.chatId, schema.chat.id))
-    .where(and(eq(schema.chat.userId, userId), or(ilike(schema.chat.title, pattern), ilike(schema.message.content, pattern))))
+    .where(
+      and(
+        eq(schema.chat.userId, userId),
+        eq(schema.chat.temporary, false),
+        or(ilike(schema.chat.title, pattern), ilike(schema.message.content, pattern)),
+      ),
+    )
     .orderBy(desc(schema.chat.updatedAt))
     .limit(100);
   return rows.map((r) => r.id);

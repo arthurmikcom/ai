@@ -14,6 +14,7 @@ import { EffectSymbol,
   Mic,
   Palette,
   Paperclip,
+  Play,
   Sparkles,
   Square,
   Telescope,
@@ -41,6 +42,7 @@ import {
 } from "@/lib/client/voice";
 import { canCaptureScreen, canUseCamera, captureScreen, clock, videoSheet } from "@/lib/client/capture";
 import { enhancePrompt } from "@/lib/client/media";
+import { discardVideo, uploadVideo, videoMime } from "@/lib/client/upload";
 import { CAMERA_MOTIONS, IMAGE_STYLES, PHOTO_EFFECTS } from "@/lib/effects";
 import type { Attachment, ModelInfo } from "@/lib/types";
 import { CameraDialog } from "./CameraDialog";
@@ -103,6 +105,8 @@ export interface ComposerInject {
 }
 
 const MAX_ATTACHMENTS = 4;
+/** The biggest video (the server takes the same). */
+const MAX_VIDEO_MB = 100;
 
 /** A video file (phones don't always say its type; the name does). */
 function isVideoFile(file: File): boolean {
@@ -179,6 +183,8 @@ export function Composer({
   const [listening, setListening] = useState<"idle" | "recording" | "transcribing">("idle");
   const [seconds, setSeconds] = useState(0);
   const recording = useRef<Recording | null>(null);
+  /** Videos still uploading, by their local copy: taking one out stops it. */
+  const uploads = useRef(new Map<string, AbortController>());
   const recognizer = useRef<{ stop: () => void } | null>(null);
   // Set before the microphone permission prompt, so a second tap can't open another recorder.
   const starting = useRef(false);
@@ -216,7 +222,8 @@ export function Composer({
   const sending = videoMode ? going.slice(0, 1) : going;
   const keeping = attachments.filter((a) => !sending.includes(a));
   const canSeeImages = model?.vision !== false || takesPhotos;
-  const canSend = !disabled && !streaming && (text.trim() !== "" || sending.length > 0);
+  const uploading = attachments.some((a) => a.progress !== undefined);
+  const canSend = !disabled && !streaming && !uploading && (text.trim() !== "" || sending.length > 0);
   // "✨ Улучшить" (draw and video modes): the rewrite in progress, and the words before it.
   const [enhancing, setEnhancing] = useState(false);
   const [before, setBefore] = useState<string | null>(null);
@@ -269,12 +276,8 @@ export function Composer({
             added.push(doc);
           }
         } else if (isVideoFile(file)) {
-          // A video goes as its frames on one sheet, read right here (like «Разобрать видео»).
-          if (!canSeeImages) {
-            problems.push("Эта модель не видит изображения — выберите другую модель, чтобы разобрать видео.");
-            continue;
-          }
-          await addVideo(file);
+          // A whole video: uploaded and played in the chat (MARYX reads its frames).
+          void addVideo(file);
         } else {
           problems.push(`«${file.name}»: такой тип файла пока не поддерживается.`);
         }
@@ -287,14 +290,8 @@ export function Composer({
     if (problems.length) setError(problems.join(" "));
   };
 
-  /** The words to send: a video's note goes first (its sheet alone doesn't say it's a video). */
-  const withNotes = (words: string) => {
-    const notes = sending.flatMap((a) => (a.note ? [a.note] : []));
-    return [...notes, words || (notes.length ? "Расскажи подробно, что происходит на этом видео." : "")].filter(Boolean).join("\n");
-  };
-
-  /** A picture made on this device (camera, screen, a video's frames), as an attachment. */
-  const addPicture = async (blob: Blob, name: string, note?: string) => {
+  /** A picture made on this device (camera, screen), as an attachment. */
+  const addPicture = async (blob: Blob, name: string) => {
     try {
       const image = await imageToAttachment(blob);
       const total = attachments.reduce((sum, a) => sum + (a.data?.length ?? 0), 0);
@@ -302,7 +299,7 @@ export function Composer({
         setError("Вложения слишком большие: всего до 3 МБ за сообщение.");
         return;
       }
-      const picture: Attachment = { mime: image.mime, data: image.data, name, ...(note ? { note } : {}) };
+      const picture: Attachment = { mime: image.mime, data: image.data, name };
       setAttachments((list) => [...list, picture].slice(0, MAX_ATTACHMENTS));
       textarea.current?.focus();
     } catch {
@@ -322,25 +319,56 @@ export function Composer({
     setBusy(null);
   };
 
+  /** The attachment in the list with this local copy (a video and its frames share it). */
+  const patchVideo = (preview: string, change: Partial<Attachment>) =>
+    setAttachments((list) => list.map((a) => (a.preview === preview && !a.hidden ? { ...a, ...change } : a)));
+
+  /**
+   * A video goes whole, like in a messenger: it uploads (in parts, with
+   * progress) and plays in the chat. MARYX reads its frames, taken right here
+   * and sent along unseen.
+   */
   const addVideo = async (file: File) => {
     setError(null);
-    setBusy("video");
-    try {
-      const { sheet, duration, frames } = await videoSheet(file);
-      await addPicture(
-        sheet,
-        `Видео «${file.name}»`,
-        `🎞 Видео «${file.name}» (${clock(duration)}): на картинке ${frames} кадров по порядку, на каждом — время.`,
-      );
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Не удалось разобрать видео.");
+    if (file.size > MAX_VIDEO_MB * 1024 * 1024) {
+      setError(`Видео слишком большое: до ${MAX_VIDEO_MB} МБ.`);
+      return;
     }
-    setBusy(null);
+    const preview = URL.createObjectURL(file);
+    setAttachments((list) => [...list, { mime: videoMime(file), name: file.name, preview, progress: 0 }].slice(0, MAX_ATTACHMENTS));
+    textarea.current?.focus();
+    const frames = videoSheet(file).then(
+      async ({ sheet, duration }) => {
+        const image = await imageToAttachment(sheet);
+        const total = attachments.reduce((sum, a) => sum + (a.data?.length ?? 0), 0);
+        if (total + (image.data?.length ?? 0) > MAX_TOTAL_BASE64) return;
+        const hidden: Attachment = { mime: image.mime, data: image.data, name: `Видео «${file.name}», ${clock(duration)}`, hidden: true, preview };
+        setAttachments((list) => (list.some((a) => a.preview === preview) ? [...list, hidden] : list));
+      },
+      // The browser can't read this video (a codec it lacks): it still goes, MARYX just can't see it.
+      () => {},
+    );
+    const controller = new AbortController();
+    uploads.current.set(preview, controller);
+    try {
+      const { key, url, mime } = await uploadVideo(file, (progress) => patchVideo(preview, { progress }), controller.signal);
+      await frames;
+      // Taken out while it was being finished: it isn't kept.
+      if (controller.signal.aborted) discardVideo(key);
+      else patchVideo(preview, { key, url, mime, progress: undefined });
+    } catch (e) {
+      if (controller.signal.aborted) return;
+      setAttachments((list) => list.filter((a) => a.preview !== preview));
+      URL.revokeObjectURL(preview);
+      setError(e instanceof Error ? e.message : "Не удалось загрузить видео.");
+    } finally {
+      uploads.current.delete(preview);
+    }
   };
 
   const submit = () => {
     if (!canSend) return;
-    onSend(withNotes(text.trim()), sending);
+    onSend(text.trim(), sending);
     setText("");
     setBefore(null);
     // A picture prompt (or a text-only model) doesn't take the other files along; they stay for later.
@@ -372,7 +400,7 @@ export function Composer({
       return;
     }
     if (voiceMode && !disabled && !streaming) {
-      onSend(withNotes(spoken), sending, true);
+      onSend(spoken, sending, true);
       setAttachments(keeping);
       return;
     }
@@ -465,11 +493,19 @@ export function Composer({
                   : "В режиме «Картинка» файлы не отправляются — они останутся для следующего сообщения."}
           </p>
         )}
+        {uploading && <p className="px-2 pt-1 text-xs text-zinc-500">Видео загружается — отправить можно, когда загрузка закончится.</p>}
         {attachments.length > 0 && (
           <div className="flex flex-wrap gap-2 p-2">
-            {attachments.map((a, i) => (
+            {attachments.map((a, i) => a.hidden ? null : (
               <div key={i} className={`relative ${sending.includes(a) ? "" : "opacity-40"}`}>
-                {isDocumentAttachment(a) ? (
+                {a.mime.startsWith("video/") ? (
+                  <div className="relative size-16 overflow-hidden rounded-xl bg-black" title={a.name} data-uploading={a.progress !== undefined || undefined}>
+                    <video src={a.preview ?? a.url} muted playsInline preload="metadata" aria-label={`Видео «${a.name ?? ""}»`} className="size-full object-cover" />
+                    <span className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 bg-black/60 py-0.5 text-[10px] text-[#fff]">
+                      {a.progress !== undefined ? <><LoaderCircle className="size-3 animate-spin" />{a.progress}%</> : <><Play className="size-3" />Видео</>}
+                    </span>
+                  </div>
+                ) : isDocumentAttachment(a) ? (
                   <div className="flex h-16 max-w-52 items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 text-xs text-zinc-300">
                     <FileText className="size-5 shrink-0 text-violet-300" />
                     <span className="line-clamp-2 break-all">{a.name}</span>
@@ -484,7 +520,14 @@ export function Composer({
                 )}
                 <button
                   type="button"
-                  onClick={() => setAttachments((list) => list.filter((_, j) => j !== i))}
+                  aria-label="Убрать вложение"
+                  onClick={() => {
+                    // A video goes with its frames; its upload stops, or the uploaded file goes.
+                    setAttachments((list) => list.filter((x, j) => j !== i && !(a.preview && x.preview === a.preview)));
+                    if (a.preview) uploads.current.get(a.preview)?.abort();
+                    if (a.key) discardVideo(a.key);
+                    if (a.preview) URL.revokeObjectURL(a.preview);
+                  }}
                   className="absolute -right-1.5 -top-1.5 rounded-full bg-zinc-700 p-0.5 text-zinc-200 hover:bg-zinc-600"
                 >
                   <X className="size-3" />
@@ -670,8 +713,8 @@ export function Composer({
                 {canSeeImages && !mediaMode && (
                   <MenuItem
                     icon={Film}
-                    label="Разобрать видео"
-                    hint="Кадры достаются прямо в браузере"
+                    label="Видео"
+                    hint="Целиком: смотрите в чате, MARYX разберёт"
                     onClick={() => videoInput.current?.click()}
                     close={() => setMenu(false)}
                   />

@@ -103,7 +103,7 @@ export function userPrefix(userId: string): string {
 }
 
 /** Builds a fresh storage key such as users/<id>/media/<uuid>.png */
-export function newKey(userId: string, folder: "media" | "attachments" | "characters", mime: string): string {
+export function newKey(userId: string, folder: "media" | "attachments" | "characters" | "uploads", mime: string): string {
   const ext = EXTENSIONS[mime.split(";")[0].trim()] ?? "bin";
   return `${userPrefix(userId)}${folder}/${crypto.randomUUID()}.${ext}`;
 }
@@ -121,6 +121,7 @@ export async function putFile(
   key: string,
   body: Buffer | ReadableStream<Uint8Array>,
   mime: string,
+  opts: { multipart?: boolean } = {},
 ): Promise<void> {
   if (!isValidKey(key)) throw new Error(`Invalid storage key: ${key}`);
   // On Vercel the function's own disk is read-only: files need Blob there.
@@ -128,7 +129,7 @@ export async function putFile(
   if (!auth && process.env.VERCEL) throw new StorageUnavailableError();
   if (auth) {
     try {
-      await put(key, body, { access: "private", contentType: mime, addRandomSuffix: false, ...auth });
+      await put(key, body, { access: "private", contentType: mime, addRandomSuffix: false, multipart: opts.multipart, ...auth });
     } catch (err) {
       if (!unreachable(err)) throw err;
       console.error("Vercel Blob is not reachable:", err);
@@ -159,6 +160,44 @@ export async function getFile(
   try {
     const { size } = await stat(file);
     return { body: Readable.toWeb(createReadStream(file)) as ReadableStream<Uint8Array>, size };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Part of a stored file (`Range: bytes=start-end`): a video plays and seeks in
+ * parts (Safari asks for nothing else). 206 with the part, or 200 with the whole
+ * file when the store sends it all; null when the file isn't there.
+ */
+export async function getFileRange(
+  key: string,
+  start: number,
+  end?: number,
+): Promise<{ body: ReadableStream<Uint8Array>; status: 200 | 206 | 416; headers: Record<string, string> } | null> {
+  if (!isValidKey(key)) return null;
+  const auth = blobAuth();
+  if (auth) {
+    const res = await get(key, { access: "private", headers: { range: `bytes=${start}-${end ?? ""}` }, ...auth });
+    if (!res || res.statusCode !== 200) return null;
+    const range = res.headers.get("content-range");
+    const length = res.headers.get("content-length");
+    return {
+      body: res.stream,
+      status: range ? 206 : 200,
+      headers: { ...(range ? { "Content-Range": range } : {}), ...(length ? { "Content-Length": length } : {}) },
+    };
+  }
+  const file = path.join(LOCAL_ROOT, key);
+  try {
+    const { size } = await stat(file);
+    if (start >= size) return { body: new ReadableStream(), status: 416, headers: { "Content-Range": `bytes */${size}` } };
+    const last = Math.min(end ?? size - 1, size - 1);
+    return {
+      body: Readable.toWeb(createReadStream(file, { start, end: last })) as ReadableStream<Uint8Array>,
+      status: 206,
+      headers: { "Content-Range": `bytes ${start}-${last}/${size}`, "Content-Length": String(last - start + 1) },
+    };
   } catch {
     return null;
   }

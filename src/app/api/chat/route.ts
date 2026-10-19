@@ -53,6 +53,7 @@ import {
 import { endUserId, ownKey, ownKeyInfo } from "@/lib/server/own-key";
 import { answerLimits, chatHold, mediaCost } from "@/lib/server/pricing";
 import { chatEntry, requestChars, type CostEntry, type Meter } from "@/lib/server/spend";
+import { isOwnVideoKey } from "@/lib/server/uploads";
 import {
   charge,
   deniedResponse,
@@ -142,6 +143,8 @@ export async function POST(request: Request) {
 
   const req = parseChatSendRequest(await request.json().catch(() => null));
   if (typeof req === "string") return jsonError(req, 400);
+  // An uploaded video must be one of the user's own files.
+  if (req.message?.attachments?.some((a) => a.key && !isOwnVideoKey(user.id, a.key))) return jsonError("Неверное вложение", 400);
 
   const db = await getDb();
   let chat = await findChat(user.id, req.chatId);
@@ -158,7 +161,7 @@ export async function POST(request: Request) {
     const pictures: InlineFile[] = [];
     for (const f of files.filter((f) => f.mime.startsWith("image/")).slice(0, 4)) {
       const data = await readFileBase64(f.key);
-      if (data) pictures.push({ mime: f.mime, data, name: f.name });
+      if (data) pictures.push({ mime: f.mime, data, name: f.name, ...(f.hidden ? { hidden: true } : {}) });
     }
     req.message.attachments = pictures.length ? pictures : undefined;
     replacing = { rows: existing.slice(i), documents: files.filter((f) => !f.mime.startsWith("image/")), first: i === 0 };
@@ -275,6 +278,7 @@ export async function POST(request: Request) {
             provider: req.provider,
             model: req.model,
             assistantId: assistant?.id ?? null,
+            temporary: req.create.temporary === true,
           })
           .returning();
       } catch (err) {
@@ -319,6 +323,11 @@ export async function POST(request: Request) {
       }
       try {
         for (const file of req.message.attachments ?? []) {
+          // A whole video, uploaded beforehand: already stored (its ownership was checked above).
+          if (file.key) {
+            stored.push({ key: file.key, mime: file.mime, name: file.name });
+            continue;
+          }
           const bytes = Buffer.from(file.data, "base64");
           const key = newKey(user.id, "attachments", file.mime);
           if (isDocumentMime(file.mime)) {
@@ -333,7 +342,7 @@ export async function POST(request: Request) {
             documentTexts.set(textKey, text);
           } else {
             await putFile(key, bytes, file.mime);
-            stored.push({ key, mime: file.mime, name: file.name });
+            stored.push({ key, mime: file.mime, name: file.name, ...(file.hidden ? { hidden: true } : {}) });
           }
         }
       } catch (err) {
@@ -516,7 +525,12 @@ export async function POST(request: Request) {
       }),
     );
     const history: ChatRequest["messages"] = loaded.map(({ m, images, docs, leftOut }) => {
-      const text = leftOut > 0 ? `${m.content}\n[К сообщению были приложены изображения: ${leftOut}]` : m.content;
+      // A whole video plays in the chat; the model gets its frames (sent unseen), and is told what they are.
+      const videos = (m.role === "user" ? (m.attachments ?? []) : []).filter((f) => f.hidden).map((f) => f.name || "Видео");
+      const watched = videos.length
+        ? `\n[Пользователь прислал видео (${videos.join("; ")}). Приложенная картинка — его кадры по порядку, на каждом отмечено время. Если он ничего не спросил, расскажи, что происходит на видео.]`
+        : "";
+      const text = (leftOut > 0 ? `${m.content}\n[К сообщению были приложены изображения: ${leftOut}]` : m.content) + watched;
       return {
         role: m.role,
         content: docs.length ? withDocuments(text, docs) : text,
@@ -539,7 +553,8 @@ export async function POST(request: Request) {
     const consulting = maryx && !researching && req.council === true && loaded[loaded.length - 1].images.length === 0;
     let councilText = "";
     // Stored facts go into every MARYX answer (regenerations too); new ones are learned from new messages.
-    const memoryOn = maryx && prefs.memory;
+    // A temporary chat stays out of MARYX's memory (neither read nor learned from).
+    const memoryOn = maryx && prefs.memory && !chat.temporary;
     let facts: string[] = [];
     const last = loaded[loaded.length - 1];
     if (maryx) {
@@ -675,7 +690,7 @@ export async function POST(request: Request) {
     // nothing), runs alongside it, and leaves a chat renamed meanwhile alone.
     let titleJob: Promise<string | null> | undefined = retitled ? Promise.resolve(retitled) : undefined;
     const firstText = userText.trim();
-    const wantTitle = maryx && created && req.message !== undefined && (firstText.length > 40 || firstText.includes("\n"));
+    const wantTitle = maryx && created && !chat.temporary && req.message !== undefined && (firstText.length > 40 || firstText.includes("\n"));
     const startTitle = () => {
       const initial = chatTitle;
       const names = (req.message?.attachments ?? []).flatMap((f) => (f.name ? [f.name] : []));

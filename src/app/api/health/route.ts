@@ -105,6 +105,9 @@ export async function GET(request: Request) {
     budget === null
       ? `⚠ общий дневной бюджет на бесплатные запросы не задан — каждого пользователя ограничивают только лимиты тарифа. Чтобы расходы не превысили сумму в день, добавьте AI_DAILY_BUDGET_USD (например 5): ${SETTINGS}`
       : `✓ бесплатные запросы — до $${budget} в сутки на весь сайт`;
+  checks["Задачи по расписанию"] = process.env.CRON_SECRET?.trim()
+    ? "✓ выполняются вовремя, пока сайт открыт, и раз в сутки сами; для точного времени всегда — «будильник» на /api/cron/tasks (см. README)"
+    : `⚠ без CRON_SECRET задачи выполняются, только пока у пользователя открыт сайт. Добавьте CRON_SECRET (16+ случайных символов): ${SETTINGS}`;
   const payments: string[] = [];
   let paymentsWarn = false;
   if (yookassaConfigured()) {

@@ -74,8 +74,13 @@ export interface Attachment {
   /** Where the stored copy can be read (/api/files/…). */
   url?: string;
   name?: string;
-  /** Browser only: words sent along with it (a video's frames say what they are). */
-  note?: string;
+  /** A file uploaded beforehand (a whole video, in parts): its storage key, no data. */
+  key?: string;
+  /** For MARYX only, not shown (a video's frames on one sheet). */
+  hidden?: boolean;
+  /** Browser only: a video still uploading (0–100), and a local copy to show meanwhile. */
+  progress?: number;
+  preview?: string;
 }
 
 /** A web page the answer is based on (web search). */
@@ -93,6 +98,10 @@ export interface InlineImage {
 /** A file uploaded with a message: an image or a document (PDF, Word, Excel…). */
 export interface InlineFile extends InlineImage {
   name?: string;
+  /** Uploaded beforehand (a whole video): its storage key; `data` is then empty. */
+  key?: string;
+  /** For MARYX only, not shown in the chat. */
+  hidden?: boolean;
 }
 
 export interface ChatMessage {
@@ -130,6 +139,8 @@ export interface ChatSummary {
   provider: ProviderId;
   model: string;
   assistantId?: string;
+  /** «Временный чат»: not in the history or MARYX's memory; deleted when left. */
+  temporary?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -174,7 +185,7 @@ export interface SendOptions {
 export interface ChatSendRequest {
   chatId: string;
   /** Set when this is the first message of a new chat. */
-  create?: { assistantId?: string };
+  create?: { assistantId?: string; temporary?: boolean };
   provider: ProviderId;
   model: string;
   deepThinking?: boolean;
@@ -449,4 +460,72 @@ export interface CostReport {
   byPayer: { paidBy: PaidBy; usd: number; requests: number }[];
   /** Credits sold or given, and spent, in the last 30 days. */
   credits: { granted: number; spent: number };
+}
+
+// ---------- Scheduled tasks ----------
+
+/**
+ * How often a task runs, in the user's own time (its time zone): once at a
+ * moment ("YYYY-MM-DDTHH:MM"), every day or week at "HH:MM" (weekday 0 =
+ * Sunday), or every few hours (monitoring).
+ */
+export type TaskSchedule =
+  | { kind: "once"; at: string }
+  | { kind: "daily"; time: string }
+  | { kind: "weekly"; time: string; weekday: number }
+  | { kind: "hourly"; every: number };
+
+/** «Задачи»: a prompt MARYX runs on a schedule by itself; each answer goes to the task's chat. */
+export interface Task {
+  id: string;
+  title: string;
+  prompt: string;
+  schedule: TaskSchedule;
+  timezone: string;
+  /** Searches the web on each run (news, prices, mentions). */
+  search: boolean;
+  active: boolean;
+  nextRunAt?: number;
+  lastRunAt?: number;
+  lastStatus?: "ok" | "error" | "limit";
+  lastError?: string;
+  runs: number;
+  /** A result not seen yet. */
+  unread: boolean;
+  chatId?: string;
+  createdAt: number;
+}
+
+// ---------- Maps ----------
+
+export type PlaceCategory =
+  | "cafe"
+  | "restaurant"
+  | "fast_food"
+  | "bar"
+  | "pharmacy"
+  | "atm"
+  | "supermarket"
+  | "fuel"
+  | "hotel"
+  | "museum"
+  | "park"
+  | "sight";
+
+/** A place on the map, from OpenStreetMap. */
+export interface Place {
+  id: string;
+  name: string;
+  category: PlaceCategory;
+  /** What it is, in words ("Кафе · italian"). */
+  kind: string;
+  lat: number;
+  lon: number;
+  /** From the point asked about, in metres. */
+  distance: number;
+  address?: string;
+  /** OpenStreetMap's opening hours, as written there ("Mo-Fr 08:00-20:00"). */
+  hours?: string;
+  website?: string;
+  phone?: string;
 }

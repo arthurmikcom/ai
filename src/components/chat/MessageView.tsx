@@ -296,7 +296,18 @@ export function MessageView({
         {message.attachments && (
           <div className="flex flex-wrap justify-end gap-2">
             {message.attachments.map((a, i) =>
-              isDocumentAttachment(a) ? (
+              // A video's frames are for MARYX; the video itself plays here.
+              a.hidden ? null : a.mime.startsWith("video/") ? (
+                <video
+                  key={i}
+                  src={a.url ?? a.preview}
+                  controls
+                  playsInline
+                  preload="metadata"
+                  aria-label={`Видео «${a.name ?? ""}»`}
+                  className="max-h-96 w-full max-w-md rounded-2xl border border-white/10 bg-black"
+                />
+              ) : isDocumentAttachment(a) ? (
                 a.url ? (
                   <a
                     key={i}

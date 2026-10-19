@@ -8,6 +8,7 @@ import { isValidId } from "./http";
 const PROVIDER_IDS = new Set<string>([...PROVIDERS.map((p) => p.id), "maryx", "browser"]);
 const ASPECT_RATIOS = new Set<string>(["1:1", "16:9", "9:16", "4:3", "3:4"]);
 const IMAGE_MIME = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
+const VIDEO_MIME = new Set(["video/mp4", "video/webm", "video/quicktime"]);
 const MAX_ATTACHMENTS = 4;
 // ~3 MB of bytes per file; the browser shrinks images well below this.
 const MAX_ATTACHMENT_BASE64 = 4_000_000;
@@ -55,6 +56,7 @@ export function parseChatSendRequest(body: unknown): ChatSendRequest | string {
     if (!isObject(create)) return "Неверный запрос";
     if (create.assistantId !== undefined && !isValidId(create.assistantId)) return "Неверный ассистент";
     assistantId = create.assistantId as string | undefined;
+    if (create.temporary !== undefined && typeof create.temporary !== "boolean") return "Неверный запрос";
   }
 
   let parsedMessage: ChatSendRequest["message"];
@@ -69,7 +71,15 @@ export function parseChatSendRequest(body: unknown): ChatSendRequest | string {
     }
     let total = 0;
     for (const a of attachments) {
-      if (!isObject(a) || typeof a.data !== "string" || typeof a.mime !== "string") return "Неверное вложение";
+      if (!isObject(a) || typeof a.mime !== "string") return "Неверное вложение";
+      if (a.hidden !== undefined && (a.hidden !== true || !IMAGE_MIME.has(a.mime))) return "Неверное вложение";
+      // A whole video, uploaded beforehand in parts: only its key comes (the route checks it's the user's).
+      if (a.key !== undefined) {
+        if (typeof a.key !== "string" || !VIDEO_MIME.has(a.mime) || (a.data !== undefined && a.data !== "")) return "Неверное вложение";
+        if (a.name !== undefined && (typeof a.name !== "string" || a.name.length > 200)) return "Неверное имя файла";
+        continue;
+      }
+      if (typeof a.data !== "string") return "Неверное вложение";
       if (!IMAGE_MIME.has(a.mime) && !isDocumentMime(a.mime)) {
         return "Можно прикреплять изображения (JPEG, PNG, GIF, WebP) и документы (PDF, Word, Excel, CSV, TXT)";
       }
@@ -83,14 +93,20 @@ export function parseChatSendRequest(body: unknown): ChatSendRequest | string {
       id: message.id,
       content: message.content,
       attachments: attachments.length
-        ? (attachments as InlineFile[]).map((a) => ({ mime: a.mime, data: a.data, name: a.name }))
+        ? (attachments as InlineFile[]).map((a) => ({
+            mime: a.mime,
+            data: a.key ? "" : a.data,
+            name: a.name,
+            ...(a.key ? { key: a.key } : {}),
+            ...(a.hidden ? { hidden: true } : {}),
+          }))
         : undefined,
     };
   }
 
   return {
     chatId,
-    create: create === undefined ? undefined : { assistantId },
+    create: create === undefined ? undefined : { assistantId, ...(isObject(create) && create.temporary === true ? { temporary: true } : {}) },
     provider,
     model,
     deepThinking: deepThinking === true,

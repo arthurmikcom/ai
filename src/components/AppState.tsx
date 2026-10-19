@@ -25,6 +25,7 @@ import type {
   ChatSendRequest,
   ChatStreamEvent,
   ChatSummary,
+  InlineFile,
   MeResponse,
   ProviderId,
   SendOptions,
@@ -66,6 +67,12 @@ interface AppState {
   /** Assistant chosen for the next new chat. */
   draftAssistantId: string | null;
   startChatWith: (assistantId: string | null) => void;
+  /** «Временный чат»: the next new chat isn't kept (not in the history or MARYX's memory). */
+  draftTemporary: boolean;
+  /** Starts a new chat, temporary or not (leaving a temporary chat deletes it). */
+  setTemporary: (on: boolean) => void;
+  /** Fetches the chat list again (new chats and messages made elsewhere: a scheduled task's run). */
+  reloadChats: () => void;
 
   /** Sends to the open chat, or starts a new one on `model`. */
   send: (text: string, attachments: Attachment[], options: SendOptions, model: ModelChoice | null) => void;
@@ -113,6 +120,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     maryxOnlyRef.current = maryxOnly;
   }, [maryxOnly]);
   const [draftAssistantId, setDraftAssistantId] = useState<string | null>(null);
+  const [draftTemporary, setDraftTemporary] = useState(false);
   const [assistants, setAssistants] = useState<Assistant[]>([]);
   const assistantsRef = useRef<Assistant[]>([]);
   const controllers = useRef(new Map<string, AbortController>());
@@ -267,7 +275,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           // doesn't cancel this request: the server may already have stored the question.
           const first = await post(
             message
-              ? { create: chat.saved ? undefined : { assistantId: chat.assistantId }, message: { id: message.id, content: message.content } }
+              ? { create: chat.saved ? undefined : { assistantId: chat.assistantId, temporary: chat.temporary }, message: { id: message.id, content: message.content } }
               : { replyTo: questionId },
           );
           if (!first.ok) {
@@ -376,7 +384,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         const body: ChatSendRequest = {
           chatId,
           // A chat the server doesn't have yet is created with its (first accepted) message.
-          create: message && !chat.saved ? { assistantId: chat.assistantId } : undefined,
+          create: message && !chat.saved ? { assistantId: chat.assistantId, temporary: chat.temporary } : undefined,
           // Regenerate names the message it answers, so a refused one isn't mixed up.
           replyTo: message ? undefined : chat.messages.findLast((m) => m.role === "user")?.id,
           provider: chat.provider,
@@ -395,7 +403,14 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
             // A corrected question keeps the stored files of the one it replaces (the server moves them).
             attachments: options.replace
               ? undefined
-              : message.attachments?.flatMap((a) => (a.data ? [{ mime: a.mime, data: a.data, name: a.name }] : [])),
+              : message.attachments?.flatMap((a): InlineFile[] =>
+                  // A whole video goes by its storage key (uploaded beforehand); the rest as data.
+                  a.key
+                    ? [{ mime: a.mime, data: "", name: a.name, key: a.key }]
+                    : a.data
+                      ? [{ mime: a.mime, data: a.data, name: a.name, ...(a.hidden ? { hidden: true } : {}) }]
+                      : [],
+                ),
           },
           replace: options.replace,
           answerId,
@@ -531,6 +546,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         provider: choice.provider,
         model: choice.model,
         assistantId,
+        ...(draftTemporary ? { temporary: true } : {}),
         createdAt: Date.now(),
         updatedAt: Date.now(),
         loaded: true,
@@ -541,7 +557,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       setActiveId(chat.id);
       void run(chat.id, { ...options, message });
     },
-    [activeId, draftAssistantId, run, syncChats, update],
+    [activeId, draftAssistantId, draftTemporary, run, syncChats, update],
   );
 
   const regenerate = useCallback(
@@ -575,11 +591,32 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
   const stop = useCallback((chatId: string) => controllers.current.get(chatId)?.abort(), []);
 
+  const deleteChat = useCallback(
+    (id: string) => {
+      controllers.current.get(id)?.abort();
+      chatsRef.current.delete(id);
+      syncChats();
+      setActiveId((current) => (current === id ? null : current));
+      api(`/api/chats/${id}`, { method: "DELETE" }).catch((e) => console.error(e));
+    },
+    [syncChats],
+  );
+
+  /** Leaving a temporary chat deletes it: it's kept nowhere. */
+  const leave = useCallback(
+    (next: string | null) => {
+      if (activeId && activeId !== next && chatsRef.current.get(activeId)?.temporary) deleteChat(activeId);
+    },
+    [activeId, deleteChat],
+  );
+
   const openChat = useCallback(
     (id: string | null) => {
+      leave(id);
       setActiveId(id);
       if (id === null) {
         setDraftAssistantId(null);
+        setDraftTemporary(false);
         return;
       }
       const chat = chatsRef.current.get(id);
@@ -590,18 +627,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         );
       }
     },
-    [update],
-  );
-
-  const deleteChat = useCallback(
-    (id: string) => {
-      controllers.current.get(id)?.abort();
-      chatsRef.current.delete(id);
-      syncChats();
-      setActiveId((current) => (current === id ? null : current));
-      api(`/api/chats/${id}`, { method: "DELETE" }).catch((e) => console.error(e));
-    },
-    [syncChats],
+    [leave, update],
   );
 
   const renameChat = useCallback(
@@ -625,15 +651,51 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
   const startChatWith = useCallback(
     (assistantId: string | null) => {
+      leave(null);
       setActiveId(null);
       setDraftAssistantId(assistantId);
+      setDraftTemporary(false);
       // An assistant can pin its own model; it becomes the picker's selection.
       const assistant = assistantsRef.current.find((a) => a.id === assistantId);
       if (assistant?.provider && assistant.model) {
         setModel({ provider: assistant.provider, model: assistant.model });
       }
     },
-    [setModel],
+    [leave, setModel],
+  );
+
+  const reloadChats = useCallback(() => {
+    api<ChatSummary[]>("/api/chats").then(
+      (list) => {
+        for (const c of list) {
+          const known = chatsRef.current.get(c.id);
+          if (!known) {
+            chatsRef.current.set(c.id, { ...c, messages: [], loaded: false, saved: true });
+          } else if (known.updatedAt !== c.updatedAt && !controllers.current.has(c.id)) {
+            // New messages came: the open chat reads them now, others when opened.
+            chatsRef.current.set(c.id, { ...known, ...c, loaded: c.id === activeId ? known.loaded : false });
+            if (c.id === activeId) {
+              api<Chat>(`/api/chats/${c.id}`).then(
+                (full) => update(c.id, (x) => ({ ...x, ...full, loaded: true })),
+                (e) => console.error(e),
+              );
+            }
+          }
+        }
+        syncChats();
+      },
+      (e) => console.error(e),
+    );
+  }, [activeId, syncChats, update]);
+
+  const setTemporary = useCallback(
+    (on: boolean) => {
+      leave(null);
+      setActiveId(null);
+      setDraftAssistantId(null);
+      setDraftTemporary(on);
+    },
+    [leave],
   );
 
   const saveAssistant = useCallback(async (a: Assistant) => {
@@ -677,6 +739,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       setModel,
       draftAssistantId,
       startChatWith,
+      draftTemporary,
+      setTemporary,
+      reloadChats,
       send,
       regenerate,
       editLast,
@@ -702,6 +767,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       setModel,
       draftAssistantId,
       startChatWith,
+      draftTemporary,
+      setTemporary,
+      reloadChats,
       send,
       regenerate,
       editLast,

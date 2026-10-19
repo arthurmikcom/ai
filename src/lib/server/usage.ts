@@ -61,8 +61,16 @@ export async function consume(user: SessionUser, kind: UsageKind): Promise<boole
   return bump(user.id, kind, await dailyLimit(user, kind));
 }
 
-/** Counter kinds besides the plan's: requests made with the user's own key. */
-type Counter = UsageKind | "byok";
+/** Counter kinds besides the plan's: requests made with the user's own key, whole videos uploaded. */
+type Counter = UsageKind | "byok" | "upload";
+
+/** Whole videos (up to 100 MB each) one user may upload a day: storage isn't free. */
+const DAILY_UPLOADS = 40;
+
+/** Counts one video upload; false when today's are used up. */
+export async function countUpload(user: SessionUser): Promise<boolean> {
+  return bump(user.id, "upload", isAdmin(user) ? null : DAILY_UPLOADS);
+}
 
 async function bump(userId: string, kind: Counter, limit: number | null): Promise<boolean> {
   if (limit === 0) return false;

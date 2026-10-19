@@ -5,7 +5,7 @@
 // for it, speaks with its own persona and remembers facts about the user.
 
 import { and, asc, eq, inArray } from "drizzle-orm";
-import type { ChatRequest, ChatUsage, ModelInfo, ProviderId, Source } from "@/lib/types";
+import type { ChatRequest, ChatUsage, ModelInfo, Place, ProviderId, Source } from "@/lib/types";
 import { streamChat } from "./chat";
 import { isConfigured, maryxOnly } from "./config";
 import { getDb, schema } from "./db";
@@ -277,7 +277,7 @@ async function callModels(
   timeoutMs: number,
   meter: Meter,
   opts: { webSearch?: boolean; maxTokens?: number; light?: boolean },
-): Promise<{ text: string; sources: Source[] }> {
+): Promise<{ text: string; sources: Source[]; model: ModelInfo }> {
   const ownKey = meter.paidBy === "byok" && meter.key ? meter.key : undefined;
   const signal = AbortSignal.timeout(timeoutMs);
   for (const [i, model] of models.entries()) {
@@ -305,7 +305,7 @@ async function callModels(
       }
       complete = true;
       // A self-hosted server without a reasoning parser leaves the model's thinking in the text.
-      return { text: out.replace(/^[\s\S]*<\/think>/, "").trim(), sources };
+      return { text: out.replace(/^[\s\S]*<\/think>/, "").trim(), sources, model };
     } catch (err) {
       if (i === models.length - 1 || signal.aborted) throw err;
     } finally {
@@ -732,6 +732,74 @@ export async function enhancePrompt(
     .replace(/^\s*(промпт|prompt|инструкция)\s*:\s*/i, "")
     .replace(/^["'«»“”*\s]+|["'«»“”*\s]+$/g, "")
     .slice(0, 1500);
+}
+
+// ---------- Scheduled tasks ----------
+
+/**
+ * One run of a scheduled task («Задачи»): MARYX does what it was asked to do
+ * ahead of time, searching the web when the task needs fresh facts. Nobody is
+ * there to answer a question, so it doesn't ask one.
+ */
+export async function runScheduledPrompt(
+  task: { title: string; prompt: string; search: boolean },
+  meter: Meter,
+  now: string,
+): Promise<{ text: string; sources: Source[]; model: ModelInfo }> {
+  const plan = await planRoute({
+    text: task.prompt,
+    hasImages: false,
+    hasDocuments: false,
+    deepThinking: false,
+    webSearch: task.search,
+    ownKey: meter.paidBy === "byok" && Boolean(meter.key),
+  });
+  const system = [
+    `Ты — MARYX. Сейчас ты сам выполняешь задачу по расписанию «${task.title}», которую пользователь поручил тебе заранее. ` +
+      "Его нет рядом, поэтому не задавай уточняющих вопросов — сделай лучшее, что можно, и сразу дай результат.",
+    `Сейчас у пользователя: ${now}.`,
+    "Начни с короткого заголовка. Если это слежение за новостями, ценами или упоминаниями и ничего нового не нашлось — так и скажи в одном-двух предложениях.",
+    ANSWER_STYLE,
+  ].join("\n");
+  return callModels([plan.model, ...plan.fallbacks].slice(0, 2), system, task.prompt, 120_000, meter, {
+    webSearch: plan.webSearch,
+    maxTokens: 4000,
+  });
+}
+
+const PLACES_SYSTEM =
+  "Ты — MARYX, гид по городу. Тебе дают вопрос пользователя и список настоящих мест рядом с ним из OpenStreetMap " +
+  "(номер, название, тип, расстояние, адрес, часы работы). Выбери из списка до 5 мест, которые лучше всего подходят под " +
+  "вопрос, и коротко объясни выбор. Советуй ТОЛЬКО места из списка: не придумывай другие места, рейтинги, отзывы, цены " +
+  "и блюда — их в списке нет. Если часы работы известны, учитывай текущее время. Если подходящего ничего нет, честно скажи. " +
+  'Ответь строго в JSON без блока кода: {"answer": "1–3 предложения по-русски", "picks": [{"n": номер, "why": "почему, до 15 слов"}]}';
+
+/**
+ * «Карты»: MARYX answers "where to go" from the real places around the user
+ * (never invented ones): a short answer and the places it picked, by id.
+ */
+export async function recommendPlaces(
+  input: { question: string; near: string; now: string; places: Place[] },
+  meter: Meter,
+): Promise<{ answer: string; picks: { id: string; why: string }[] }> {
+  const list = input.places.map((p, i) =>
+    [`${i + 1}. ${p.name}`, p.kind, `${p.distance} м`, p.address, p.hours && `часы: ${p.hours}`].filter(Boolean).join(" · "),
+  );
+  const ask = [`Вопрос: ${input.question}`, `Где: ${input.near}. Сейчас: ${input.now}.`, `Места рядом:\n${list.join("\n")}`].join("\n\n");
+  const { text } = await quickCall(PLACES_SYSTEM, ask, 60_000, meter, { maxTokens: 1200 });
+  const json = /\{[\s\S]*\}/.exec(text)?.[0];
+  try {
+    const parsed = JSON.parse(json ?? "") as { answer?: unknown; picks?: unknown };
+    const picks = (Array.isArray(parsed.picks) ? parsed.picks : [])
+      .map((p: { n?: unknown; why?: unknown }) => ({ place: input.places[Number(p?.n) - 1], why: typeof p?.why === "string" ? p.why : "" }))
+      .filter((p) => p.place)
+      .map((p) => ({ id: p.place.id, why: p.why.slice(0, 200) }));
+    const unique = picks.filter((p, i) => picks.findIndex((q) => q.id === p.id) === i).slice(0, 5);
+    return { answer: typeof parsed.answer === "string" ? parsed.answer.trim() : "", picks: unique };
+  } catch {
+    // Not JSON after all: the words are still an answer.
+    return { answer: text.replace(/```\w*/g, "").trim(), picks: [] };
+  }
 }
 
 /** What «Холст для текстов» can do with a document or its selected part, in one click. */
