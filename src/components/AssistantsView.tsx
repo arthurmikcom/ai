@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpRight, MessageSquare, Pencil, Plus, Trash2, X } from "lucide-react";
+import { ArrowUpRight, Bot, MessageSquare, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { uid } from "@/lib/client/util";
@@ -9,6 +9,7 @@ import type { Assistant } from "@/lib/types";
 import { useApp } from "./AppState";
 import { ModelPicker } from "./ModelPicker";
 import { PageHeading } from "./Design";
+import { WorkspaceCallout } from "./WorkspaceVisuals";
 
 type Draft = Omit<Assistant, "id" | "createdAt"> & { id?: string; createdAt?: number };
 
@@ -205,6 +206,11 @@ export function AssistantsView() {
   const app = useApp();
   const router = useRouter();
   const [editing, setEditing] = useState<Draft | null>(null);
+  const [query, setQuery] = useState("");
+  const [scope, setScope] = useState("Все");
+  const matches = (a: { name: string; description: string }) => `${a.name} ${a.description}`.toLowerCase().includes(query.trim().toLowerCase());
+  const own = scope === "Шаблоны" ? [] : app.assistants.filter(matches);
+  const templates = scope === "Мои" ? [] : TEMPLATES.filter(matches);
 
   const chatWith = (id: string) => {
     app.startChatWith(id);
@@ -212,7 +218,7 @@ export function AssistantsView() {
   };
 
   return (
-    <div className="h-full overflow-y-auto">
+    <div className="assistants-page h-full overflow-y-auto">
       <div className="page-content">
         <PageHeading number="04" eyebrow="Ваша персональная команда" title="Мои ассистенты" description={app.maryxOnly ? "Для каждой задачи — свой подход. Задайте характер и знания вашему ИИ." : "Для каждой задачи — свой подход. Задайте характер, знания и любимую модель вашему ИИ."}>
           <button
@@ -223,10 +229,13 @@ export function AssistantsView() {
             <Plus className="size-4" /> Создать ассистента
           </button>
         </PageHeading>
+        <WorkspaceCallout title="Соберите команду под свои задачи" description="От первой идеи до последней правки. У каждого ассистента — свои знания, характер и стиль работы." />
+        <div className="library-toolbar"><div className="workspace-filters" role="group" aria-label="Показать ассистентов">{["Все", "Мои", "Шаблоны"].map(s => <button key={s} type="button" aria-pressed={scope === s} onClick={() => setScope(s)}>{s}{s === "Мои" ? ` · ${app.assistants.length}` : ""}</button>)}</div><label className="library-search"><Search size={15} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Найти своего эксперта…" aria-label="Поиск ассистентов" />{query && <button type="button" onClick={() => setQuery("")} aria-label="Очистить поиск ассистентов"><X size={14} /></button>}</label></div>
+        {own.length === 0 && templates.length === 0 && <div className="workspace-empty"><Bot size={28} /><h2>{query ? "Такого эксперта пока нет" : "Здесь будет ваша команда"}</h2><p>{query ? "Попробуйте другое название или создайте своего ассистента." : "Создайте первого ассистента или выберите готовый шаблон."}</p></div>}
 
-        {app.assistants.length > 0 && (
+        {own.length > 0 && (
           <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {app.assistants.map((a) => (
+            {own.map((a) => (
               <div key={a.id} className="surface-card flex flex-col rounded-2xl p-5">
                 <div className="flex items-start gap-3">
                   <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/5 text-xl">
@@ -271,16 +280,16 @@ export function AssistantsView() {
           </div>
         )}
 
-        <h2 className="mb-3 mt-10 text-sm font-semibold uppercase tracking-wider text-zinc-500">
+        {templates.length > 0 && <><h2 className="mb-3 mt-10 text-sm font-semibold uppercase tracking-wider text-zinc-500">
           Шаблоны — нажмите, чтобы настроить под себя
         </h2>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {TEMPLATES.map((t) => (
+          {templates.map((t) => (
             <button
               key={t.name}
               type="button"
               onClick={() => setEditing(t)}
-              className="suggestion-card flex items-start gap-4 rounded-2xl p-5 text-left"
+              className="persona-card suggestion-card flex items-start gap-4 rounded-2xl p-5 text-left"
             >
               <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/5 text-xl">
                 {t.emoji}
@@ -292,7 +301,7 @@ export function AssistantsView() {
               </div>
             </button>
           ))}
-        </div>
+        </div></>}
       </div>
 
       {editing && <Editor draft={editing} onClose={() => setEditing(null)} />}

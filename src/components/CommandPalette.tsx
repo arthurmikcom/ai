@@ -2,6 +2,7 @@
 
 import {
   Bot,
+  ArrowUpRight,
   Clapperboard,
   CornerDownLeft,
   Gem,
@@ -16,6 +17,7 @@ import {
   Sun,
   Type,
   UserRound,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -54,9 +56,12 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
   const [, setLook] = useAppearance();
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
+  const [category, setCategory] = useState("Всё");
   // Chats whose messages contain the words come from the server.
   const [found, setFound] = useState<{ query: string; ids: string[] } | null>(null);
   const list = useRef<HTMLDivElement>(null);
+  const dialog = useRef<HTMLDivElement>(null);
+  const previousFocus = useRef<HTMLElement | null>(typeof document === "undefined" ? null : document.activeElement as HTMLElement);
   const q = query.trim().toLowerCase();
 
   useEffect(() => {
@@ -89,6 +94,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
     { id: "assistants", group: "Разделы", label: "Мои ассистенты", keywords: "боты", icon: Bot, run: go("/assistants") },
     { id: "pricing", group: "Разделы", label: "Тарифы и кредиты", keywords: "pro оплата подписка", icon: Gem, run: go("/pricing") },
     { id: "settings", group: "Разделы", label: "Настройки", keywords: "аккаунт профиль память", icon: Settings, run: go("/settings") },
+    ...app.assistants.map(a => ({ id: `assistant-${a.id}`, group: "Ассистенты", label: a.name, keywords: a.description, icon: Bot, run: () => { app.startChatWith(a.id); router.push("/"); } })),
     { id: "dark", group: "Оформление", label: "Тёмная тема", keywords: "ночь тема", icon: Moon, run: () => setLook({ theme: "dark" }) },
     { id: "light", group: "Оформление", label: "Светлая тема", keywords: "день тема", icon: Sun, run: () => setLook({ theme: "light" }) },
     { id: "system", group: "Оформление", label: "Тема как в системе", keywords: "авто тема", icon: Monitor, run: () => setLook({ theme: "system" }) },
@@ -130,8 +136,9 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
     );
   const matches = (c: Command) => !q || `${c.label} ${c.keywords ?? ""}`.toLowerCase().includes(q);
   // Typing looks in chats first; before that, actions lead.
-  const shown = q ? [...chats, ...commands.filter(matches)] : [...commands.filter((c) => c.group !== "Оформление"), ...chats, ...commands.filter((c) => c.group === "Оформление")];
-  const current = Math.min(active, Math.max(0, shown.length - 1));
+  const results = q ? [...chats, ...commands.filter(matches)] : [...commands.filter((c) => c.group !== "Оформление"), ...chats, ...commands.filter((c) => c.group === "Оформление")];
+  const shown = results.filter(c => category === "Всё" || (category === "Диалоги" ? c.id.startsWith("chat-") : category === "Ассистенты" ? c.group === "Ассистенты" : category === "Оформление" ? c.group === "Оформление" : c.group === "Действия" || c.group === "Разделы"));
+  const current = Math.max(0, Math.min(active, shown.length - 1));
 
   const run = (c: Command | undefined) => {
     if (!c) return;
@@ -144,15 +151,30 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
     list.current?.querySelector(`[data-index="${current}"]`)?.scrollIntoView({ block: "nearest" });
   }, [current]);
 
+  useEffect(() => () => {
+    if (previousFocus.current?.isConnected) previousFocus.current.focus();
+  }, []);
+
   return createPortal(
     <div className="fixed inset-0 z-[60] flex items-start justify-center bg-black/60 px-3 pt-[12vh] backdrop-blur-sm" onClick={onClose}>
       <div
+        ref={dialog}
         role="dialog"
         aria-modal="true"
         aria-label="Поиск и команды"
-        className="palette-enter flex max-h-[70vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-zinc-950 shadow-2xl"
+        className="command-workspace palette-enter flex max-h-[78vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-zinc-950 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") { e.stopPropagation(); onClose(); }
+          if (e.key !== "Tab") return;
+          const controls = Array.from(dialog.current?.querySelectorAll<HTMLElement>('input,button:not(:disabled),a[href],[tabindex="0"]') ?? []);
+          const first = controls[0];
+          const last = controls[controls.length - 1];
+          if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+          else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
+        }}
       >
+        <div className="command-heading"><span><Palette size={13} />Центр управления</span><small>Всё нужное — в паре нажатий</small></div>
         <div className="flex items-center gap-3 border-b border-white/10 px-4">
           <Search className="size-4 shrink-0 text-violet-300" />
           <input
@@ -165,7 +187,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
             onKeyDown={(e) => {
               if (e.key === "ArrowDown") {
                 e.preventDefault();
-                setActive(Math.min(current + 1, shown.length - 1));
+                setActive(Math.max(0, Math.min(current + 1, shown.length - 1)));
               } else if (e.key === "ArrowUp") {
                 e.preventDefault();
                 setActive(Math.max(current - 1, 0));
@@ -185,7 +207,9 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
             className="h-14 min-w-0 flex-1 bg-transparent text-[15px] text-zinc-100 outline-none placeholder:text-zinc-500"
           />
           <kbd className="hidden rounded-md border border-white/10 px-1.5 py-0.5 text-[10px] text-zinc-500 sm:block">Esc</kbd>
+          <button type="button" className="workspace-icon-button" aria-label="Закрыть поиск" onClick={onClose}><X size={16} /></button>
         </div>
+        <div className="workspace-filters command-filters" role="group" aria-label="Категории поиска">{["Всё", "Диалоги", "Инструменты", "Ассистенты", "Оформление"].map(c => <button key={c} type="button" aria-pressed={category === c} onClick={() => { setCategory(c); setActive(0); }}>{c}</button>)}</div>
         <div ref={list} id="palette-list" role="listbox" aria-label="Результаты" className="min-h-0 flex-1 overflow-y-auto p-2">
           {shown.length === 0 && <div className="px-3 py-8 text-center text-sm text-zinc-500">Ничего не нашлось</div>}
           {shown.map((c, i) => (
@@ -211,7 +235,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
                 )}
                 <span className="min-w-0 flex-1 truncate">{c.label}</span>
                 {c.hint && <span className="shrink-0 text-xs text-zinc-500">{c.hint}</span>}
-                {i === current && <CornerDownLeft className="size-3.5 shrink-0 text-zinc-500" />}
+                {i === current ? <CornerDownLeft className="size-3.5 shrink-0 text-zinc-500" /> : <ArrowUpRight className="size-3.5 shrink-0 text-zinc-600" />}
               </div>
             </div>
           ))}

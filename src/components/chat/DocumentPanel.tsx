@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
+  Columns2,
   Eye,
   FileText,
   LoaderCircle,
@@ -22,6 +23,7 @@ import { api } from "@/lib/client/api";
 import { downloadFile } from "@/lib/client/util";
 import { Markdown } from "./Markdown";
 import { MarkdownBody } from "./markdownParts";
+import { useWorkbenchPanel } from "./useWorkbenchPanel";
 
 /** One-click edits (the server knows each task's instruction). */
 const ACTIONS = [
@@ -105,8 +107,10 @@ const fileName = (title: string) => title.replace(/[\\/:*?"<>|]+/g, " ").trim().
 export function DocumentPanel({ id, text, onClose }: { id: string; text: string; onClose: () => void }) {
   const [doc, setDoc] = useState<Saved>(() => load(id, text));
   const current = doc.versions[doc.index] ?? "";
-  const [tab, setTab] = useState<"edit" | "preview">("edit");
+  const [tab, setTab] = useState<"edit" | "preview" | "split">("edit");
+  const [tools, setTools] = useState(true);
   const [full, setFull] = useState(false);
+  const panel = useWorkbenchPanel(full, onClose);
   const [selection, setSelection] = useState<[number, number]>([0, 0]);
   const [busy, setBusy] = useState<string | null>(null);
   const [ask, setAsk] = useState("");
@@ -193,12 +197,14 @@ export function DocumentPanel({ id, text, onClose }: { id: string; text: string;
 
   return (
     <aside
+      ref={panel}
       aria-label="Документ"
-      className={`flex flex-col bg-zinc-950 ${
+      className={`workbench document-workbench flex flex-col bg-zinc-950 ${
         full ? "fixed inset-0 z-50" : "fixed inset-0 z-40 lg:static lg:z-auto lg:w-[min(50%,760px)] lg:shrink-0 lg:border-l lg:border-white/10"
       }`}
     >
-      <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2">
+      <div className="workbench-intro"><span><FileText size={13} />Холст текста</span><small>На этом устройстве</small></div>
+      <div className="workbench-toolbar flex items-center gap-2 border-b border-white/10 px-3 py-2">
         <FileText className="size-4 shrink-0 text-violet-300" />
         <span className="min-w-0 truncate text-sm font-medium text-zinc-100" title={title}>
           {title}
@@ -260,14 +266,14 @@ export function DocumentPanel({ id, text, onClose }: { id: string; text: string;
           >
             {full ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
           </button>
-          <button type="button" title="Закрыть" aria-label="Закрыть документ" onClick={onClose} className={ICON_BUTTON}>
+          <button type="button" title="Закрыть" aria-label="Закрыть документ" data-workbench-close onClick={onClose} className={ICON_BUTTON}>
             <X className="size-4" />
           </button>
         </div>
       </div>
 
       <div className="flex items-center gap-1 border-b border-white/10 px-3 py-1.5 text-xs">
-        {(["edit", "preview"] as const).map((t) => (
+        {(["edit", "preview", "split"] as const).map((t) => (
           <button
             key={t}
             type="button"
@@ -277,17 +283,18 @@ export function DocumentPanel({ id, text, onClose }: { id: string; text: string;
               tab === t ? "bg-white/10 text-zinc-100" : "text-zinc-500 hover:text-zinc-200"
             }`}
           >
-            {t === "edit" ? <PenLine className="size-3.5" /> : <Eye className="size-3.5" />}
-            {t === "edit" ? "Редактор" : "Просмотр"}
+            {t === "edit" ? <PenLine className="size-3.5" /> : t === "split" ? <Columns2 className="size-3.5" /> : <Eye className="size-3.5" />}
+            {t === "edit" ? "Редактор" : t === "split" ? "Рядом" : "Просмотр"}
           </button>
         ))}
-        <span className="ml-auto text-[11px] text-zinc-500">
+        <span className="ml-auto hidden text-[11px] text-zinc-500 sm:inline">
           {words} {words % 10 === 1 && words % 100 !== 11 ? "слово" : [2, 3, 4].includes(words % 10) && ![12, 13, 14].includes(words % 100) ? "слова" : "слов"}
           {" · "}~{Math.max(1, Math.round(words / 180))} мин чтения
         </span>
       </div>
+      <button className="document-tools-toggle" type="button" aria-expanded={tools} onClick={() => setTools(!tools)}><PenLine size={12} /><span>Помощь редактора</span><small>{partial ? "Выделен фрагмент" : "Весь документ"}</small><span aria-hidden="true">{tools ? "−" : "+"}</span></button>
 
-      <div role="group" aria-label="Изменить текст" className="flex flex-wrap items-center gap-1.5 border-b border-white/10 px-3 py-2">
+      {tools && <div role="group" aria-label="Изменить текст" className="document-tools flex flex-wrap items-center gap-1.5 border-b border-white/10 px-3 py-2">
         <span className="mr-0.5 text-[11px] text-zinc-500">
           {partial ? `Выделенное (${end - start} симв.):` : "Весь текст:"}
         </span>
@@ -307,9 +314,11 @@ export function DocumentPanel({ id, text, onClose }: { id: string; text: string;
             {a.label}
           </button>
         ))}
-      </div>
+      </div>}
 
-      {tab === "edit" ? (
+      <div className={`document-content document-content--${tab}`}>
+      {tab !== "preview" && <section className="document-editor-pane" aria-label="Редактор текста">
+        <div className="document-pane-label"><PenLine size={11} />Редактор<span>Markdown</span></div>
         <textarea
           ref={editor}
           value={current}
@@ -318,15 +327,18 @@ export function DocumentPanel({ id, text, onClose }: { id: string; text: string;
           onSelect={(e) => setSelection([e.currentTarget.selectionStart, e.currentTarget.selectionEnd])}
           spellCheck
           aria-label="Текст документа"
-          className={`min-h-0 flex-1 resize-none bg-transparent px-5 py-4 text-[15px] leading-7 text-zinc-100 outline-none md:px-8 ${
+          className={`document-editor min-h-0 flex-1 resize-none bg-transparent px-5 py-4 text-[15px] leading-7 text-zinc-100 outline-none md:px-8 ${
             busy ? "opacity-60" : ""
           }`}
         />
-      ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 md:px-8">
+      </section>}
+      {tab !== "edit" && <section className="document-preview-pane" aria-label="Просмотр документа">
+        <div className="document-pane-label"><Eye size={11} />Предпросмотр<span>{words} слов</span></div>
+        <div className="document-preview-scroll"><div className="document-paper">
           <Markdown text={current} />
-        </div>
-      )}
+        </div></div>
+      </section>}
+      </div>
 
       {status && (
         <div className={`flex items-center gap-2 border-t border-white/10 px-3 py-2 text-xs ${status.error ? "text-red-300" : "text-zinc-300"}`}>

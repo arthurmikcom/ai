@@ -11,6 +11,10 @@ import {
   Menu,
   MessageSquare,
   MessageSquarePlus,
+  ChevronRight,
+  LockKeyhole,
+  PanelLeftClose,
+  PanelLeftOpen,
   Moon,
   Pencil,
   Search,
@@ -27,6 +31,7 @@ import { api } from "@/lib/client/api";
 import { useAppearance, useApplyAppearance } from "@/lib/client/appearance";
 import { installApp, useInstall } from "@/lib/client/install";
 import { relativeTime } from "@/lib/client/util";
+import { useStoredJson } from "@/lib/client/useStored";
 import { useApp } from "./AppState";
 import { CommandPalette } from "./CommandPalette";
 import { BrandMark } from "./Design";
@@ -112,7 +117,7 @@ function InstallApp() {
   );
 }
 
-function Sidebar({ onNavigate, onPalette }: { onNavigate: () => void; onPalette: () => void }) {
+function Sidebar({ onNavigate, onPalette, onCollapse }: { onNavigate: () => void; onPalette: () => void; onCollapse?: () => void }) {
   const app = useApp();
   const pathname = usePathname();
   const router = useRouter();
@@ -149,9 +154,10 @@ function Sidebar({ onNavigate, onPalette }: { onNavigate: () => void; onPalette:
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-3 px-6 pb-7 pt-8">
+      <div className="sidebar-brand flex items-center gap-3 px-6 pb-7 pt-8">
         <BrandMark />
         <span className="brand-wordmark">MARYX <span>Ai</span></span>
+        {onCollapse && <button type="button" onClick={onCollapse} title="Свернуть меню" aria-label="Свернуть меню" className="workspace-icon-button ml-auto"><PanelLeftClose size={16} /></button>}
       </div>
 
       <div className="px-5">
@@ -291,11 +297,25 @@ function Sidebar({ onNavigate, onPalette }: { onNavigate: () => void; onPalette:
   );
 }
 
+function NavigationRail({ onExpand, onPalette }: { onExpand: () => void; onPalette: () => void }) {
+  const app = useApp();
+  const router = useRouter();
+  const pathname = usePathname();
+  return <div className="navigation-rail">
+    <button type="button" onClick={onExpand} title="Развернуть меню" aria-label="Развернуть меню" className="rail-brand"><BrandMark /></button>
+    <button type="button" className="rail-new" title="Новый чат" aria-label="Новый чат" onClick={() => { app.openChat(null); router.push("/"); }}><MessageSquarePlus size={19} /></button>
+    <button type="button" title="Поиск и команды" aria-label="Поиск и команды" onClick={onPalette}><Search size={18} /></button>
+    <nav aria-label="Основная навигация">{NAV.map(({ href, label, icon: Icon }) => <Link key={href} href={href} aria-label={label} title={label} aria-current={pathname === href ? "page" : undefined}><Icon size={19} /></Link>)}</nav>
+    <div className="rail-bottom"><button type="button" onClick={onExpand} title="Развернуть меню" aria-label="Развернуть меню"><PanelLeftOpen size={18} /></button><Link href="/settings" title="Мой профиль" aria-label="Мой профиль" className="rail-avatar">{(app.me?.user.name || "M").slice(0, 1).toUpperCase()}</Link></div>
+  </div>;
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   useApplyAppearance();
   const [open, setOpen] = useState(false);
   // The command palette: Ctrl/⌘+K anywhere (the key, whatever the keyboard layout).
   const [palette, setPalette] = useState(false);
+  const [compact, setCompact] = useStoredJson<boolean>("maryx:sidebar-compact");
   const menu = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
   const standalone = pathname === "/login" || LEGAL_PATHS.includes(pathname);
@@ -344,9 +364,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   if (standalone) return <>{children}</>;
 
   return (
-    <div className="flex h-dvh overflow-hidden bg-zinc-950 text-zinc-100">
+    <div className={`workspace-shell flex h-dvh overflow-hidden bg-zinc-950 text-zinc-100 ${compact ? "workspace-shell--compact" : ""}`}>
       <aside className="app-sidebar hidden shrink-0 border-r border-white/5 md:block">
-        <Sidebar onNavigate={() => {}} onPalette={() => setPalette(true)} />
+        {compact ? <NavigationRail onExpand={() => setCompact(false)} onPalette={() => setPalette(true)} /> : <Sidebar onNavigate={() => {}} onPalette={() => setPalette(true)} onCollapse={() => setCompact(true)} />}
       </aside>
 
       {open && (
@@ -372,14 +392,15 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       )}
 
-      <main className="app-main relative min-w-0 flex-1">
-        <header className="mobile-bar">
-          <div className="flex items-center gap-2.5"><BrandMark className="!size-7 !rounded-lg" /><span className="brand-wordmark !text-base">MARYX <span>Ai</span></span></div>
-        <div className="flex items-center gap-2">
+      <main className="app-main relative flex min-w-0 flex-1 flex-col">
+        <header className="workspace-topbar">
+          <div className="workspace-breadcrumb"><span className="hidden items-center gap-2 md:flex"><LockKeyhole size={12} />Личное пространство<ChevronRight size={13} /></span><Link href="/" className="flex items-center gap-2 md:hidden"><BrandMark className="!size-7 !rounded-lg" /><span className="brand-wordmark !text-base">MARYX <span>Ai</span></span></Link><strong className="hidden md:block">{NAV.find(n => n.href === pathname)?.label || "MARYX Ai"}</strong></div>
+        <div className="workspace-topbar-actions">
+          <Link href="/pricing" className="workspace-plan-link"><Sparkles size={13} /><span>Возможности Pro</span></Link>
         <button
           type="button"
           onClick={() => setPalette(true)}
-          className="rounded-lg border border-white/10 p-2 text-zinc-300 hover:bg-white/5"
+          className="workspace-icon-button"
           title="Поиск и команды"
           aria-label="Поиск и команды"
         >
@@ -388,7 +409,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="rounded-lg border border-white/10 p-2 text-zinc-300 hover:bg-white/5"
+          className="workspace-icon-button md:!hidden"
           title="Меню"
           aria-label="Меню"
           aria-expanded={open}
@@ -397,7 +418,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </button>
         </div>
         </header>
-        {children}
+        <div className="workspace-content">{children}</div>
       </main>
       {palette && <CommandPalette onClose={() => setPalette(false)} />}
     </div>

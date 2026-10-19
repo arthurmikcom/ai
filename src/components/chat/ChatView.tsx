@@ -17,7 +17,7 @@ import { ArtifactContext, ArtifactPanel, artifactTitle, artifactsOf } from "./ar
 import { Composer, type ComposerInject } from "./Composer";
 import { DocumentPanel } from "./DocumentPanel";
 import { MessageView } from "./MessageView";
-import { MaryxVisual } from "../Design";
+import { CreativeHero } from "../WorkspaceVisuals";
 
 const SUGGESTIONS = [
   { title: "Объясни просто", icon: Sparkles, text: "Объясни, как работают нейросети, как будто мне 12 лет" },
@@ -299,7 +299,7 @@ export function ChatView() {
 
   return (
     <ArtifactContext.Provider value={canvas}>
-    <div className="flex h-full min-h-0">
+    <div className="chat-workspace flex h-full min-h-0">
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
       <header className="chat-header flex shrink-0 items-center gap-2 px-4 md:px-8">
         {only ? (
@@ -373,7 +373,7 @@ export function ChatView() {
             <LoaderCircle className="size-6 animate-spin text-zinc-500" />
           </div>
         ) : chat ? (
-          <div ref={thread} className="mx-auto flex max-w-3xl flex-col gap-8 px-4 py-6">
+          <div ref={thread} className="conversation-thread mx-auto flex max-w-3xl flex-col gap-8 px-4 py-6">
             {chat.messages.map((m, i) => (
               <MessageView
                 onEdit={
@@ -420,34 +420,13 @@ export function ChatView() {
           </div>
         ) : (
           <div className="home-dashboard">
-            <div className="home-hero">
-              <div className="home-intro">
-                <div className="section-label mb-4">
-                  {assistant
-                    ? "Ваш персональный ассистент"
-                    : greeting
-                      ? `${greeting}${firstName ? `, ${firstName}` : ""} — добро пожаловать в`
-                      : "Добро пожаловать в"}
-                </div>
-                <h1>{assistant ? <>{assistant.emoji} {assistant.name}</> : <>MARYX <span>Ai</span></>}</h1>
-                <p>
-                  {assistant?.description ||
-                    (only ? <>Ваш собственный ИИ.<br />Безграничные возможности.</> : <>Лучшие модели мира.<br />Безграничные возможности.</>)}
-                </p>
-                {!only && (
-                  <div className="provider-pills" aria-label="Модели в MARYX Ai">
-                    {["GPT", "Claude", "Gemini", "Llama", "DeepSeek"].map(name => <span key={name}>{name}</span>)}
-                  </div>
-                )}
-              </div>
-              <div className="home-art" aria-hidden="true">
-                <MaryxVisual />
-                <span className="orb-label orb-label-text"><FileText className="size-4" />Тексты</span>
-                <span className="orb-label orb-label-image"><ImageIcon className="size-4" />Изображения</span>
-                <span className="orb-label orb-label-video"><Clapperboard className="size-4" />Видео</span>
-                <span className="orb-label orb-label-code"><Code2 className="size-4" />Код</span>
-              </div>
-            </div>
+            <CreativeHero
+              eyebrow={assistant ? "Ваш персональный ассистент" : greeting ? `${greeting}${firstName ? `, ${firstName}` : ""}. Время создавать` : "Ваше пространство возможностей"}
+              title={assistant ? <>{assistant.emoji} {assistant.name}</> : <>Мыслите смелее.<br /><span>Создавайте с MARYX.</span></>}
+              description={assistant?.description || "Текст, код, изображения и видео. Всё, что нужно, чтобы превратить вашу идею в результат."}
+            >
+              <div className="hero-capabilities"><span><FileText size={12} />Тексты и идеи</span><span><Code2 size={12} />Код и приложения</span><span><ImageIcon size={12} />Визуальные истории</span></div>
+            </CreativeHero>
 
             {(noProviders || noServerModels) && (noProviders || app.me?.admin) && (
               <div className="empty-notice mb-5 w-full rounded-2xl border p-4 text-xs text-zinc-300">
@@ -471,6 +450,7 @@ export function ChatView() {
                 )}
               </div>
             )}
+            <div className="section-heading-row home-section-heading"><div><div className="workspace-kicker">С чего начнём?</div><h2>Один замысел. Много способов воплотить.</h2></div><span className="workspace-caption">Выберите своё направление</span></div>
             <div className="home-actions">
               {SUGGESTIONS.slice(0, 2).map((s, index) => (
                 <button key={s.title} type="button" disabled={!app.ready || !current || noProviders || localBlocked} onClick={() => app.send(s.text, [], sendOptions(), choice)} className={`home-action-card home-action-${index}`}>

@@ -100,7 +100,7 @@ export function PricingView() {
   ];
 
   return (
-    <div className="h-full overflow-y-auto">
+    <div className="pricing-page h-full overflow-y-auto">
       <div className="page-content !max-w-[1000px]">
         <PageHeading number="05" eyebrow="Больше возможностей" title="Тарифы" description={
             maryxOnly

@@ -16,7 +16,9 @@ import { BrushEditor, type BrushEdit } from "../BrushEditor";
 import { findModel, MaryxBadge, ModelPicker } from "../ModelPicker";
 import { Characters } from "./Characters";
 import { MediaCard } from "./MediaCard";
-import { OrbitArt, PageHeading } from "../Design";
+import { PageHeading } from "../Design";
+import { CreativeHero } from "../WorkspaceVisuals";
+import { PromptGallery } from "./PromptGallery";
 
 const COPY: Record<MediaKind, { title: string; subtitle: string; maryx: string; placeholder: string; ideas: string[] }> = {
   image: {
@@ -342,28 +344,16 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
     models.find((m) => m.provider === provider && m.id === id)?.label ?? (maryxOnly ? "MARYX" : id);
 
   return (
-    <div className="h-full overflow-y-auto">
+    <div className="studio-page h-full overflow-y-auto">
       <div className="page-content">
         <PageHeading number={kind === "image" ? "02" : "03"} eyebrow="Творческая студия" title={copy.title} description={maryxOnly ? copy.maryx : copy.subtitle} />
-        <div className={`studio-hero ${kind === "video" ? "studio-hero-video" : ""}`}>
-          <div>
-            <div className="mb-4 flex items-center gap-2 text-[11px] text-violet-200">
-              {kind === "image" ? <ImageIcon className="size-4" /> : <Clapperboard className="size-4" />}
-              {kind === "image" ? "Воображение становится видимым" : "У каждой идеи есть движение"}
-            </div>
-            <h2 className="text-[26px] font-medium leading-tight tracking-[-0.04em] text-zinc-100">
-              {kind === "image" ? <>От нескольких слов<br />до целого мира.</> : <>Ваш замысел.<br />Следующий кадр.</>}
-            </h2>
-            <p className="mt-3 text-xs leading-6 text-zinc-400">
-              {!editable
+        <CreativeHero compact eyebrow={kind === "image" ? "Студия изображений" : "Кинематографическая студия"} title={kind === "image" ? <>То, что вы представляете.<br /><span>Теперь можно увидеть.</span></> : <>У каждой идеи<br /><span>есть следующий кадр.</span></>} description={!editable
                 ? "Опишите то, что представляете. Остальное — дело ИИ."
                 : kind === "image"
                   ? "Опишите то, что представляете, или загрузите своё фото."
-                  : "Опишите сцену — или загрузите фото, и оно оживёт."}
-            </p>
-          </div>
-          <OrbitArt />
-        </div>
+                  : "Опишите сцену — или загрузите фото, и оно оживёт."}>
+          <div className="hero-capabilities"><span>{kind === "image" ? <ImageIcon size={12} /> : <Clapperboard size={12} />}{kind === "image" ? "Генерация и обработка" : "Сцены и движение камеры"}</span><span><Sparkles size={12} />Ваше творческое пространство</span></div>
+        </CreativeHero>
 
         {kind === "image" && editable && !noProviders && characters && (
           <Characters
@@ -402,7 +392,7 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
           </div>
         ) : (
           <div
-            className="composer-panel mt-6 rounded-3xl border p-4 md:p-5"
+            className="studio-composer composer-panel mt-6 rounded-3xl border p-4 md:p-5"
             onDragOver={(e) => editable && e.preventDefault()}
             onDrop={onDrop}
           >
@@ -728,6 +718,8 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
             ))}
           </div>
         )}
+
+        {!editing && !character && <PromptGallery kind={kind} prompt={prompt} disabled={noProviders} onChoose={(value) => { setPrompt(value); promptRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }); promptRef.current?.focus(); }} />}
 
         {items.length > 0 ? (
           <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

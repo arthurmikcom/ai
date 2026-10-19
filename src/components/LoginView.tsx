@@ -4,7 +4,8 @@ import { ArrowUpRight, LoaderCircle, LockKeyhole, Sparkles } from "lucide-react"
 import { useState, type FormEvent } from "react";
 import { authClient } from "@/lib/client/auth";
 import { LegalLinks } from "./LegalPage";
-import { BrandMark, OrbitArt } from "./Design";
+import { BrandMark } from "./Design";
+import { StudioImage } from "./WorkspaceVisuals";
 
 interface Props {
   social: { google: boolean; vk: boolean };
@@ -94,7 +95,7 @@ export function LoginView({ social }: Props) {
             Ваш собственный ИИ, ваши мысли и пространство, где из них рождается что-то большее.
           </p>
         </div>
-        <OrbitArt className="login-orbit" />
+        <StudioImage className="login-visual-art" preload />
         <div className="hidden items-end justify-between gap-5 border-t border-white/10 pt-5 md:flex">
           <div>
             <p className="text-xs text-zinc-300">Одно пространство. Много возможностей.</p>

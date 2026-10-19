@@ -438,7 +438,7 @@ export function Composer({
   };
 
   return (
-    <div className="mx-auto w-full max-w-3xl">
+    <div className="workspace-composer mx-auto w-full max-w-3xl">
       <div className="composer-panel relative rounded-3xl border p-3 transition-colors">
         {keeping.length > 0 && (
           <p className="px-2 pt-1 text-xs text-zinc-500">

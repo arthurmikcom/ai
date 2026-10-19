@@ -16,6 +16,9 @@ import {
   LoaderCircle,
   Maximize2,
   Minimize2,
+  Monitor,
+  Smartphone,
+  Tablet,
   Printer,
   RotateCcw,
   Share2,
@@ -24,6 +27,7 @@ import {
 import { createContext, useContext, useRef, useState, type ReactNode, type Ref } from "react";
 import { api } from "@/lib/client/api";
 import { downloadFile } from "@/lib/client/util";
+import { useWorkbenchPanel } from "./useWorkbenchPanel";
 
 /** Code a browser can show as a page: an HTML document (a game, a site, a chart) or an SVG picture. */
 export function runnable(language: string | undefined, code: string): boolean {
@@ -146,6 +150,8 @@ export function ArtifactPanel({
   const [tab, setTab] = useState<"preview" | "code">("preview");
   const [run, setRun] = useState(0);
   const [full, setFull] = useState(false);
+  const panel = useWorkbenchPanel(full, onClose);
+  const [device, setDevice] = useState<"desktop" | "tablet" | "mobile">("desktop");
   const [ask, setAsk] = useState("");
   const [status, setStatus] = useState<{ text: string; link?: string } | null>(null);
   const [sharing, setSharing] = useState(false);
@@ -181,12 +187,14 @@ export function ArtifactPanel({
 
   return (
     <aside
+      ref={panel}
       aria-label="Холст"
-      className={`flex flex-col bg-zinc-950 ${
+      className={`workbench artifact-workbench flex flex-col bg-zinc-950 ${
         full ? "fixed inset-0 z-50" : "fixed inset-0 z-40 lg:static lg:z-auto lg:w-[min(50%,760px)] lg:shrink-0 lg:border-l lg:border-white/10"
       }`}
     >
-      <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2">
+      <div className="workbench-intro"><span><AppWindow size={13} />Холст приложений</span><small>От идеи к рабочей версии</small></div>
+      <div className="workbench-toolbar flex items-center gap-2 border-b border-white/10 px-3 py-2">
         <AppWindow className="size-4 shrink-0 text-violet-300" />
         <span className="min-w-0 truncate text-sm font-medium text-zinc-100" title={title}>
           {title}
@@ -254,13 +262,13 @@ export function ArtifactPanel({
           >
             {full ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
           </button>
-          <button type="button" title="Закрыть" aria-label="Закрыть холст" onClick={onClose} className={ICON_BUTTON}>
+          <button type="button" title="Закрыть" aria-label="Закрыть холст" data-workbench-close onClick={onClose} className={ICON_BUTTON}>
             <X className="size-4" />
           </button>
         </div>
       </div>
 
-      <div className="flex items-center gap-1 border-b border-white/10 px-3 py-1.5 text-xs">
+      <div className="workbench-tabs flex flex-wrap items-center gap-1 border-b border-white/10 px-3 py-1.5 text-xs">
         {(["preview", "code"] as const).map((t) => (
           <button
             key={t}
@@ -275,18 +283,19 @@ export function ArtifactPanel({
             {t === "preview" ? "Просмотр" : "Код"}
           </button>
         ))}
-        <span className="ml-auto hidden truncate text-[11px] text-zinc-600 md:inline">
-          Изолированное окно — не вводите здесь пароли и личные данные
-        </span>
+        {tab === "preview" && <div className="artifact-device-controls ml-auto" role="group" aria-label="Размер предпросмотра">
+          {([{ id: "desktop", label: "Компьютер", icon: Monitor }, { id: "tablet", label: "Планшет", icon: Tablet }, { id: "mobile", label: "Телефон", icon: Smartphone }] as const).map(d => <button key={d.id} type="button" aria-label={`Предпросмотр: ${d.label}`} title={d.label} aria-pressed={device === d.id} onClick={() => setDevice(d.id)}><d.icon size={14} /></button>)}
+        </div>}
       </div>
 
       {tab === "preview" ? (
-        <ArtifactFrame ref={frame} key={`${index}-${run}`} code={code} className="min-h-0 flex-1" />
+        <div className={`artifact-preview artifact-preview--${device}`}><div className="artifact-device" style={{ width: device === "mobile" ? 390 : device === "tablet" ? 768 : "100%" }}><ArtifactFrame ref={frame} key={`${index}-${run}`} code={code} className="artifact-frame" /></div></div>
       ) : (
-        <pre className="min-h-0 flex-1 overflow-auto p-4 text-[12.5px] leading-relaxed text-zinc-300">
+        <pre className="artifact-code min-h-0 flex-1 overflow-auto p-4 text-[12.5px] leading-relaxed text-zinc-300">
           <code>{code}</code>
         </pre>
       )}
+      <div className="artifact-footnote"><Code2 size={11} /><span>HTML · {code.length.toLocaleString("ru-RU")} символов</span><span>Изолированное окно · без личных данных</span></div>
 
       {status && (
         <div className="flex items-center gap-2 border-t border-white/10 px-3 py-2 text-xs text-zinc-300">
