@@ -14,6 +14,7 @@ import { useApp, type ModelChoice } from "../AppState";
 import { findModel, MaryxBadge, ModelPicker } from "../ModelPicker";
 import { ArtifactContext, ArtifactPanel, artifactTitle, artifactsOf } from "./artifacts";
 import { Composer, type ComposerInject } from "./Composer";
+import { DocumentPanel } from "./DocumentPanel";
 import { MessageView } from "./MessageView";
 import { MaryxVisual } from "../Design";
 
@@ -188,12 +189,16 @@ export function ChatView() {
     [chat],
   );
   const [panel, setPanel] = useState<{ chatId: string; index: number } | null>(null);
+  // «Холст для текстов»: an answer opened as a document (one panel at a time).
+  const [doc, setDoc] = useState<{ chatId: string; messageId: string } | null>(null);
+  const docMessage = doc && chat?.id === doc.chatId ? chat.messages.find((m) => m.id === doc.messageId) : undefined;
   const canvas = {
     versionOf: (code: string) => versions.indexOf(code) + 1,
     open: (code: string) => {
       if (!chat) return;
       const i = versions.indexOf(code);
       setPanel({ chatId: chat.id, index: i >= 0 ? i : versions.length - 1 });
+      setDoc(null);
     },
   };
   // A new version opens by itself once its answer is done (pages already in an opened chat don't).
@@ -203,7 +208,10 @@ export function ChatView() {
     setSeen({ chatId: chat?.id, loaded: loadedNow, count: versions.length });
   } else if (versions.length !== seen.count && (!streaming || versions.length < seen.count)) {
     setSeen({ ...seen, count: versions.length });
-    if (chat && versions.length > seen.count) setPanel({ chatId: chat.id, index: versions.length - 1 });
+    if (chat && versions.length > seen.count) {
+      setPanel({ chatId: chat.id, index: versions.length - 1 });
+      setDoc(null);
+    }
   }
 
   /** The chat as a Markdown file (pictures and files as links to this site). */
@@ -373,6 +381,14 @@ export function ChatView() {
                 onEditPicture={canChangePictures ? (src, prompt) => void editPicture(src, prompt) : undefined}
                 onAnimatePicture={canAnimatePictures ? (src) => void animatePicture(src) : undefined}
                 before={m.role === "assistant" ? photoOf(chat.messages[i - 1]) : undefined}
+                onOpenDocument={
+                  m.role === "assistant" && m.content.trim().length >= 200 && !m.mediaId && !(streaming && i === chat.messages.length - 1)
+                    ? () => {
+                        setDoc({ chatId: chat.id, messageId: m.id });
+                        setPanel(null);
+                      }
+                    : undefined
+                }
                 onSuggest={
                   noProviders || localBlocked
                     ? undefined
@@ -537,7 +553,8 @@ export function ChatView() {
         </p>
       </div>
     </div>
-    {chat && panel?.chatId === chat.id && versions.length > 0 && (
+    {docMessage && <DocumentPanel key={docMessage.id} id={docMessage.id} text={docMessage.content} onClose={() => setDoc(null)} />}
+    {!docMessage && chat && panel?.chatId === chat.id && versions.length > 0 && (
       <ArtifactPanel
         versions={versions}
         index={Math.min(panel.index, versions.length - 1)}

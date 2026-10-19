@@ -269,6 +269,8 @@ export interface GenerateRequest {
   camera?: string;
   /** A new picture's look (an id of IMAGE_STYLES). */
   style?: string;
+  /** «Мой персонаж»: the user's character drawn in a new scene (its photos go to the model as references). */
+  character?: string;
 }
 
 export type MediaOutput =
@@ -302,6 +304,16 @@ export interface MediaItem {
   files: MediaFile[];
   /** The user's photos it was made from (photo editing). */
   inputs?: MediaFile[];
+  /** The character it was drawn with («Мой персонаж»). */
+  character?: string;
+  createdAt: number;
+}
+
+/** «Мой персонаж»: a person (the user, a friend) MARYX draws in any scene from 1–3 photos. */
+export interface Character {
+  id: string;
+  name: string;
+  photos: MediaFile[];
   createdAt: number;
 }
 

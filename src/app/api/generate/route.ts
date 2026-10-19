@@ -1,5 +1,6 @@
 import { isAdmin } from "@/lib/server/auth";
 import { describeAiError, maryxOnly } from "@/lib/server/brand";
+import { characterPhotos } from "@/lib/server/characters";
 import { maryxMediaModel, maryxMediaModels } from "@/lib/server/chat/image";
 import { StorageUnavailableError } from "@/lib/server/errors";
 import { jsonError, requireUser, storageUnavailable } from "@/lib/server/http";
@@ -20,7 +21,8 @@ const FALLBACK_WINDOW_MS = 45_000;
  * Starts an image or video generation and returns the gallery item. Images
  * usually come back finished; videos come back "pending" and the browser
  * polls /api/media/[id] until they're done. With `images`, the user's photos
- * are edited instead (stored next to the result).
+ * are edited instead (stored next to the result); with `character`, the
+ * character's photos show the model who to draw.
  */
 export async function POST(request: Request) {
   const started = Date.now();
@@ -30,6 +32,12 @@ export async function POST(request: Request) {
   const parsed = parseGenerateRequest(await request.json().catch(() => null));
   if (typeof parsed === "string") return jsonError(parsed, 400);
   let req = parsed;
+  // «Мой персонаж»: the character's photos go to the model as references (models that take photos only).
+  if (req.character) {
+    const references = await characterPhotos(user.id, req.character);
+    if (!references) return jsonError("Персонаж не найден — добавьте его заново.", 404);
+    req = { ...req, images: references };
+  }
   const photos = req.images ?? [];
 
   // OpenRouter models (and MARYX, which picks them) go out with the user's own key when they saved one.

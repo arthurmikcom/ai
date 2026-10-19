@@ -74,8 +74,9 @@ export function openRouterImageBody(req: GenerateRequest, endUser?: string): Rec
       type: "image_url",
       image_url: { url: `data:${p.mime};base64,${p.data}` },
     }));
-  } else {
-    // With a photo the result keeps its proportions; a ratio would crop or pad it.
+  }
+  // An edited photo keeps its proportions (a ratio would crop or pad it); a character's new scene takes the chosen one.
+  if (!photos.length || req.character) {
     const ratio = described(params, "aspect_ratio");
     if (ratio !== null && (!Array.isArray(ratio?.values) || ratio.values.includes(req.aspectRatio))) {
       body.aspect_ratio = req.aspectRatio;

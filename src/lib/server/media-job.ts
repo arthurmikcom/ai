@@ -6,7 +6,7 @@ import { CAMERA_MOTIONS, IMAGE_STYLES, withCameraMotion, withStyle } from "@/lib
 import type { GenerateRequest, MediaItem, ModelInfo } from "@/lib/types";
 import type { SessionUser } from "./auth";
 import { describeAiError } from "./brand";
-import { failureDetail, photoPrompt, startWithFallback } from "./chat/image";
+import { characterPrompt, failureDetail, photoPrompt, startWithFallback } from "./chat/image";
 import type { StoredFile } from "./db/schema";
 import { applyResult, createMedia, recordModel } from "./gallery";
 import { endUserId } from "./own-key";
@@ -26,7 +26,8 @@ export async function startMediaJob(
   models: ModelInfo[],
   opts: { until: number; admin: boolean },
 ): Promise<MediaItem> {
-  const photos = req.images ?? [];
+  // A character's photos are already stored with the character.
+  const photos = req.character ? [] : (req.images ?? []);
   // The photos are kept with the item (shown as its source, deleted with it).
   const inputs: StoredFile[] = [];
   let row;
@@ -46,9 +47,11 @@ export async function startMediaJob(
   const call = { key: paid.key, endUser: endUserId(user.id) };
   const { admin } = opts;
   // The model gets the full ask: the photo's instructions, the camera move or the style (the gallery keeps the user's words).
-  const words = photos.length
-    ? photoPrompt(req.kind, req.prompt)
-    : withStyle(req.prompt, IMAGE_STYLES.find((s) => s.id === req.style));
+  const words = req.character
+    ? characterPrompt(withStyle(req.prompt, IMAGE_STYLES.find((s) => s.id === req.style)))
+    : photos.length
+      ? photoPrompt(req.kind, req.prompt)
+      : withStyle(req.prompt, IMAGE_STYLES.find((s) => s.id === req.style));
   const ask = { ...req, prompt: withCameraMotion(words, CAMERA_MOTIONS.find((m) => m.id === req.camera)) };
   try {
     const attempt = await startWithFallback(ask, models, call, opts.until);

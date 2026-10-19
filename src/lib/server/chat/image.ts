@@ -92,6 +92,20 @@ export function animatePrompt(text: string): string {
   );
 }
 
+/**
+ * What the image model is told for «Мой персонаж»: a new picture of the person
+ * in the reference photos, in the scene the user describes, recognizably them.
+ */
+export function characterPrompt(scene: string): string {
+  return (
+    "Create a new image of the person shown in the reference photos (they all show the same person), in the scene " +
+    "described below. The face must be unmistakably this exact person: keep the face shape, eyes, nose, lips, " +
+    "eyebrows, skin tone, hair, age and any distinctive features. Pose, clothing, background, lighting and framing " +
+    "follow the scene, not the reference photos. Unless the scene asks for a style (anime, painting, 3D cartoon and so " +
+    `on), the result must look like a real, natural photograph with realistic skin. Scene: ${scene.trim()}`
+  );
+}
+
 /** The prompt for a picture or a clip made from the user's photo. */
 export function photoPrompt(kind: MediaKind, text: string): string {
   return kind === "image" ? editPrompt(text) : animatePrompt(text);

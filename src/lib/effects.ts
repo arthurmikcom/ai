@@ -79,3 +79,27 @@ export function withStyle(prompt: string, style: ImageStyle | undefined): string
   const text = prompt.trim();
   return text ? `${text.replace(/[.\s]+$/, "")}. Style: ${style.prompt}.` : `Style: ${style.prompt}.`;
 }
+
+export interface PhotoshootScene {
+  id: string;
+  label: string;
+  emoji: string;
+  /** Where and who the character is drawn as (plain words: users see and can change them). */
+  prompt: string;
+}
+
+/** «Мой персонаж»: ready scenes for a photoshoot, one click each. */
+export const PHOTOSHOOT_SCENES: PhotoshootScene[] = [
+  { id: "headshot", label: "Деловой портрет", emoji: "💼", prompt: "Деловой портрет для резюме и LinkedIn: строгий костюм, светлый студийный фон, мягкий свет, уверенная улыбка" },
+  { id: "magazine", label: "Обложка журнала", emoji: "📰", prompt: "Модная фотосессия для обложки глянцевого журнала: студийный свет, стильный образ, выразительный взгляд в камеру" },
+  { id: "paris", label: "Прогулка в Париже", emoji: "🗼", prompt: "Прогулка по улице Парижа на закате, Эйфелева башня на заднем плане, естественный уличный кадр" },
+  { id: "beach", label: "Отпуск у моря", emoji: "🏝️", prompt: "Отпуск на тропическом пляже на закате: лёгкая летняя одежда, бирюзовое море, тёплый свет" },
+  { id: "astronaut", label: "Космонавт", emoji: "🚀", prompt: "Космонавт в скафандре на поверхности Луны, Земля в небе, кинематографичный кадр" },
+  { id: "hero", label: "Супергерой", emoji: "🦸", prompt: "Супергерой в эффектном костюме в динамичной позе над ночным городом, кинематографичный свет" },
+  { id: "fantasy", label: "Фэнтези-воин", emoji: "⚔️", prompt: "Герой фэнтези в узорчатых доспехах в волшебном лесу, эпичный свет, как постер фильма" },
+  { id: "noir", label: "Нуар", emoji: "🕵️", prompt: "Детектив в стиле нуар: плащ и шляпа, ночная улица под дождём, контрастный чёрно-белый кадр" },
+  { id: "retro", label: "Ретро 80-х", emoji: "📼", prompt: "Снимок в стиле 80-х: яркая одежда той эпохи, неон, плёночное зерно, вспышка" },
+  { id: "newyear", label: "Новый год", emoji: "🎄", prompt: "Уютный новогодний портрет у наряженной ёлки, гирлянды, тёплый праздничный свет" },
+  { id: "anime", label: "Аниме-герой", emoji: "🌸", prompt: "Герой аниме: иллюстрация в стиле японской анимации, яркие цвета, узнаваемые черты лица" },
+  { id: "cartoon", label: "3D-мультфильм", emoji: "🧸", prompt: "Герой 3D-мультфильма в стиле Pixar: выразительный, добрый, узнаваемые черты лица" },
+];

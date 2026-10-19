@@ -9,6 +9,7 @@ import {
   Copy,
   CornerDownRight,
   Download,
+  FilePen,
   FileText,
   Globe,
   Info,
@@ -49,6 +50,8 @@ interface Props {
   onEdit?: (text: string) => void;
   /** The photo this answer's picture was made from (to compare before and after). */
   before?: string;
+  /** Open this answer as a document to edit («Холст для текстов»). */
+  onOpenDocument?: () => void;
 }
 
 /** Correcting a sent question in place. */
@@ -268,6 +271,7 @@ export function MessageView({
   onAnimatePicture,
   onEdit,
   before,
+  onOpenDocument,
 }: Props) {
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -565,6 +569,17 @@ export function MessageView({
               {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
             </button>
           )}
+          {onOpenDocument && (
+            <button
+              type="button"
+              onClick={onOpenDocument}
+              title="Открыть как документ: править самому или одним нажатием — улучшить, сократить, исправить ошибки"
+              aria-label="Открыть в холсте"
+              className="rounded-lg p-1.5 hover:bg-white/5 hover:text-zinc-200"
+            >
+              <FilePen className="size-4" />
+            </button>
+          )}
           {isLast && onRegenerate && (
             <button
               type="button"
@@ -581,6 +596,16 @@ export function MessageView({
 
       {isLast && !streaming && onSuggest && message.content && !message.error && !message.mediaId && !picture && (
         <div role="group" aria-label="Изменить ответ" className="mt-2 flex flex-wrap items-center gap-1.5">
+          {onOpenDocument && (
+            <button
+              type="button"
+              onClick={onOpenDocument}
+              title="Открыть как документ и править прямо в нём"
+              className="flex items-center gap-1 rounded-full border border-violet-300/30 bg-violet-500/10 px-2.5 py-0.5 text-xs text-violet-100 transition hover:border-violet-300/60"
+            >
+              <FilePen className="size-3" /> В холсте
+            </button>
+          )}
           {REWRITES.map((r) => (
             <button
               key={r.label}

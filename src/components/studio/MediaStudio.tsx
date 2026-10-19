@@ -4,7 +4,8 @@ import { Clapperboard, Image as ImageIcon, ImagePlus, KeyRound, LoaderCircle, Sp
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent } from "react";
-import { CAMERA_MOTIONS, IMAGE_STYLES, PHOTO_EFFECTS } from "@/lib/effects";
+import { CAMERA_MOTIONS, IMAGE_STYLES, PHOTO_EFFECTS, PHOTOSHOOT_SCENES } from "@/lib/effects";
+import { useCharacters } from "@/lib/client/characters";
 import { enhancePrompt, generate, removeMedia, useMediaItems } from "@/lib/client/media";
 import { useModels } from "@/lib/client/useModels";
 import { useStoredJson } from "@/lib/client/useStored";
@@ -12,6 +13,7 @@ import { imageToAttachment, MAX_TOTAL_BASE64, nearestRatio } from "@/lib/client/
 import type { AspectRatio, Attachment, MediaFile, MediaKind } from "@/lib/types";
 import { useApp, type ModelChoice } from "../AppState";
 import { findModel, MaryxBadge, ModelPicker } from "../ModelPicker";
+import { Characters } from "./Characters";
 import { MediaCard } from "./MediaCard";
 import { OrbitArt, PageHeading } from "../Design";
 
@@ -119,6 +121,9 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
   const [style, setStyle] = useState<string | null>(null);
   // Pictures: how many to make at once.
   const [variants, setVariants] = useState(1);
+  // «Мой персонаж»: the character a photoshoot draws (pictures only).
+  const characters = useCharacters();
+  const [characterId, setCharacterId] = useState<string | null>(null);
   // "✨ Улучшить": the rewrite in progress, and the words before it (to go back).
   const [enhancing, setEnhancing] = useState(false);
   const [before, setBefore] = useState<string | null>(null);
@@ -137,16 +142,20 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
       ? saved
       : { provider: fallback.provider, model: fallback.id };
 
-  const custom = replicateReady ? customModel.trim() : "";
-  const target: ModelChoice | null = custom ? { provider: "replicate", model: custom } : choice;
-
   // Your own photo: offered when a model takes one (MARYX: when one of its models does).
   const editable = models.some((m) => m.photoEdit);
   const editing = editable && photos.length > 0;
+  // A photoshoot of a saved character: a new picture drawn from its photos.
+  const character = (kind === "image" && editable && !editing && characters?.find((c) => c.id === characterId)) || null;
+
+  const custom = replicateReady && !character ? customModel.trim() : "";
+  const target: ModelChoice | null = custom ? { provider: "replicate", model: custom } : choice;
   const targetEdits = Boolean(!custom && target && findModel(models, target)?.photoEdit);
   // Not before the profile says which mode the site is in (it decides the model).
-  // A photo can go without words (a natural retouch, or natural motion).
-  const canGenerate = Boolean(me && target && !reading && (editing ? targetEdits : prompt.trim()));
+  // A photo can go without words (a natural retouch, or natural motion); a photoshoot needs a scene.
+  const canGenerate = Boolean(
+    me && target && !reading && (editing ? targetEdits : character ? targetEdits && prompt.trim() : prompt.trim()),
+  );
 
   const addPhotos = async (files: File[]) => {
     setPhotoError(null);
@@ -176,6 +185,7 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
     }
     setReading(false);
     setPhotos((list) => [...(maxPhotos === 1 && added.length ? [] : list), ...added]);
+    if (added.length) setCharacterId(null);
     if (problems.length) setPhotoError([...new Set(problems)].join(" "));
   };
 
@@ -185,6 +195,7 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
     setReading(true);
     try {
       setPhotos(await Promise.all(files.slice(0, maxPhotos).map(photoFrom)));
+      setCharacterId(null);
     } catch {
       setPhotoError("Не удалось загрузить фото — попробуйте ещё раз.");
     }
@@ -245,6 +256,7 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
       ...(editing ? { images: photos.map((p) => ({ mime: p.mime, data: p.data! })) } : {}),
       ...(kind === "video" && camera ? { camera } : {}),
       ...(kind === "image" && !editing && style ? { style } : {}),
+      ...(character ? { character: character.id } : {}),
     };
     // Several pictures at once, to pick the best (each is its own picture).
     for (let i = 0; i < (kind === "image" ? variants : 1); i++) void generate(request);
@@ -277,7 +289,13 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
     e.preventDefault();
     void addPhotos([...e.dataTransfer.files]);
   };
-  const ideas = editing ? edit.ideas : copy.ideas;
+  const ideas = editing ? edit.ideas : character ? [] : copy.ideas;
+
+  const placeholder = editing
+    ? edit.placeholder
+    : character
+      ? `Где и кем нарисовать «${character.name}»? Например: на обложке журнала или в образе космонавта`
+      : copy.placeholder;
 
   const labelOf = (provider: string, id: string) =>
     models.find((m) => m.provider === provider && m.id === id)?.label ?? (maryxOnly ? "MARYX" : id);
@@ -306,6 +324,20 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
           <OrbitArt />
         </div>
 
+        {kind === "image" && editable && !noProviders && characters && (
+          <Characters
+            characters={characters}
+            selected={character?.id ?? null}
+            onSelect={(id) => {
+              setCharacterId(id);
+              if (id) {
+                setPhotos([]);
+                setPhotoError(null);
+              }
+            }}
+          />
+        )}
+
         {noProviders ? (
           <div className="empty-notice mt-6 rounded-2xl border p-5 text-sm text-zinc-200">
             <div className="mb-2 flex items-center gap-2 font-medium">
@@ -333,7 +365,9 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
             onDragOver={(e) => editable && e.preventDefault()}
             onDrop={onDrop}
           >
-            <div className="section-label mb-3 px-2">{editing ? edit.label : "Опишите вашу идею"}</div>
+            <div className="section-label mb-3 px-2">
+              {editing ? edit.label : character ? `Фотосессия: ${character.name}` : "Опишите вашу идею"}
+            </div>
             {(photos.length > 0 || reading) && (
               <div className="flex flex-wrap gap-2 px-2 pb-2">
                 {photos.map((p, i) => (
@@ -374,8 +408,8 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
               }}
               onPaste={onPaste}
               rows={3}
-              placeholder={editing ? edit.placeholder : copy.placeholder}
-              aria-label={editing ? edit.placeholder : copy.placeholder}
+              placeholder={placeholder}
+              aria-label={placeholder}
               className="w-full resize-none bg-transparent px-2 py-1 text-[15px] text-zinc-100 outline-none placeholder:text-zinc-500"
             />
             {(prompt.trim() || before !== null) && (
@@ -408,6 +442,9 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
               <p className="px-2 pb-2 text-xs text-violet-200">{edit.hint}</p>
             )}
             {editing && !targetEdits && <p className="px-2 pb-2 text-xs text-red-300">{edit.cant}</p>}
+            {character && !targetEdits && (
+              <p className="px-2 pb-2 text-xs text-red-300">Эта модель не умеет рисовать персонажа по фото — выберите другую.</p>
+            )}
             {photoError && <p className="px-2 pb-2 text-xs text-red-300">{photoError}</p>}
 
             {kind === "image" && !editing && (
@@ -506,7 +543,7 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
                 </div>
               )}
 
-              {replicateReady && !editing && (
+              {replicateReady && !editing && !character && (
                 <input
                   value={customModel}
                   onChange={(e) => setCustomModel(e.target.value)}
@@ -546,7 +583,7 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
                 className="maryx-button flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm"
               >
                 <WandSparkles className="size-4" />
-                {editing ? edit.button : "Сгенерировать"}
+                {editing ? edit.button : character ? "Создать фото" : "Сгенерировать"}
               </button>
             </div>
           </div>
@@ -573,6 +610,33 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
               >
                 <span className="text-lg" aria-hidden="true">{e.emoji}</span>
                 <span className="font-medium">{e.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* A photoshoot: one click puts the character in a ready scene. */}
+        {!noProviders && character && (
+          <div role="group" aria-label="Сцены" className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+            {PHOTOSHOOT_SCENES.map((scene) => (
+              <button
+                key={scene.id}
+                type="button"
+                title={scene.prompt}
+                aria-pressed={prompt === scene.prompt}
+                onClick={() => {
+                  setPrompt(scene.prompt);
+                  setBefore(null);
+                  promptRef.current?.focus();
+                }}
+                className={`${CARD} ${
+                  prompt === scene.prompt
+                    ? "border-violet-300/50 bg-violet-500/15 text-violet-100"
+                    : "border-white/10 bg-white/[0.03] text-zinc-300"
+                }`}
+              >
+                <span className="text-lg" aria-hidden="true">{scene.emoji}</span>
+                <span className="font-medium">{scene.label}</span>
               </button>
             ))}
           </div>
@@ -606,9 +670,10 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
                 onReuse={() => {
                   setPrompt(item.prompt);
                   setRatio(RATIOS[kind].includes(item.aspectRatio) ? item.aspectRatio : RATIOS[kind][0]);
-                  // An edit (or an animated photo) is repeated on the same photos.
+                  // An edit (or an animated photo) is repeated on the same photos, a photoshoot with its character.
                   if (item.inputs?.length && editable) void loadPhotos(item.inputs);
                   else setPhotos([]);
+                  setCharacterId(item.character && characters?.some((c) => c.id === item.character) ? item.character : null);
                   focusPrompt();
                 }}
                 onEdit={

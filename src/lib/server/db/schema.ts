@@ -168,6 +168,21 @@ export const share = pgTable(
   (t) => [index("share_user_created_idx").on(t.userId, t.createdAt)],
 );
 
+/** «Мой персонаж»: 1–3 photos of one person MARYX draws in new scenes (a photoshoot). */
+export const character = pgTable(
+  "character",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    photos: jsonb("photos").$type<StoredFile[]>().notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [index("character_user_idx").on(t.userId, t.createdAt)],
+);
+
 export const assistant = pgTable(
   "assistant",
   {
@@ -207,6 +222,8 @@ export const media = pgTable(
     files: jsonb("files").$type<StoredFile[]>().default([]).notNull(),
     /** The user's photos it was made from (photo editing); deleted with the item. */
     inputs: jsonb("inputs").$type<StoredFile[]>(),
+    /** The character it was drawn with («Мой персонаж»), to repeat it; kept when the character is deleted. */
+    characterId: text("character_id"),
     /** How the generation is paid for (null for items made before credits existed: the plan). */
     paidBy: text("paid_by").$type<PaidBy>(),
     /** Credits held when it started (paid with credits). */

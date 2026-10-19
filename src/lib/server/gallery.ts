@@ -40,6 +40,7 @@ function toItem(row: MediaRow, admin = false): MediaItem {
       error && admin && row.errorDetail && row.errorDetail !== error ? `${error} [для администратора: ${row.errorDetail}]` : error,
     files: row.files.map((f) => ({ url: fileUrl(f.key), mime: f.mime })),
     ...(row.inputs?.length ? { inputs: row.inputs.map((f) => ({ url: fileUrl(f.key), mime: f.mime })) } : {}),
+    ...(row.characterId ? { character: row.characterId } : {}),
     createdAt: row.createdAt.getTime(),
   };
 }
@@ -93,6 +94,7 @@ export async function createMedia(user: SessionUser, req: GenerateRequest, paid:
       kind: req.kind,
       prompt: req.prompt || (inputs?.length ? (req.kind === "image" ? "Естественная ретушь фото" : "Оживить фото") : req.prompt),
       inputs: inputs?.length ? inputs : null,
+      characterId: req.character ?? null,
       provider: req.provider,
       model: req.model,
       aspectRatio: req.aspectRatio,

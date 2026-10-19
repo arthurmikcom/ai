@@ -138,7 +138,7 @@ function parsePhotos(value: unknown): InlineImage[] | string {
 
 export function parseGenerateRequest(body: unknown): GenerateRequest | string {
   if (!isObject(body)) return "Пустой запрос";
-  const { kind, provider, model, prompt, aspectRatio, images, camera, style } = body;
+  const { kind, provider, model, prompt, aspectRatio, images, camera, style, character } = body;
   if (kind !== "image" && kind !== "video") return "Неизвестный тип генерации";
   if (!isProvider(provider) || provider === "browser") return "Неизвестный провайдер";
   if (maryxOnly() && provider !== "maryx") return ONLY_MARYX;
@@ -152,6 +152,8 @@ export function parseGenerateRequest(body: unknown): GenerateRequest | string {
   if (typeof aspectRatio !== "string" || !ASPECT_RATIOS.has(aspectRatio)) return "Неверное соотношение сторон";
   if (camera !== undefined && (kind !== "video" || !CAMERA_MOTIONS.some((m) => m.id === camera))) return "Неизвестное движение камеры";
   if (style !== undefined && (kind !== "image" || !IMAGE_STYLES.some((s) => s.id === style))) return "Неизвестный стиль";
+  if (character !== undefined && (kind !== "image" || photos || typeof character !== "string" || !isValidId(character))) return "Неизвестный персонаж";
+  if (character !== undefined && !prompt.trim()) return "Опишите сцену: где и кем нарисовать персонажа";
   return {
     kind,
     provider,
@@ -161,5 +163,18 @@ export function parseGenerateRequest(body: unknown): GenerateRequest | string {
     ...(photos ? { images: photos } : {}),
     ...(typeof camera === "string" ? { camera } : {}),
     ...(typeof style === "string" ? { style } : {}),
+    ...(typeof character === "string" ? { character } : {}),
   };
+}
+
+/** A new character («Мой персонаж»): a name and 1–3 photos of the person. */
+export function parseCharacter(body: unknown, maxPhotos: number): { name: string; photos: InlineImage[] } | string {
+  if (!isObject(body)) return "Пустой запрос";
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  if (!name) return "Назовите персонажа";
+  if (name.length > 40) return "Имя слишком длинное: до 40 символов";
+  const photos = parsePhotos(body.photos);
+  if (typeof photos === "string") return photos === "Неверный формат фото" ? "Добавьте хотя бы одно фото" : photos;
+  if (photos.length > maxPhotos) return `Достаточно ${maxPhotos} фото: лицо крупно, с разных сторон`;
+  return { name, photos };
 }

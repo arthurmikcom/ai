@@ -198,6 +198,8 @@ export async function planRoute(input: {
   ownKey?: boolean;
   /** A research report: a strong model writes it from what was found (it doesn't search itself). */
   research?: boolean;
+  /** A strong model, whatever the text (MARYX's writing jobs: a document edit). */
+  strong?: boolean;
 }): Promise<MaryxPlan> {
   const { models } = await listModels("chat", { ownKey: input.ownKey });
   // Only server models: the browser ones run on the visitor's device, not here.
@@ -207,7 +209,7 @@ export async function planRoute(input: {
   if (available.length === 0) throw new Error("MARYX не может ответить: не подключена ни одна модель.");
 
   const search = !input.research && (input.ownKey || isConfigured("openrouter")) && (input.webSearch || wantsSearch(input.text));
-  let tier: Tier = input.deepThinking ? "deep" : input.research || needsSmart(input.text, input.hasDocuments) ? "smart" : "fast";
+  let tier: Tier = input.deepThinking ? "deep" : input.research || input.strong || needsSmart(input.text, input.hasDocuments) ? "smart" : "fast";
   // A short follow-up ("а подробнее?", "исправь ошибку") to a strong answer or to
   // code stays on a strong model: alone it looks simple, in context it isn't.
   const prev = input.previous;
@@ -248,7 +250,7 @@ async function quickCall(
   user: string,
   timeoutMs: number,
   meter: Meter,
-  opts: { webSearch?: boolean; maxTokens?: number } = {},
+  opts: { webSearch?: boolean; maxTokens?: number; strong?: boolean } = {},
 ): Promise<{ text: string; sources: Source[] }> {
   const ownKey = meter.paidBy === "byok" && meter.key ? meter.key : undefined;
   const plan = await planRoute({
@@ -258,6 +260,7 @@ async function quickCall(
     deepThinking: false,
     webSearch: Boolean(opts.webSearch),
     ownKey: Boolean(ownKey),
+    strong: opts.strong,
   });
   const signal = AbortSignal.timeout(timeoutMs);
   // One fallback (from another vendor) if the first model is down.
@@ -645,6 +648,48 @@ export async function enhancePrompt(
     .replace(/^\s*(промпт|prompt|инструкция)\s*:\s*/i, "")
     .replace(/^["'«»“”*\s]+|["'«»“”*\s]+$/g, "")
     .slice(0, 1500);
+}
+
+/** What «Холст для текстов» can do with a document or its selected part, in one click. */
+export const REWRITE_TASKS = {
+  improve: "Улучши текст: сделай его яснее, живее и убедительнее, убери повторы, воду и канцелярит. Смысл и факты не меняй.",
+  shorter: "Сократи текст примерно вдвое: оставь главное, убери второстепенное.",
+  longer: "Раскрой текст подробнее: добавь пояснения, примеры и детали — примерно в полтора-два раза длиннее.",
+  fix: "Исправь орфографические, пунктуационные и грамматические ошибки и опечатки. Больше ничего не меняй: ни слова, ни стиль, ни порядок.",
+  simpler: "Перепиши проще и понятнее, как для новичка: короткие предложения, без сложных терминов.",
+  formal: "Перепиши в официально-деловом стиле: вежливо, точно, без разговорных оборотов.",
+  friendly: "Перепиши в тёплом, дружелюбном тоне, как будто пишешь хорошему знакомому.",
+  emoji: "Добавь уместные эмодзи, чтобы текст стал живее. Сами слова не меняй.",
+  english: "Переведи текст на английский язык — естественно, как написал бы носитель.",
+} as const;
+
+export type RewriteTask = keyof typeof REWRITE_TASKS;
+
+const REWRITE_SYSTEM =
+  "Ты — редактор текстов MARYX. Тебе дают текст (или его фрагмент) и задачу. Выполни задачу и верни ТОЛЬКО новый вариант " +
+  "текста: без пояснений, без вступлений вроде «Вот исправленный текст», без кавычек и без блока кода вокруг. Сохраняй язык " +
+  "оригинала (если задача не про перевод) и разметку Markdown: заголовки, списки, жирный шрифт, таблицы. Если дан весь " +
+  "документ — перепиши только фрагмент, чтобы он ложился в документ по стилю и смыслу.";
+
+/**
+ * «Холст для текстов»: a strong model rewrites a document, or the selected
+ * fragment of it (`document` is then the whole text, for context), as asked.
+ */
+export async function rewriteText(input: { text: string; task: string; document?: string }, meter: Meter): Promise<string> {
+  const ask = [
+    input.document ? `Весь документ (для контекста, его не переписывай):\n<<<\n${excerpt(input.document, 12_000)}\n>>>` : "",
+    `Задача: ${input.task}`,
+    `${input.document ? "Фрагмент" : "Текст"}, который нужно переписать:\n<<<\n${input.text}\n>>>`,
+  ];
+  const { text } = await quickCall(REWRITE_SYSTEM, ask.filter(Boolean).join("\n\n"), 100_000, meter, {
+    strong: true,
+    // Room for a text twice as long ("Подробнее").
+    maxTokens: Math.min(16_000, input.text.length + 1000),
+  });
+  return text
+    .replace(/^```(?:markdown|md)?\n([\s\S]*)\n```$/, "$1")
+    .replace(/^<<<\n?|\n?>>>$/g, "")
+    .trim();
 }
 
 /** Keeps the start and the end of a long text for a short prompt. */

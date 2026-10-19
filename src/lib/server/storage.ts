@@ -103,7 +103,7 @@ export function userPrefix(userId: string): string {
 }
 
 /** Builds a fresh storage key such as users/<id>/media/<uuid>.png */
-export function newKey(userId: string, folder: "media" | "attachments", mime: string): string {
+export function newKey(userId: string, folder: "media" | "attachments" | "characters", mime: string): string {
   const ext = EXTENSIONS[mime.split(";")[0].trim()] ?? "bin";
   return `${userPrefix(userId)}${folder}/${crypto.randomUUID()}.${ext}`;
 }
