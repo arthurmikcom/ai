@@ -4,6 +4,8 @@ import type { AspectRatio, ChatSendRequest, GenerateRequest, InlineFile, InlineI
 import { maryxOnly } from "./config";
 import { isDocumentMime } from "./documents";
 import { isValidId } from "./http";
+import { MOTION_MAX_SECONDS, MOTION_MIN_SECONDS } from "./media/higgsfield";
+import { isValidKey } from "./storage";
 
 const PROVIDER_IDS = new Set<string>([...PROVIDERS.map((p) => p.id), "maryx", "browser"]);
 const ASPECT_RATIOS = new Set<string>(["1:1", "16:9", "9:16", "4:3", "3:4"]);
@@ -155,14 +157,14 @@ function parsePhotos(value: unknown): InlineImage[] | string {
 
 export function parseGenerateRequest(body: unknown): GenerateRequest | string {
   if (!isObject(body)) return "Пустой запрос";
-  const { kind, provider, model, prompt, aspectRatio, images, camera, effect, duration, style, character, recast, consent, cast } = body;
+  const { kind, provider, model, prompt, aspectRatio, images, camera, effect, duration, style, character, recast, consent, cast, motion } = body;
   if (kind !== "image" && kind !== "video") return "Неизвестный тип генерации";
   if (!isProvider(provider) || provider === "browser") return "Неизвестный провайдер";
   if (maryxOnly() && provider !== "maryx") return ONLY_MARYX;
   if (typeof model !== "string" || !model || model.length > 200) return "Не выбрана модель";
   const photos = images === undefined ? undefined : parsePhotos(images);
   if (typeof photos === "string") return photos;
-  if (photos && kind === "video" && photos.length > 2) return "Для видео — одно фото (первый кадр) или два (первый и последний)";
+  if (photos && kind === "video" && photos.length > 2 && motion === undefined) return "Для видео — одно фото (первый кадр) или два (первый и последний)";
   // A photo can be edited without words (a natural retouch); a new picture needs a description.
   if (typeof prompt !== "string" || (!prompt.trim() && !photos)) return "Опишите, что нужно сгенерировать";
   if (prompt.length > 4000) return "Описание слишком длинное: до 4000 символов";
@@ -176,7 +178,9 @@ export function parseGenerateRequest(body: unknown): GenerateRequest | string {
   // Several people of a trend recast at once: who becomes whom (a saved character, or the next photo).
   let roles: { who: string; character?: string }[] | undefined;
   if (cast !== undefined) {
-    if (recast !== true || character !== undefined || !Array.isArray(cast) || cast.length < 1 || cast.length > 3) return "Неверный выбор персонажей";
+    if ((recast !== true && motion === undefined) || character !== undefined || !Array.isArray(cast) || cast.length < 1 || cast.length > 3) {
+      return "Неверный выбор персонажей";
+    }
     roles = [];
     for (const role of cast as unknown[]) {
       if (!isObject(role) || typeof role.who !== "string" || !role.who.trim() || role.who.length > 120) return "Неверный выбор персонажей";
@@ -189,6 +193,17 @@ export function parseGenerateRequest(body: unknown): GenerateRequest | string {
     const needed = roles ? 1 + roles.filter((r) => !r.character).length : character === undefined ? 2 : 1;
     if (recast !== true || kind !== "image" || !photos || photos.length !== needed) return "Нужен кадр из видео и фото персонажа";
     if (consent !== true) return "Подтвердите, что на фото вы или человек, который разрешил использовать своё лицо";
+  }
+  // «Тренд», move for move: the uploaded trend video, and a photo for each new person who isn't a saved character.
+  let move: { key: string; seconds: number } | undefined;
+  if (motion !== undefined) {
+    if (!isObject(motion) || typeof motion.key !== "string" || !isValidKey(motion.key) || !/\.mp4$/.test(motion.key)) return "Нужно видео тренда в формате MP4";
+    if (typeof motion.seconds !== "number" || !Number.isFinite(motion.seconds)) return "Неверная длина тренда";
+    if (kind !== "video" || recast !== undefined || character !== undefined || !roles) return "Неверный запрос тренда";
+    if (motion.seconds < MOTION_MIN_SECONDS) return `Тренд слишком короткий: нужно хотя бы ${MOTION_MIN_SECONDS} секунды`;
+    if ((photos?.length ?? 0) !== roles.filter((r) => !r.character).length) return "Нужно фото для каждого героя";
+    if (consent !== true) return "Подтвердите, что на фото вы или человек, который разрешил использовать своё лицо";
+    move = { key: motion.key, seconds: Math.min(MOTION_MAX_SECONDS, motion.seconds) };
   }
   if (character !== undefined && (kind !== "image" || (photos && recast !== true) || typeof character !== "string" || !isValidId(character))) return "Неизвестный персонаж";
   if (character !== undefined && !recast && !prompt.trim()) return "Опишите сцену: где и кем нарисовать персонажа";
@@ -206,6 +221,7 @@ export function parseGenerateRequest(body: unknown): GenerateRequest | string {
     ...(typeof character === "string" ? { character } : {}),
     ...(recast === true ? { recast: true, consent: true } : {}),
     ...(roles ? { cast: roles } : {}),
+    ...(move ? { motion: move, consent: true } : {}),
   };
 }
 

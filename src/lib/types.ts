@@ -15,6 +15,8 @@ export type ProviderId =
   /** Open Qwen models that run in the visitor's browser (WebGPU): free, no keys. */
   | "browser"
   | "replicate"
+  /** Higgsfield's API: Genjutsu motion transfer for «Тренд» (a person of a video becomes someone else, move for move). */
+  | "higgsfield"
   /** Our own AI: picks the best real model for each message. */
   | "maryx";
 
@@ -42,6 +44,8 @@ export interface ModelInfo {
   photoEdit?: boolean;
   /** Video models: can also end on a given picture (a transition between two frames). */
   lastFrame?: boolean;
+  /** MARYX video: can repeat a whole video's movement with someone else in it (motion transfer, «Тренд»). */
+  motion?: boolean;
 }
 
 export interface ProviderStatus {
@@ -304,6 +308,11 @@ export interface GenerateRequest {
   cast?: { who: string; character?: string }[];
   /** Server only: where each cast person's reference pictures are among `images` (1-based). */
   castPlan?: { who: string; first: number; count: number }[];
+  /**
+   * «Тренд», move for move: the user's uploaded trend video (its storage key)
+   * and its length; `cast` says who becomes whom, `images` holds the photos.
+   */
+  motion?: { key: string; seconds: number };
 }
 
 export type MediaOutput =

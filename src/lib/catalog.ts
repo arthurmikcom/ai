@@ -95,6 +95,15 @@ export const PROVIDERS: ProviderDef[] = [
     capabilities: ["image", "video"],
     note: "FLUX, Ideogram, Recraft, Kling, Veo, Seedance и тысячи других",
   },
+  {
+    id: "higgsfield",
+    name: "Higgsfield",
+    envVar: "HF_API_KEY_ID",
+    signupUrl: "https://higgsfield.ai/higgsfield-api",
+    // Not a model to pick: «Тренд» uses it for its move-for-move remake.
+    capabilities: [],
+    note: "Genjutsu: «Тренд» повторяет движения ролика кадр в кадр (HF_API_KEY_ID и HF_API_KEY_SECRET)",
+  },
 ];
 
 /** Our own AI, shown first in the chat model picker (see server/maryx.ts). */

@@ -9,6 +9,7 @@ import { describeAiError } from "./brand";
 import { characterPrompt, failureDetail, photoPrompt, recastPrompt, startWithFallback } from "./chat/image";
 import type { StoredFile } from "./db/schema";
 import { applyResult, createMedia, recordModel } from "./gallery";
+import { motionPrompt } from "./media/higgsfield";
 import { endUserId } from "./own-key";
 import { deleteFiles, newKey, putFile } from "./storage";
 import { checkRecast } from "./maryx";
@@ -29,8 +30,8 @@ export async function startMediaJob(
   /** `stop`: when the request must have answered by (a recast's check and second try only run while they fit). */
   opts: { until: number; admin: boolean; stop?: number },
 ): Promise<MediaItem> {
-  // A character's photos are already stored with the character (a recast keeps only the video's frame).
-  const photos = req.recast ? (req.images ?? []).slice(0, 1) : req.character ? [] : (req.images ?? []);
+  // A character's photos are already stored with the character (a recast keeps only the video's frame, a move-for-move trend nothing).
+  const photos = req.recast ? (req.images ?? []).slice(0, 1) : req.character || req.motion ? [] : (req.images ?? []);
   // The photos are kept with the item (shown as its source, deleted with it).
   const inputs: StoredFile[] = [];
   let row;
@@ -50,7 +51,9 @@ export async function startMediaJob(
   const call = { key: paid.key, endUser: endUserId(user.id) };
   const { admin } = opts;
   // The model gets the full ask: the photo's instructions, the effect, the camera move or the style (the gallery keeps the user's words).
-  const words = req.recast
+  const words = req.motion
+    ? motionPrompt(req.castPlan)
+    : req.recast
     ? recastPrompt(req.prompt, req.castPlan)
     : req.character
     ? characterPrompt(withStyle(req.prompt, IMAGE_STYLES.find((s) => s.id === req.style)))

@@ -381,7 +381,8 @@ export async function deniedResponse(
   user: SessionUser,
   kind: UsageKind,
   denied: Denial,
-  opts: { ownKey?: boolean; charge?: Charge } = {},
+  /** `expensive`: what to say when the request costs more than the budget has left (instead of the chat's wording). */
+  opts: { ownKey?: boolean; charge?: Charge; expensive?: string } = {},
 ): Promise<Response> {
   if (denied === "ownKey") {
     return Response.json(
@@ -432,7 +433,9 @@ export async function deniedResponse(
     error =
       kind === "voice"
         ? `Эта запись дороже, чем осталось в дневном бюджете вашего тарифа. Запишите фрагмент покороче. ${hint}`
-        : "Этот запрос слишком большой для того, что осталось в дневном бюджете вашего тарифа: длинная переписка или большие файлы. " +
+        : opts.expensive
+          ? `${opts.expensive} ${hint}`
+          : "Этот запрос слишком большой для того, что осталось в дневном бюджете вашего тарифа: длинная переписка или большие файлы. " +
           `Начните новый чат, уберите файлы или ${simpler}. ${hint}`;
   } else if (denied === "credits") {
     const balance = await creditBalance(user.id);

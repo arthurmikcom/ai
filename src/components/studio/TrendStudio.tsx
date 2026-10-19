@@ -21,7 +21,17 @@ import { api } from "@/lib/client/api";
 import { useCharacters } from "@/lib/client/characters";
 import type { Frame } from "@/lib/client/frames";
 import { generateItem, useMediaItems, whenDone } from "@/lib/client/media";
-import { clipSeconds, findScenes, MAX_SCENES, renderTrend, type Segment, type TrendScene } from "@/lib/client/trend";
+import {
+  asMp4,
+  clipSeconds,
+  findScenes,
+  MAX_SCENES,
+  MOTION_MAX_SECONDS,
+  MOTION_MIN_SECONDS,
+  renderTrend,
+  type Segment,
+  type TrendScene,
+} from "@/lib/client/trend";
 import { uploadVideo } from "@/lib/client/upload";
 import { useModels } from "@/lib/client/useModels";
 import { imageToAttachment, nearestRatio } from "@/lib/client/util";
@@ -61,14 +71,21 @@ interface Scene extends TrendScene {
   clip?: string;
 }
 
-/** The one-click run, step by step. */
-type Stage = "idle" | "reading" | "framing" | "review" | "filming" | "gluing" | "saving" | "done";
+/** The one-click run, step by step (by scenes, or move for move: uploading, moving). */
+type Stage = "idle" | "reading" | "uploading" | "moving" | "framing" | "review" | "filming" | "gluing" | "saving" | "done";
 
 const STAGES: { id: Stage; label: string }[] = [
   { id: "framing", label: "Ставлю героев в кадры" },
   { id: "review", label: "Проверьте кадры" },
   { id: "filming", label: "Снимаю сцены" },
   { id: "gluing", label: "Склеиваю под музыку" },
+  { id: "saving", label: "Сохраняю в «Мои видео»" },
+];
+
+const MOTION_STAGES: { id: Stage; label: string }[] = [
+  { id: "uploading", label: "Загружаю тренд" },
+  { id: "moving", label: "Повторяю движения с вашим героем" },
+  { id: "gluing", label: "Возвращаю музыку" },
   { id: "saving", label: "Сохраняю в «Мои видео»" },
 ];
 
@@ -102,7 +119,10 @@ export function TrendStudio() {
   const { me, refreshMe } = useApp();
   const characters = useCharacters();
   const images = useModels("image").data?.models ?? [];
-  const videos = useModels("video").data?.models ?? [];
+  const videoData = useModels("video").data;
+  const videos = videoData?.models ?? [];
+  // «Точный повтор»: the whole trend made again with the new people, move for move (when MARYX has it).
+  const motionReady = Boolean(videos.some((m) => m.motion) || videoData?.providers.some((p) => p.id === "higgsfield" && p.configured));
   const clips = useMediaItems("video");
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -113,6 +133,10 @@ export function TrendStudio() {
   const [consent, setConsent] = useState(false);
   /** Frames are shown before any clip is paid for (on unless the user turns it off). */
   const [review, setReview] = useState(true);
+  /** Move for move (the default, when there is one) or scene by scene. */
+  const [exact, setExact] = useState(true);
+  /** The move-for-move remake's gallery item. */
+  const [remake, setRemake] = useState<string | null>(null);
   const [stage, setStage] = useState<Stage>("idle");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -139,7 +163,11 @@ export function TrendStudio() {
   // The scenes to make anew: those with someone in them the user is changing.
   const toMake = scenes.filter((s) => s.on && s.people.some(changed));
   const anyCast = people.some((p) => changed(p.id));
-  const canMake = Boolean(me && file && scenes.length && toMake.length && consent && !running && imageTarget && videoTarget);
+  const byMotion = motionReady && exact;
+  const length = scenes.length ? scenes[scenes.length - 1].end : 0;
+  const canMake = Boolean(
+    me && file && scenes.length && consent && !running && videoTarget && (byMotion ? anyCast && length >= MOTION_MIN_SECONDS : toMake.length && imageTarget),
+  );
 
   const update = (i: number, change: Partial<Scene>) => setScenes((list) => list.map((s, j) => (j === i ? { ...s, ...change } : s)));
 
@@ -278,6 +306,7 @@ export function TrendStudio() {
    */
   const make = async (fresh = false) => {
     if (!canMake || !file || !preview) return;
+    if (byMotion) return makeExact();
     // «Переснять всё»: new takes of every scene; otherwise the ones already made are kept.
     const take = fresh ? scenes.map((s) => ({ ...s, picture: undefined, clip: undefined, step: "idle" as const, error: undefined })) : scenes;
     if (fresh) setScenes(take);
@@ -337,13 +366,19 @@ export function TrendStudio() {
       return;
     }
 
+    // Every scene in its place, as long as in the original: so the reel keeps time with the music.
+    const segments: Segment[] = scenes.map((s, i) => {
+      const item = made.get(i);
+      return item ? { src: item.files[0].url, from: 0, seconds: s.end - s.start } : { src: preview, from: s.start, seconds: s.end - s.start };
+    });
+    await finish(segments, problems);
+  };
+
+  /** The reel: the pieces played with the trend's music and recorded, then saved to «Мои видео». */
+  const finish = async (segments: Segment[], problems: string[]) => {
+    if (!file) return;
     setStage("gluing");
     try {
-      // Every scene in its place, as long as in the original: so the reel keeps time with the music.
-      const segments: Segment[] = scenes.map((s, i) => {
-        const item = made.get(i);
-        return item ? { src: item.files[0].url, from: 0, seconds: s.end - s.start } : { src: preview, from: s.start, seconds: s.end - s.start };
-      });
       const { blob, ext } = await renderTrend(segments, file, setProgress, { width: scenes[0].frame.width, height: scenes[0].frame.height });
       const url = URL.createObjectURL(blob);
       setReel({ url, ext, saved: false });
@@ -354,7 +389,12 @@ export function TrendStudio() {
         const { width, height } = scenes[0].frame;
         await api<MediaItem>("/api/media/import", {
           method: "POST",
-          body: JSON.stringify({ key, prompt: `Тренд${style ? `: ${style}` : ""}`, aspectRatio: nearestRatio(width, height, CLIP_RATIOS), duration: scenes[scenes.length - 1].end }),
+          body: JSON.stringify({
+            key,
+            prompt: `Тренд${style ? `: ${style}` : ""}`,
+            aspectRatio: nearestRatio(width, height, CLIP_RATIOS),
+            duration: segments.reduce((sum, s) => sum + s.seconds, 0),
+          }),
         });
         setReel({ url, ext, saved: true });
       } catch (e) {
@@ -370,10 +410,54 @@ export function TrendStudio() {
     }
   };
 
+  /**
+   * «Точный повтор»: the whole trend goes to MARYX with the new people's
+   * pictures and comes back as the same video with them in it — every move,
+   * cut and camera turn — then gets its music back and is saved.
+   */
+  const makeExact = async () => {
+    if (!file || !preview || !videoTarget) return;
+    setError(null);
+    setNotes([]);
+    setReel(null);
+    setProgress(0);
+    setRemake(null);
+    const seconds = Math.min(length, MOTION_MAX_SECONDS);
+    const { width, height } = scenes[0].frame;
+    const problems = length > MOTION_MAX_SECONDS ? [`Точный повтор берёт до ${MOTION_MAX_SECONDS} секунд: в ролике — первые ${MOTION_MAX_SECONDS} секунд тренда.`] : [];
+    try {
+      setStage("uploading");
+      const mp4 = await asMp4(file, preview, length, { width, height }, (part) => setProgress(part / 2));
+      const { key } = await uploadVideo(mp4, (percent) => setProgress(0.5 + percent / 200));
+      setStage("moving");
+      const heroes = people.filter((p) => changed(p.id)).map((person) => ({ person, role: roleOf(person.id) }));
+      const started = await generateItem({
+        kind: "video",
+        ...videoTarget,
+        prompt: `Тренд${style ? `: ${style}` : ""} — точный повтор`,
+        aspectRatio: nearestRatio(width, height, CLIP_RATIOS),
+        images: heroes.flatMap(({ role }) => (role.kind === "photo" ? [{ mime: role.photo.mime, data: role.photo.data! }] : [])),
+        cast: heroes.map(({ person, role }) => ({ who: person.whoEn, ...(role.kind === "character" ? { character: role.id } : {}) })),
+        consent: true,
+        motion: { key, seconds: length },
+      });
+      setRemake(started.id);
+      const done = started.status === "pending" ? await whenDone(started.id) : started;
+      if (done.status !== "succeeded" || !done.files[0]) throw new Error(done.error ?? "Не получилось повторить движения. Попробуйте другое фото.");
+      await finish([{ src: done.files[0].url, from: 0, seconds }], problems);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setNotes(problems);
+      setStage("idle");
+    }
+  };
+
   const clipOf = (s: Scene): MediaItem | undefined => (s.clip ? clips.find((c) => c.id === s.clip) : undefined);
   const framedCount = toMake.filter((s) => s.picture || s.step === "failed").length;
   const filmedCount = toMake.filter((s) => clipOf(s)?.status === "succeeded" || clipOf(s)?.status === "failed" || s.step === "failed").length;
-  const stageIndex = STAGES.findIndex((s) => s.id === stage);
+  const stages = byMotion ? MOTION_STAGES : STAGES;
+  const stageIndex = stages.findIndex((s) => s.id === stage);
+  const remakeItem = remake ? clips.find((c) => c.id === remake) : undefined;
 
   return (
     <div className="video-studio">
@@ -521,6 +605,22 @@ export function TrendStudio() {
         )}
         {scenes.length > 0 && (
           <>
+            {motionReady && (
+              <div role="radiogroup" aria-label="Как повторить тренд" className="trend-mode">
+                <button type="button" role="radio" aria-checked={exact} onClick={() => setExact(true)} disabled={running || stage === "review"}>
+                  <strong>
+                    <Sparkles size={14} /> Точный повтор
+                  </strong>
+                  <span>Весь ролик с вашим героем: каждое движение, монтаж и камера — как в оригинале</span>
+                </button>
+                <button type="button" role="radio" aria-checked={!exact} onClick={() => setExact(false)} disabled={running || stage === "review"}>
+                  <strong>
+                    <Clapperboard size={14} /> По сценам
+                  </strong>
+                  <span>Новый кадр и клип для каждой сцены: дешевле, движения похожи, но не точь-в-точь</span>
+                </button>
+              </div>
+            )}
             {stage === "review" ? (
               <button type="button" onClick={approve} disabled={redoing} className="maryx-button vs-go">
                 <Check size={17} /> Всё нравится — снять видео
@@ -531,18 +631,31 @@ export function TrendStudio() {
                 {running ? "Делаю тренд…" : "Сделать мой тренд"}
               </button>
             )}
-            <label className="trend-consent">
-              <input type="checkbox" checked={review} onChange={(e) => setReview(e.target.checked)} disabled={running} />
-              <span>Сначала показать кадры — видео снимется только после вашего «да» (так лимит не тратится зря)</span>
-            </label>
+            {!byMotion && (
+              <label className="trend-consent">
+                <input type="checkbox" checked={review} onChange={(e) => setReview(e.target.checked)} disabled={running} />
+                <span>Сначала показать кадры — видео снимется только после вашего «да» (так лимит не тратится зря)</span>
+              </label>
+            )}
             <p className="vs-cost">
-              {toMake.length
-                ? `${toMake.length} ${plural(toMake.length, ["сцена", "сцены", "сцен"])} с новыми героями: ${toMake.length} ${plural(toMake.length, ["картинка", "картинки", "картинок"])} и ${toMake.length} видео из лимита. Остальные сцены — из оригинала.`
-                : "Выберите, кем заменить героев. Сцены без замены останутся как в оригинале."}
+              {byMotion
+                ? length < MOTION_MIN_SECONDS
+                  ? `Для точного повтора нужен ролик от ${MOTION_MIN_SECONDS} секунд — выберите «По сценам».`
+                  : anyCast
+                    ? `Точный повтор: весь ролик (${Math.round(Math.min(length, MOTION_MAX_SECONDS))} сек) — 1 видео из лимита, музыка оригинала остаётся.`
+                    : "Выберите, кем заменить героев."
+                : toMake.length
+                  ? `${toMake.length} ${plural(toMake.length, ["сцена", "сцены", "сцен"])} с новыми героями: ${toMake.length} ${plural(toMake.length, ["картинка", "картинки", "картинок"])} и ${toMake.length} видео из лимита. Остальные сцены — из оригинала.`
+                  : "Выберите, кем заменить героев. Сцены без замены останутся как в оригинале."}
             </p>
           </>
         )}
-        {!scenes.length && <p className="vs-cost">Разбор — 1 сообщение. Видео тренда не загружается на сервер: MARYX видит только кадры сцен.</p>}
+        {!scenes.length && (
+          <p className="vs-cost">
+            Разбор — 1 сообщение.{" "}
+            {motionReady ? "Для точного повтора ролик загрузится на сервер." : "Видео тренда не загружается на сервер: MARYX видит только кадры сцен."}
+          </p>
+        )}
       </div>
 
       <div className="vs-results">
@@ -605,16 +718,18 @@ export function TrendStudio() {
           <section className="trend-board" aria-label="Сцены тренда">
             {(running || stage === "done") && (
               <ol className="trend-progress" aria-label="Как идёт работа">
-                {STAGES.map((s, i) => {
+                {stages.map((s, i) => {
                   const state = stage === "done" || i < stageIndex ? "done" : i === stageIndex ? "now" : "next";
                   const detail =
-                    s.id === "framing"
-                      ? `${framedCount}/${toMake.length}`
-                      : s.id === "filming"
-                        ? `${filmedCount}/${toMake.length} · обычно 1–5 минут`
-                        : s.id === "gluing" && state === "now"
-                          ? `${Math.round(progress * 100)}%`
-                          : "";
+                    (s.id === "uploading" || s.id === "gluing") && state === "now"
+                      ? `${Math.round(progress * 100)}%`
+                      : s.id === "moving" && state === "now"
+                        ? `${remakeItem?.progress !== undefined ? `${remakeItem.progress}% · ` : ""}обычно 2–10 минут`
+                        : s.id === "framing"
+                          ? `${framedCount}/${toMake.length}`
+                          : s.id === "filming"
+                            ? `${filmedCount}/${toMake.length} · обычно 1–5 минут`
+                            : "";
                   return (
                     <li key={s.id} data-state={state}>
                       <span className="trend-progress-mark">{state === "done" ? <Check size={13} /> : state === "now" ? <LoaderCircle className="size-3.5 animate-spin" /> : i + 1}</span>
@@ -637,7 +752,13 @@ export function TrendStudio() {
                 </button>
               </div>
             )}
-            {running && <p className="trend-hint">Не закрывайте вкладку, пока ролик склеивается. Сцены снимаются на сервере и в любом случае появятся в «Мои видео».</p>}
+            {running && (
+              <p className="trend-hint">
+                {byMotion
+                  ? "Не закрывайте вкладку, пока ролик готовится. Видео делается на сервере и в любом случае появится в «Мои видео»."
+                  : "Не закрывайте вкладку, пока ролик склеивается. Сцены снимаются на сервере и в любом случае появятся в «Мои видео»."}
+              </p>
+            )}
 
             {reel && (
               <section className="trend-reel" aria-label="Готовый тренд">
@@ -669,94 +790,96 @@ export function TrendStudio() {
               </ul>
             )}
 
-            <details className="trend-details" open={stage === "review" || (!running && stage !== "done")}>
-              <summary>
-                Сцены <span>{scenes.length}</span>
-                {style && <em>{style}</em>}
-              </summary>
-              <div className="trend-scenes">
-                {scenes.map((s, i) => {
-                  const clip = clipOf(s);
-                  const failed = s.step === "failed" || clip?.status === "failed";
-                  const recast = s.people.some(changed);
-                  return (
-                    <article key={i} className="trend-scene" data-state={failed ? "failed" : clip?.status === "succeeded" ? "ready" : s.step} data-off={!s.on || !recast || undefined}>
-                      <div className="trend-scene-frames">
-                        {/* eslint-disable-next-line @next/next/no-img-element -- a local data URL */}
-                        <img src={src(s.frame)} alt={`Сцена ${i + 1} из тренда`} />
-                        <ArrowRight size={16} aria-hidden="true" />
-                        <div className="trend-scene-result">
-                          {clip?.status === "succeeded" && clip.files[0] ? (
-                            <video src={clip.files[0].url} muted loop autoPlay playsInline aria-label={`Сцена ${i + 1} с новыми героями`} />
-                          ) : s.picture ? (
-                            // eslint-disable-next-line @next/next/no-img-element -- a stored file
-                            <img src={s.picture} alt={`Кадр ${i + 1} с новыми героями`} />
-                          ) : (
-                            <span className="trend-scene-wait">{recast && s.on ? <Clapperboard size={18} /> : <small>как в оригинале</small>}</span>
-                          )}
-                          {(s.step === "frame" || (s.step === "clip" && clip?.status !== "succeeded" && !failed)) && (
-                            <span className="trend-scene-busy">
-                              <LoaderCircle className="size-5 animate-spin" />
-                              {s.step === "frame" ? "Герои в кадре…" : clip?.progress !== undefined ? `Видео ${clip.progress}%` : "Снимаю видео…"}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="trend-scene-copy">
-                        <div className="trend-scene-title">
-                          <strong>
-                            {i + 1}. {s.title}
-                          </strong>
-                          <span>
-                            {clock(s.start)}–{clock(s.end)}
-                          </span>
-                        </div>
-                        {s.action && <p>{s.action}</p>}
-                        {s.people.length > 0 && (
-                          <div className="trend-scene-people">
-                            {s.people.map((id) => (
-                              <span key={id} data-changed={changed(id) || undefined}>
-                                Герой {id}
+            {!byMotion && (
+              <details className="trend-details" open={stage === "review" || (!running && stage !== "done")}>
+                <summary>
+                  Сцены <span>{scenes.length}</span>
+                  {style && <em>{style}</em>}
+                </summary>
+                <div className="trend-scenes">
+                  {scenes.map((s, i) => {
+                    const clip = clipOf(s);
+                    const failed = s.step === "failed" || clip?.status === "failed";
+                    const recast = s.people.some(changed);
+                    return (
+                      <article key={i} className="trend-scene" data-state={failed ? "failed" : clip?.status === "succeeded" ? "ready" : s.step} data-off={!s.on || !recast || undefined}>
+                        <div className="trend-scene-frames">
+                          {/* eslint-disable-next-line @next/next/no-img-element -- a local data URL */}
+                          <img src={src(s.frame)} alt={`Сцена ${i + 1} из тренда`} />
+                          <ArrowRight size={16} aria-hidden="true" />
+                          <div className="trend-scene-result">
+                            {clip?.status === "succeeded" && clip.files[0] ? (
+                              <video src={clip.files[0].url} muted loop autoPlay playsInline aria-label={`Сцена ${i + 1} с новыми героями`} />
+                            ) : s.picture ? (
+                              // eslint-disable-next-line @next/next/no-img-element -- a stored file
+                              <img src={s.picture} alt={`Кадр ${i + 1} с новыми героями`} />
+                            ) : (
+                              <span className="trend-scene-wait">{recast && s.on ? <Clapperboard size={18} /> : <small>как в оригинале</small>}</span>
+                            )}
+                            {(s.step === "frame" || (s.step === "clip" && clip?.status !== "succeeded" && !failed)) && (
+                              <span className="trend-scene-busy">
+                                <LoaderCircle className="size-5 animate-spin" />
+                                {s.step === "frame" ? "Герои в кадре…" : clip?.progress !== undefined ? `Видео ${clip.progress}%` : "Снимаю видео…"}
                               </span>
-                            ))}
+                            )}
                           </div>
-                        )}
-                        <input
-                          value={s.extra}
-                          onChange={(e) => update(i, { extra: e.target.value })}
-                          placeholder="Уточнить сцену (необязательно)"
-                          aria-label={`Уточнить сцену ${i + 1}`}
-                          maxLength={300}
-                          disabled={running}
-                        />
-                        <div className="trend-scene-foot">
-                          <label>
-                            <input type="checkbox" checked={s.on} onChange={(e) => update(i, { on: e.target.checked })} disabled={running || !recast} />
-                            Снимать заново
-                          </label>
-                          {clip?.status === "succeeded" && (
-                            <span className="trend-scene-ready">
-                              <Check size={13} />
-                              Готово
-                            </span>
-                          )}
-                          {failed && (
-                            <span className="trend-scene-error" title={s.error ?? clip?.error}>
-                              <TriangleAlert size={14} /> {s.error ?? clip?.error ?? "Не получилось"}
-                            </span>
-                          )}
-                          {stage === "review" && s.on && recast && s.people.some(changed) && s.step !== "frame" && (
-                            <button type="button" className="trend-redo" onClick={() => void framed(i, s)}>
-                              <RotateCcw size={13} /> Переделать кадр
-                            </button>
-                          )}
                         </div>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            </details>
+                        <div className="trend-scene-copy">
+                          <div className="trend-scene-title">
+                            <strong>
+                              {i + 1}. {s.title}
+                            </strong>
+                            <span>
+                              {clock(s.start)}–{clock(s.end)}
+                            </span>
+                          </div>
+                          {s.action && <p>{s.action}</p>}
+                          {s.people.length > 0 && (
+                            <div className="trend-scene-people">
+                              {s.people.map((id) => (
+                                <span key={id} data-changed={changed(id) || undefined}>
+                                  Герой {id}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          <input
+                            value={s.extra}
+                            onChange={(e) => update(i, { extra: e.target.value })}
+                            placeholder="Уточнить сцену (необязательно)"
+                            aria-label={`Уточнить сцену ${i + 1}`}
+                            maxLength={300}
+                            disabled={running}
+                          />
+                          <div className="trend-scene-foot">
+                            <label>
+                              <input type="checkbox" checked={s.on} onChange={(e) => update(i, { on: e.target.checked })} disabled={running || !recast} />
+                              Снимать заново
+                            </label>
+                            {clip?.status === "succeeded" && (
+                              <span className="trend-scene-ready">
+                                <Check size={13} />
+                                Готово
+                              </span>
+                            )}
+                            {failed && (
+                              <span className="trend-scene-error" title={s.error ?? clip?.error}>
+                                <TriangleAlert size={14} /> {s.error ?? clip?.error ?? "Не получилось"}
+                              </span>
+                            )}
+                            {stage === "review" && s.on && recast && s.people.some(changed) && s.step !== "frame" && (
+                              <button type="button" className="trend-redo" onClick={() => void framed(i, s)}>
+                                <RotateCcw size={13} /> Переделать кадр
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </details>
+            )}
             {!running && (
               <button
                 type="button"

@@ -275,6 +275,7 @@ function classify(provider: ProviderId, m: LiveModel): Capability | null {
     case "ollama":
       return "chat";
     case "replicate":
+    case "higgsfield":
     case "maryx":
     case "browser":
       return null;

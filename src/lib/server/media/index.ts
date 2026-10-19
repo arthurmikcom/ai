@@ -1,6 +1,7 @@
 import type { GenerateRequest, GenerateResult, MediaKind, MediaOutput, ProviderId } from "@/lib/types";
-import { apiKey, openRouterBase } from "../config";
+import { apiKey, higgsfieldBase, openRouterBase } from "../config";
 import { checkGoogleVideo, generateGoogleImage, startGoogleVideo } from "./google";
+import { checkMotionTransfer, startMotionTransfer } from "./higgsfield";
 import { generateOpenAIImage } from "./openai";
 import { checkOpenRouterVideo, generateOpenRouterImage, startOpenRouterVideo, type OpenRouterCall } from "./openrouter";
 import { checkReplicate, startReplicate } from "./replicate";
@@ -9,6 +10,10 @@ export type { OpenRouterCall };
 
 /** `call` applies to OpenRouter: the user's own key (BYOK) and their pseudonym. */
 export async function startGeneration(req: GenerateRequest, call: OpenRouterCall = {}): Promise<GenerateResult> {
+  // «Тренд», move for move: the trend video with the photos' people in it.
+  if (req.provider === "higgsfield") {
+    return req.kind === "video" && req.motion ? startMotionTransfer(req) : { status: "failed", error: "Higgsfield здесь только повторяет движения тренда." };
+  }
   // Only OpenRouter's media APIs take the user's photo; the others would make something new.
   if (req.images?.length && req.provider !== "openrouter") {
     return {
@@ -37,6 +42,7 @@ export async function checkGeneration(
   call: OpenRouterCall = {},
 ): Promise<GenerateResult> {
   if (provider === "replicate") return checkReplicate(jobId);
+  if (provider === "higgsfield" && kind === "video") return checkMotionTransfer(jobId);
   if (provider === "google" && kind === "video") return checkGoogleVideo(jobId);
   if (provider === "openrouter" && kind === "video") return checkOpenRouterVideo(jobId, call);
   return { status: "failed", error: "Для этого провайдера нет фоновых задач." };
@@ -69,7 +75,13 @@ function mediaSource(
       ? { url, headers: { Authorization: `Bearer ${key}` } }
       : null;
   }
+  // Higgsfield's API host itself (over http only for a local mock in tests).
+  if (provider === "higgsfield" && url.origin === new URL(higgsfieldBase()).origin) return { url, headers: {} };
   if (url.protocol !== "https:") return null;
+
+  // Higgsfield's results come from its CDN, whose host isn't fixed: any public
+  // name (no IP address, no local name), fetched without our key.
+  if (provider === "higgsfield" && publicHost(url.hostname)) return { url, headers: {} };
 
   if (
     provider === "replicate" &&
@@ -82,6 +94,11 @@ function mediaSource(
     return key ? { url, headers: { "x-goog-api-key": key } } : null;
   }
   return null;
+}
+
+function publicHost(host: string): boolean {
+  if (host.startsWith("[") || /^\d+(\.\d+){3}$/.test(host) || !host.includes(".")) return false;
+  return !/(^|\.)(localhost|local|internal|lan|home|corp)$/i.test(host);
 }
 
 /** Fetches one generated output as bytes ready to be stored. */

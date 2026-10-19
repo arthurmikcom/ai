@@ -7,6 +7,7 @@ import type { ChatUsage, ProviderId } from "@/lib/types";
 import { ADAPTIVE_THINKING } from "./chat/anthropic";
 import { THINKING_MODELS } from "./chat/google";
 import { OPENAI_REASONING } from "./chat/openai-compatible";
+import { motionResolution } from "./config";
 
 /** USD per token, as OpenRouter lists them (from /models, see listModels). */
 interface TokenPrice {
@@ -261,10 +262,14 @@ function defaultSeconds(id: string): number {
   return /veo/.test(id) ? 8 : 6;
 }
 
+/** Higgsfield's motion transfer, per second of the trend, by the quality it's made in. */
+const MOTION_PRICES = { "480p": 0.32, "720p": 0.68, "1080p": 1.64 };
+
 /** Estimated cost of one generated picture or clip. */
 export function mediaCost(kind: "image" | "video", model: string, seconds?: number): number {
   const id = model.toLowerCase();
   if (kind === "image") return IMAGE_PRICES.find(([re]) => re.test(id))![1];
+  if (/genjutsu|motion-transfer/.test(id)) return MOTION_PRICES[motionResolution()] * Math.ceil(seconds && seconds > 0 ? seconds : 10);
   const perSecond = VIDEO_PRICES.find(([re]) => re.test(id))![1];
   return perSecond * (seconds && seconds > 0 ? seconds : defaultSeconds(id));
 }

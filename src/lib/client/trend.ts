@@ -167,6 +167,31 @@ export function clipSeconds(scene: { start: number; end: number }): number {
   return scene.end - scene.start > 7.5 ? 10 : 5;
 }
 
+/** «Точный повтор» (motion transfer) takes a trend of 4 seconds and more; a longer one is cut to 30. */
+export const MOTION_MIN_SECONDS = 4;
+export const MOTION_MAX_SECONDS = 30;
+/** A bigger trend is re-recorded smaller before it's uploaded. */
+const MOTION_MAX_MB = 50;
+
+/**
+ * The trend as an MP4 file, what motion transfer takes: as it is when it's
+ * one already (and not too big), else re-recorded here, without its sound
+ * (the music goes back on the finished reel). Takes as long as it plays.
+ */
+export async function asMp4(
+  file: File,
+  src: string,
+  seconds: number,
+  shape: { width: number; height: number },
+  onProgress: (part: number) => void,
+): Promise<File> {
+  const mp4 = file.type === "video/mp4" || (!file.type && /\.mp4$/i.test(file.name));
+  if (mp4 && file.size <= MOTION_MAX_MB * 1024 * 1024) return new File([file], "trend.mp4", { type: "video/mp4" });
+  const { blob, ext } = await renderTrend([{ src, from: 0, seconds: Math.min(seconds, MOTION_MAX_SECONDS) }], null, onProgress, shape);
+  if (ext !== "mp4") throw new Error("Этот браузер не умеет сохранять видео в MP4 — загрузите тренд в формате MP4 или откройте сайт в Chrome или Safari.");
+  return new File([blob], "trend.mp4", { type: "video/mp4" });
+}
+
 /** One piece of the finished trend: a part of a video, shown for its scene's length. */
 export interface Segment {
   src: string;

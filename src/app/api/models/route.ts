@@ -1,6 +1,6 @@
 import { MARYX_IMAGE_MODEL, MARYX_VIDEO_MODEL } from "@/lib/catalog";
 import { isAdmin } from "@/lib/server/auth";
-import { maryxOnly } from "@/lib/server/config";
+import { isConfigured, maryxOnly } from "@/lib/server/config";
 import { requireUser } from "@/lib/server/http";
 import { listModels } from "@/lib/server/models";
 import { ownKeyInfo } from "@/lib/server/own-key";
@@ -44,7 +44,9 @@ function onlyMaryx(all: ModelsResponse, capability: Capability | null): ModelsRe
     const photoEdit = all.models.some((m) => m.capability === "video" && m.photoEdit);
     // …and a transition between two frames when one of them also ends on a given picture.
     const lastFrame = all.models.some((m) => m.capability === "video" && m.photoEdit && m.lastFrame);
-    models.push(photoEdit ? { ...MARYX_VIDEO_MODEL, photoEdit, ...(lastFrame ? { lastFrame } : {}) } : MARYX_VIDEO_MODEL);
+    // …and «Тренд» move for move when Higgsfield is connected.
+    const motion = isConfigured("higgsfield");
+    models.push({ ...MARYX_VIDEO_MODEL, ...(photoEdit ? { photoEdit } : {}), ...(lastFrame ? { lastFrame } : {}), ...(motion ? { motion } : {}) });
   }
   return { providers: [], models };
 }

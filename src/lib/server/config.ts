@@ -37,6 +37,13 @@ export function apiKey(provider: ProviderId): string | undefined {
       return env("XAI_API_KEY");
     case "replicate":
       return env("REPLICATE_API_TOKEN");
+    case "higgsfield": {
+      // Higgsfield's key is a pair, sent as "ID:SECRET" (or given so in one variable).
+      const id = env("HF_API_KEY_ID") ?? env("HF_API_KEY");
+      const secret = env("HF_API_KEY_SECRET") ?? env("HF_API_SECRET");
+      if (id && secret) return `${id}:${secret}`;
+      return env("HF_KEY") ?? env("HIGGSFIELD_API_KEY");
+    }
     case "qwen":
       return env("DASHSCOPE_API_KEY");
     case "custom":
@@ -80,6 +87,17 @@ export function openRouterKey(own?: string): string {
 }
 
 /** OpenRouter API root; OPENROUTER_BASE_URL points it at a local mock for testing. */
+/** The quality «Точный повтор» is made in (HIGGSFIELD_RESOLUTION): 480p is cheaper, 1080p sharper; 720p by default. */
+export function motionResolution(): "480p" | "720p" | "1080p" {
+  const value = env("HIGGSFIELD_RESOLUTION")?.toLowerCase();
+  return value === "480p" || value === "1080p" ? value : "720p";
+}
+
+/** Higgsfield's API (HIGGSFIELD_BASE_URL points it elsewhere, e.g. a local mock in tests). */
+export function higgsfieldBase(): string {
+  return (env("HIGGSFIELD_BASE_URL") ?? "https://api.higgsfield.ai").replace(/\/+$/, "");
+}
+
 export function openRouterBase(): string {
   return (env("OPENROUTER_BASE_URL") ?? "https://openrouter.ai/api/v1").replace(/\/+$/, "");
 }
