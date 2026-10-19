@@ -1,6 +1,6 @@
 "use client";
 
-import { Brush, Clapperboard, Columns2, Download, ImagePlus, LoaderCircle, RotateCcw, Trash2, TriangleAlert, X } from "lucide-react";
+import { Brush, Clapperboard, Columns2, Download, ImagePlus, LoaderCircle, RotateCcw, Trash2, TriangleAlert, X } from "@/components/MaryxIcons";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { providerName } from "@/lib/catalog";

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import type { LegalInfo } from "@/lib/server/legal";
+import { BrandMark, BrandName } from "./Design";
 
 const PAGES = [
   { href: "/terms", label: "Условия использования" },
@@ -11,11 +12,11 @@ const PAGES = [
 /** A public page with the service's terms: readable without signing in (payment providers check them). */
 export function LegalPage({ title, updated, info, children }: { title: string; updated: string; info: LegalInfo; children: ReactNode }) {
   return (
-    <div className="h-dvh overflow-y-auto bg-zinc-950 text-zinc-300">
+    <div className="legal-page h-dvh overflow-y-auto bg-zinc-950 text-zinc-300">
       <div className="mx-auto max-w-3xl px-5 py-10 md:py-14">
         <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
-          <Link href="/" className="brand-wordmark text-lg text-zinc-100">
-            MARYX <span>Ai</span>
+          <Link href="/" className="flex items-center gap-3 text-lg text-zinc-100">
+            <BrandMark /><BrandName />
           </Link>
           <nav className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
             {PAGES.map((p) => (

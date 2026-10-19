@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpRight, Bot, MessageSquare, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { PersonaSymbol, ArrowUpRight, Bot, MessageSquare, Pencil, Plus, Search, Trash2, X } from "@/components/MaryxIcons";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { uid } from "@/lib/client/util";
@@ -101,7 +101,7 @@ function Editor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 sm:items-center sm:p-4">
-      <div role="dialog" aria-modal="true" aria-label={form.id ? "Редактировать ассистента" : "Новый ассистент"} className="model-popover max-h-[95dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-violet-300/20 p-6 sm:rounded-3xl sm:p-8">
+      <div role="dialog" aria-modal="true" aria-label={form.id ? "Редактировать ассистента" : "Новый ассистент"} className="persona-editor model-popover max-h-[95dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-violet-300/20 p-6 sm:rounded-3xl sm:p-8">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">{form.id ? "Редактировать" : "Новый ассистент"}</h2>
           <button type="button" onClick={onClose} aria-label="Закрыть редактор" className="rounded-lg p-1 text-zinc-400 hover:bg-white/5 hover:text-zinc-100">
@@ -109,10 +109,14 @@ function Editor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
           </button>
         </div>
 
+        <div className="persona-editor-preview"><span><PersonaSymbol emoji={form.emoji || "🤖"} /></span><div><small>Ваш персональный ассистент</small><strong>{form.name || "Новая точка зрения"}</strong></div></div>
+        <div className="persona-icon-picker" role="group" aria-label="Иконка ассистента">
+          {[{ emoji: "🤖", label: "Универсальный" }, { emoji: "👨‍💻", label: "Код" }, { emoji: "🌍", label: "Перевод" }, { emoji: "✍️", label: "Тексты" }, { emoji: "🇬🇧", label: "Обучение" }, { emoji: "📊", label: "Аналитика" }, { emoji: "👨‍🍳", label: "Кулинария" }].map(choice => <button key={choice.emoji} type="button" aria-label={`Иконка: ${choice.label}`} title={choice.label} aria-pressed={form.emoji === choice.emoji} onClick={() => setForm({ ...form, emoji: choice.emoji })}><PersonaSymbol emoji={choice.emoji} /></button>)}
+        </div>
         <div className="space-y-4">
           <div className="flex gap-3">
             <label className="w-20">
-              <span className="mb-1 block text-xs text-zinc-400">Иконка</span>
+              <span className="mb-1 block text-xs text-zinc-400">Своё эмодзи</span>
               <input
                 value={form.emoji}
                 onChange={(e) => setForm({ ...form, emoji: e.target.value })}
@@ -236,10 +240,10 @@ export function AssistantsView() {
         {own.length > 0 && (
           <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {own.map((a) => (
-              <div key={a.id} className="surface-card flex flex-col rounded-2xl p-5">
+              <div key={a.id} className="persona-own-card surface-card flex flex-col rounded-2xl p-5">
                 <div className="flex items-start gap-3">
                   <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/5 text-xl">
-                    {a.emoji}
+                    <PersonaSymbol emoji={a.emoji} />
                   </div>
                   <div className="min-w-0">
                     <div className="truncate font-medium text-zinc-100">{a.name}</div>
@@ -292,7 +296,7 @@ export function AssistantsView() {
               className="persona-card suggestion-card flex items-start gap-4 rounded-2xl p-5 text-left"
             >
               <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/5 text-xl">
-                {t.emoji}
+                <PersonaSymbol emoji={t.emoji} />
               </div>
               <div className="min-w-0">
                 <div className="font-medium text-zinc-200">{t.name}</div>

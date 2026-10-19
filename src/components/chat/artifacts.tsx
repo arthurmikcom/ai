@@ -23,7 +23,7 @@ import {
   RotateCcw,
   Share2,
   X,
-} from "lucide-react";
+} from "@/components/MaryxIcons";
 import { createContext, useContext, useRef, useState, type ReactNode, type Ref } from "react";
 import { api } from "@/lib/client/api";
 import { downloadFile } from "@/lib/client/util";

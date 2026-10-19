@@ -1,6 +1,6 @@
 "use client";
 
-import { Coins, Copy, LoaderCircle, Sparkles, Trash2, TriangleAlert } from "lucide-react";
+import { Coins, Copy, LoaderCircle, Sparkles, Trash2, TriangleAlert } from "@/components/MaryxIcons";
 import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
 import { api } from "@/lib/client/api";

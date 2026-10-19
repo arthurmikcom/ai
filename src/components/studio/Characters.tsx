@@ -1,6 +1,6 @@
 "use client";
 
-import { ImagePlus, LoaderCircle, Plus, UserRound, X } from "lucide-react";
+import { ImagePlus, LoaderCircle, Plus, UserRound, X } from "@/components/MaryxIcons";
 import { useRef, useState } from "react";
 import { addCharacter, removeCharacter } from "@/lib/client/characters";
 import { imageToAttachment, MAX_TOTAL_BASE64 } from "@/lib/client/util";

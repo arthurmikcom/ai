@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpRight, Check, Lightbulb, Play } from "lucide-react";
+import { ArrowUpRight, Check, Lightbulb, Play } from "@/components/MaryxIcons";
 import { useState } from "react";
 import type { MediaKind } from "@/lib/types";
 import { PromptArtwork } from "../WorkspaceVisuals";

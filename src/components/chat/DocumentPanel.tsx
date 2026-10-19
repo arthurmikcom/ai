@@ -1,6 +1,6 @@
 "use client";
 
-import {
+import { EffectSymbol,
   ArrowUp,
   Check,
   ChevronLeft,
@@ -15,7 +15,7 @@ import {
   PenLine,
   Printer,
   X,
-} from "lucide-react";
+} from "@/components/MaryxIcons";
 import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
@@ -310,7 +310,7 @@ export function DocumentPanel({ id, text, onClose }: { id: string; text: string;
                 : "border-white/10 text-zinc-300 hover:border-violet-300/40 hover:text-zinc-50"
             }`}
           >
-            {busy === a.task ? <LoaderCircle className="size-3 animate-spin" /> : <span aria-hidden="true">{a.emoji}</span>}
+            {busy === a.task ? <LoaderCircle className="size-3 animate-spin" /> : <EffectSymbol emoji={a.emoji} />}
             {a.label}
           </button>
         ))}

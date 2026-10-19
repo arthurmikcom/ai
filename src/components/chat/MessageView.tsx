@@ -1,6 +1,6 @@
 "use client";
 
-import {
+import { EffectSymbol,
   Brain,
   Brush,
   Check,
@@ -21,7 +21,7 @@ import {
   TriangleAlert,
   Volume2,
   WandSparkles,
-} from "lucide-react";
+} from "@/components/MaryxIcons";
 import { useMediaItem } from "@/lib/client/media";
 import { BeforeAfter } from "../BeforeAfter";
 import { speak, stopSpeaking, useSpeaking, useVoiceSupport } from "@/lib/client/voice";
@@ -173,7 +173,7 @@ function PictureActions({
               }}
               className="rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1 text-xs text-zinc-300 transition hover:border-violet-300/40 hover:text-zinc-50"
             >
-              <span aria-hidden="true">{e.emoji}</span> {e.label}
+              <EffectSymbol emoji={e.emoji} /> {e.label}
             </button>
           ))}
         </div>

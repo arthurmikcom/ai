@@ -1,6 +1,6 @@
 "use client";
 
-import {
+import { EffectSymbol,
   ArrowUp,
   AudioLines,
   Brain,
@@ -20,7 +20,7 @@ import {
   UsersRound,
   Undo2,
   X,
-} from "lucide-react";
+} from "@/components/MaryxIcons";
 import { useEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
 import { ApiError } from "@/lib/client/api";
 import {
@@ -495,7 +495,7 @@ export function Composer({
                 }}
                 className="rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1 text-xs text-zinc-300 transition hover:border-violet-300/40 hover:text-zinc-50"
               >
-                <span aria-hidden="true">{e.emoji}</span> {e.label}
+                <EffectSymbol emoji={e.emoji} /> {e.label}
               </button>
             ))}
           </div>
@@ -517,7 +517,7 @@ export function Composer({
                     : "border-white/10 bg-white/[0.03] text-zinc-400 hover:border-violet-300/40 hover:text-zinc-100"
                 }`}
               >
-                <span aria-hidden="true">{s.emoji}</span> {s.label}
+                <EffectSymbol emoji={s.emoji} /> {s.label}
               </button>
             ))}
           </div>
@@ -539,7 +539,7 @@ export function Composer({
                     : "border-white/10 bg-white/[0.03] text-zinc-400 hover:border-violet-300/40 hover:text-zinc-100"
                 }`}
               >
-                <span aria-hidden="true">{m.emoji}</span> {m.label}
+                <EffectSymbol emoji={m.emoji} /> {m.label}
               </button>
             ))}
           </div>
@@ -583,7 +583,7 @@ export function Composer({
           className="max-h-60 w-full resize-none bg-transparent px-3 py-2 text-[15px] text-zinc-100 outline-none placeholder:text-zinc-500"
         />
 
-        <div className="flex flex-wrap items-center gap-1 px-1">
+        <div className="composer-actions flex flex-wrap items-center gap-1 px-1">
           <input
             ref={fileInput}
             type="file"

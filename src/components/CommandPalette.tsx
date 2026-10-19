@@ -18,8 +18,8 @@ import {
   Type,
   UserRound,
   X,
-  type LucideIcon,
-} from "lucide-react";
+  type MaryxIconType,
+} from "@/components/MaryxIcons";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -36,7 +36,7 @@ interface Command {
   /** Other words it's found by. */
   keywords?: string;
   hint?: string;
-  icon: LucideIcon;
+  icon: MaryxIconType;
   /** A colour dot instead of the icon (accents). */
   swatch?: string;
   run: () => void;

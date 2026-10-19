@@ -1,15 +1,15 @@
 "use client";
 
 import Image from "next/image";
-import { ArrowUpRight, Layers3, Sparkles } from "lucide-react";
+import { ArrowUpRight, Layers3, Sparkles } from "@/components/MaryxIcons";
 import type { ReactNode } from "react";
-import sculpture from "./assets/studio-sculpture.png";
 import gallery from "./assets/studio-gallery.png";
+import orbit from "./assets/maryx-orbit.png";
 
 export function StudioImage({ className = "", preload = false }: { className?: string; preload?: boolean }) {
   return (
     <div className={`studio-image ${className}`} aria-hidden="true">
-      <Image src={sculpture} alt="" fill sizes="(max-width: 767px) 100vw, 1000px" placeholder="blur" preload={preload} draggable={false} />
+      <div className="maryx-orb"><Image src={orbit} alt="" fill sizes="(max-width: 767px) 110vw, 750px" placeholder="blur" preload={preload} draggable={false} style={{ objectFit: "contain" }} /></div>
     </div>
   );
 }

@@ -1,18 +1,33 @@
 "use client";
 
 import { useId, type ReactNode } from "react";
+import { Bot, Clapperboard, Gem, Image, Settings, Sparkles, type MaryxIconType } from "./MaryxIcons";
+
+const HEADING_ICONS: Record<string, MaryxIconType> = { "02": Image, "03": Clapperboard, "04": Bot, "05": Gem, "06": Settings };
 
 /** Shared visual elements; no account, provider or application state. */
 export function BrandMark({ className = "" }: { className?: string }) {
+  const id = useId().replace(/:/g, "");
   return (
     <span className={`brand-mark ${className}`} aria-hidden="true">
-      <svg viewBox="0 0 32 32" fill="none">
-        <path d="M16 3 28 16 16 29 4 16 16 3Z" stroke="currentColor" strokeWidth="1.6" />
-        <path d="m16 8 7 8-7 8-7-8 7-8Z" stroke="currentColor" strokeWidth="1.6" />
-        <path d="M16 3v26M4 16h24" stroke="currentColor" strokeWidth="1.2" />
+      <svg viewBox="0 0 32 32" fill="none" focusable="false">
+        <defs>
+          <radialGradient id={`${id}-core`} cx=".3" cy=".2" r=".85"><stop stopColor="#8f8cff" /><stop offset=".5" stopColor="#5d16cc" /><stop offset="1" stopColor="#16083c" /></radialGradient>
+          <linearGradient id={`${id}-orbit`} x1="5" y1="3" x2="25" y2="29" gradientUnits="userSpaceOnUse"><stop stopColor="#bceaff" /><stop offset=".3" stopColor="#7365ff" /><stop offset=".65" stopColor="#ed7cff" /><stop offset="1" stopColor="#7967ff" /></linearGradient>
+        </defs>
+        <circle cx="16" cy="16" r="9.5" fill={`url(#${id}-core)`} />
+        <g stroke={`url(#${id}-orbit)`} strokeWidth="2.3">
+          <ellipse cx="16" cy="16" rx="13" ry="7.2" transform="rotate(-40 16 16)" />
+          <ellipse cx="16" cy="16" rx="12.8" ry="7.2" transform="rotate(43 16 16)" />
+        </g>
+        <path d="M10 8c4-3 9-2 12 1M22 24c-4 3-9 2-12-1" stroke="#f2d7ff" strokeWidth=".8" strokeLinecap="round" />
       </svg>
     </span>
   );
+}
+
+export function BrandName({ className = "" }: { className?: string }) {
+  return <span className={`brand-wordmark ${className}`}>MARYX <span>Ai</span></span>;
 }
 
 export function OrbitArt({ className = "" }: { className?: string }) {
@@ -30,10 +45,10 @@ export function MaryxVisual() {
       <svg viewBox="0 0 480 400" fill="none">
         <defs>
           <radialGradient id={`${id}-ball`} cx=".3" cy=".2" r=".9">
-            <stop stopColor="#7d63ff" /><stop offset=".32" stopColor="#33187c" /><stop offset=".7" stopColor="#160b36" /><stop offset="1" stopColor="#070511" />
+            <stop stopColor="#899cff" /><stop offset=".32" stopColor="#4a1dd4" /><stop offset=".7" stopColor="#230956" /><stop offset="1" stopColor="#070511" />
           </radialGradient>
           <linearGradient id={`${id}-ribbon`} x1="70" y1="65" x2="390" y2="340" gradientUnits="userSpaceOnUse">
-            <stop stopColor="#292582" /><stop offset=".2" stopColor="#6852ff" /><stop offset=".37" stopColor="#d4a3ff" /><stop offset=".49" stopColor="#803bf0" /><stop offset=".68" stopColor="#3b1888" /><stop offset=".84" stopColor="#b66bff" /><stop offset="1" stopColor="#342073" />
+            <stop stopColor="#3029a2" /><stop offset=".2" stopColor="#6957ff" /><stop offset=".37" stopColor="#e6c0ff" /><stop offset=".49" stopColor="#ac31ff" /><stop offset=".68" stopColor="#4012aa" /><stop offset=".84" stopColor="#f177ff" /><stop offset="1" stopColor="#3d2494" />
           </linearGradient>
           <linearGradient id={`${id}-shine`} x1="120" y1="70" x2="340" y2="280" gradientUnits="userSpaceOnUse">
             <stop stopColor="#c4d7ff" /><stop offset=".3" stopColor="#edcaff" /><stop offset=".65" stopColor="#ae6fff" /><stop offset="1" stopColor="#4932b1" stopOpacity=".3" />
@@ -69,9 +84,10 @@ export function PageHeading({ number, eyebrow, title, description, children }: {
   description: string;
   children?: ReactNode;
 }) {
+  const Icon = HEADING_ICONS[number] ?? Sparkles;
   return (
     <header className="page-heading">
-      <div className="page-eyebrow"><span>{number}</span>{eyebrow}</div>
+      <div className="page-eyebrow"><span className="page-heading-symbol"><Icon size={21} /></span>{eyebrow}</div>
       <div className="flex flex-wrap items-end justify-between gap-5">
         <div className="max-w-2xl">
           <h1>{title}</h1>

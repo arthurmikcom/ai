@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Copy, Download, Maximize2, Minimize2, Play, RotateCcw, X } from "lucide-react";
+import { Check, Copy, Download, Maximize2, Minimize2, Play, RotateCcw, X } from "@/components/MaryxIcons";
 import { isValidElement, useContext, useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import ReactMarkdown, { type Components, type Options } from "react-markdown";

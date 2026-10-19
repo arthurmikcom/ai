@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink, KeyRound, LoaderCircle } from "lucide-react";
+import { ExternalLink, KeyRound, LoaderCircle } from "@/components/MaryxIcons";
 import { useState, type FormEvent } from "react";
 import { api } from "@/lib/client/api";
 import { forgetModels } from "@/lib/client/useModels";

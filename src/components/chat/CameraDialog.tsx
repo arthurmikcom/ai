@@ -1,6 +1,6 @@
 "use client";
 
-import { Camera, LoaderCircle, SwitchCamera, X } from "lucide-react";
+import { Camera, LoaderCircle, SwitchCamera, X } from "@/components/MaryxIcons";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { frameOf } from "@/lib/client/capture";

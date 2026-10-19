@@ -1,11 +1,12 @@
 "use client";
 
-import { Brain, Check, ChevronDown, Search, Sparkles } from "lucide-react";
+import { Brain, Check, ChevronDown, Search, Sparkles } from "@/components/MaryxIcons";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { providerName } from "@/lib/catalog";
 import type { ModelInfo, ProviderId } from "@/lib/types";
 import type { ModelChoice } from "./AppState";
+import { BrandMark } from "./Design";
 
 interface Props {
   models: ModelInfo[];
@@ -24,8 +25,8 @@ export function findModel(models: ModelInfo[], choice: ModelChoice | null): Mode
 /** In place of the picker when only MARYX is offered: our own AI, nothing to choose. */
 export function MaryxBadge({ label = "MARYX" }: { label?: string }) {
   return (
-    <div className="flex max-w-full items-center gap-2.5 rounded-xl border border-white/5 bg-white/[0.025] px-3.5 py-2.5 text-[13px] font-medium text-zinc-100">
-      <Sparkles className="size-4 shrink-0 text-violet-300" aria-hidden="true" />
+    <div className="maryx-model-badge flex max-w-full items-center gap-2.5 rounded-xl border border-white/5 bg-white/[0.025] px-3.5 py-2.5 text-[13px] font-medium text-zinc-100">
+      <BrandMark className="!size-6 !rounded-lg" />
       <span className="truncate">{label}</span>
     </div>
   );

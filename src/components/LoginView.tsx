@@ -1,10 +1,10 @@
 "use client";
 
-import { ArrowUpRight, LoaderCircle, LockKeyhole, Sparkles } from "lucide-react";
+import { ArrowUpRight, LoaderCircle, LockKeyhole, Sparkles } from "@/components/MaryxIcons";
 import { useState, type FormEvent } from "react";
 import { authClient } from "@/lib/client/auth";
 import { LegalLinks } from "./LegalPage";
-import { BrandMark } from "./Design";
+import { BrandMark, BrandName } from "./Design";
 import { StudioImage } from "./WorkspaceVisuals";
 
 interface Props {
@@ -86,7 +86,7 @@ export function LoginView({ social }: Props) {
       <aside className="login-story">
         <div className="flex items-center gap-3">
           <BrandMark />
-          <span className="brand-wordmark">MARYX <span>Ai</span></span>
+          <BrandName />
         </div>
         <div className="my-6 md:my-10">
           <div className="section-label mb-5 hidden md:block">Интеллект без границ</div>

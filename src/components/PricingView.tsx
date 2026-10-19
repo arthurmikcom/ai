@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Coins, CreditCard, KeyRound, LoaderCircle, Sparkles } from "lucide-react";
+import { Check, Coins, CreditCard, Gem, KeyRound, LoaderCircle, Sparkles } from "@/components/MaryxIcons";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/client/api";
@@ -126,9 +126,8 @@ export function PricingView() {
                     pro ? "plan-card-pro" : ""
                   }`}
                 >
-                  <div className="section-label mb-5">{pro ? "Для больших задач" : "Первый шаг к большему"}</div>
+                  <div className="plan-label mb-5"><span className="plan-icon">{pro ? <Gem size={25} /> : <Sparkles size={25} />}</span><div className="section-label">{pro ? "Для больших задач" : "Первый шаг к большему"}</div></div>
                   <div className="flex items-center gap-2">
-                    {pro && <Sparkles className="size-5 text-violet-300" />}
                     <h2 className="text-xl font-semibold text-zinc-100">{plan.name}</h2>
                     {isCurrent && (
                       <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-zinc-300">ваш тариф</span>

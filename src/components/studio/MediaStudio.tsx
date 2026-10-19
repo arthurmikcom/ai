@@ -1,6 +1,6 @@
 "use client";
 
-import { Brush, Clapperboard, Image as ImageIcon, ImagePlus, KeyRound, LoaderCircle, Sparkles, Undo2, WandSparkles, X } from "lucide-react";
+import { EffectSymbol, Brush, ChevronDown, Clapperboard, Image as ImageIcon, ImagePlus, KeyRound, LoaderCircle, Sparkles, Undo2, UserRound, WandSparkles, X } from "@/components/MaryxIcons";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent } from "react";
@@ -356,6 +356,8 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
         </CreativeHero>
 
         {kind === "image" && editable && !noProviders && characters && (
+          <details className="studio-character-disclosure" open={character ? true : undefined}>
+          <summary><UserRound size={20} /><span>Персонаж для фотосессии<small>{character ? character.name : "Сохраните образ и создавайте новые сцены"}</small></span><ChevronDown size={16} /></summary>
           <Characters
             characters={characters}
             selected={character?.id ?? null}
@@ -367,6 +369,7 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
               }
             }}
           />
+          </details>
         )}
 
         {noProviders ? (
@@ -521,7 +524,7 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
                         : "border-white/10 bg-white/[0.03] text-zinc-400 hover:border-violet-300/40 hover:text-zinc-100"
                     }`}
                   >
-                    <span aria-hidden="true">{s.emoji}</span> {s.label}
+                    <EffectSymbol emoji={s.emoji} /> {s.label}
                   </button>
                 ))}
               </div>
@@ -542,7 +545,7 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
                         : "border-white/10 bg-white/[0.03] text-zinc-400 hover:border-violet-300/40 hover:text-zinc-100"
                     }`}
                   >
-                    <span aria-hidden="true">{m.emoji}</span> {m.label}
+                    <EffectSymbol emoji={m.emoji} /> {m.label}
                   </button>
                 ))}
               </div>
@@ -667,7 +670,7 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
                     : "border-white/10 bg-white/[0.03] text-zinc-300"
                 }`}
               >
-                <span className="text-lg" aria-hidden="true">{e.emoji}</span>
+                <EffectSymbol emoji={e.emoji} />
                 <span className="font-medium">{e.label}</span>
               </button>
             ))}
@@ -694,7 +697,7 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
                     : "border-white/10 bg-white/[0.03] text-zinc-300"
                 }`}
               >
-                <span className="text-lg" aria-hidden="true">{scene.emoji}</span>
+                <EffectSymbol emoji={scene.emoji} />
                 <span className="font-medium">{scene.label}</span>
               </button>
             ))}

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, ArrowUpRight, Clapperboard, Code2, Compass, Download, FileText, Gamepad2, Image as ImageIcon, KeyRound, Lightbulb, LoaderCircle, Plus, Presentation, Sparkles, X, Zap } from "lucide-react";
+import { PersonaSymbol, ArrowRight, ArrowUpRight, Clapperboard, Code2, Compass, Download, FileText, Gamepad2, Image as ImageIcon, KeyRound, Lightbulb, LoaderCircle, Plus, Presentation, Sparkles, X, Zap } from "@/components/MaryxIcons";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { BROWSER_MODELS } from "@/lib/catalog";
@@ -344,7 +344,7 @@ export function ChatView() {
         <Link href="/settings" aria-label="Открыть профиль" className={`profile-shortcut ${chat && chat.messages.length > 0 ? "ml-2" : "ml-auto"} lg:ml-3`}>{(app.me?.user.name || "M").slice(0, 1).toUpperCase()}</Link>
         {assistant && (
           <span className="flex min-w-0 max-w-[45%] items-center gap-1.5 rounded-full bg-violet-500/15 px-3 py-1 text-xs text-violet-200">
-            <span>{assistant.emoji}</span>
+            <PersonaSymbol emoji={assistant.emoji} />
             <span className="min-w-0 truncate" title={assistant.name}>{assistant.name}</span>
             {!chat && (
               <button
@@ -422,8 +422,8 @@ export function ChatView() {
           <div className="home-dashboard">
             <CreativeHero
               eyebrow={assistant ? "Ваш персональный ассистент" : greeting ? `${greeting}${firstName ? `, ${firstName}` : ""}. Время создавать` : "Ваше пространство возможностей"}
-              title={assistant ? <>{assistant.emoji} {assistant.name}</> : <>Мыслите смелее.<br /><span>Создавайте с MARYX.</span></>}
-              description={assistant?.description || "Текст, код, изображения и видео. Всё, что нужно, чтобы превратить вашу идею в результат."}
+              title={assistant ? <><span className="hero-persona"><PersonaSymbol emoji={assistant.emoji} /></span>{assistant.name}</> : <>Всё начинается<br /><span>с вашей идеи.</span></>}
+              description={assistant?.description || "Напишите, что хотите сделать. Тексты, код, изображения и видео — в одном пространстве MARYX."}
             >
               <div className="hero-capabilities"><span><FileText size={12} />Тексты и идеи</span><span><Code2 size={12} />Код и приложения</span><span><ImageIcon size={12} />Визуальные истории</span></div>
             </CreativeHero>
@@ -482,7 +482,7 @@ export function ChatView() {
                 <Link href="/assistants" className="flex items-center gap-2 text-xs text-zinc-400 hover:text-violet-200"><Plus className="size-4" />Создать ассистента</Link>
               </div>
               <div className="assistant-shortcuts">
-                {ASSISTANT_LINKS.map(a => <Link key={a.name} href="/assistants" className="assistant-shortcut"><span className="assistant-shortcut-icon" aria-hidden="true">{a.emoji}</span><span><strong>{a.name}</strong><small>{a.detail}</small></span></Link>)}
+                {ASSISTANT_LINKS.map(a => <Link key={a.name} href="/assistants" className="assistant-shortcut"><span className="assistant-shortcut-icon" aria-hidden="true"><PersonaSymbol emoji={a.emoji} /></span><span><strong>{a.name}</strong><small>{a.detail}</small></span></Link>)}
               </div>
               <p className="mt-2 text-[10px] text-zinc-500">Готовые шаблоны — настройте под себя в разделе ассистентов.</p>
             </section>

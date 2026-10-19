@@ -1,6 +1,6 @@
 "use client";
 
-import { Check } from "lucide-react";
+import { Check } from "@/components/MaryxIcons";
 import { ACCENTS, TEXT_SIZES, THEMES, type Theme } from "@/lib/appearance";
 import { useAppearance } from "@/lib/client/appearance";
 

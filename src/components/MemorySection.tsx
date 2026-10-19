@@ -1,6 +1,6 @@
 "use client";
 
-import { Brain, LoaderCircle, Trash2 } from "lucide-react";
+import { Brain, LoaderCircle, Trash2 } from "@/components/MaryxIcons";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/client/api";
 import type { MemoryResponse } from "@/lib/types";

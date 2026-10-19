@@ -1,6 +1,6 @@
 "use client";
 
-import { Brush, Eraser, LoaderCircle, RotateCcw, WandSparkles, X } from "lucide-react";
+import { EffectSymbol, Brush, Eraser, LoaderCircle, RotateCcw, WandSparkles, X } from "@/components/MaryxIcons";
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { imageToAttachment } from "@/lib/client/util";
@@ -231,7 +231,7 @@ export function BrushEditor({ src, onApply, onClose }: { src: string; onApply: (
                   : "border-white/10 bg-white/[0.03] text-zinc-300 hover:border-violet-300/40 hover:text-zinc-50"
               }`}
             >
-              <span aria-hidden="true">{idea.emoji}</span> {idea.label}
+              <EffectSymbol emoji={idea.emoji} /> {idea.label}
             </button>
           ))}
         </div>

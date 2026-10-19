@@ -1,6 +1,6 @@
 "use client";
 
-import { Circle, CircleCheck, ExternalLink, LogOut, Trash2 } from "lucide-react";
+import { UserRound, Palette, Gem, Brain, Circle, CircleCheck, ExternalLink, LogOut, Trash2 } from "@/components/MaryxIcons";
 import { useEffect, useState } from "react";
 import { authClient } from "@/lib/client/auth";
 import { useModels } from "@/lib/client/useModels";
@@ -190,7 +190,7 @@ export function SettingsView() {
         <PageHeading number="06" eyebrow="Всё под вашим контролем" title="Настройки" description="Ваш профиль, подписка и возможности. Пространство, которое работает так, как удобно вам." />
         <nav className="settings-navigation" aria-label="Разделы настроек">{[{ id: "profile", label: "Профиль" }, { id: "appearance", label: "Оформление" }, { id: "subscription", label: "Подписка" }, { id: "personalization", label: "Персонализация" }].map(s => <a key={s.id} href={`#${s.id}`}>{s.label}</a>)}</nav>
 
-        <h2 id="profile" className="settings-section-title mb-3 mt-8 text-sm font-semibold uppercase tracking-wider text-zinc-500">Аккаунт</h2>
+        <h2 id="profile" className="settings-section-title mb-3 mt-8 text-sm font-semibold uppercase tracking-wider text-zinc-500"><UserRound className="settings-title-icon" />Аккаунт</h2>
         <div className="surface-card rounded-2xl p-5 md:p-7">
           {me ? (
             <>
@@ -262,13 +262,13 @@ export function SettingsView() {
           )}
         </div>
 
-        <h2 id="appearance" className="settings-section-title mb-3 mt-8 text-sm font-semibold uppercase tracking-wider text-zinc-500">Оформление</h2>
+        <h2 id="appearance" className="settings-section-title mb-3 mt-8 text-sm font-semibold uppercase tracking-wider text-zinc-500"><Palette className="settings-title-icon" />Оформление</h2>
         <AppearanceSection />
 
-        <h2 id="subscription" className="settings-section-title mb-3 mt-8 text-sm font-semibold uppercase tracking-wider text-zinc-500">Подписка</h2>
+        <h2 id="subscription" className="settings-section-title mb-3 mt-8 text-sm font-semibold uppercase tracking-wider text-zinc-500"><Gem className="settings-title-icon" />Подписка</h2>
         <BillingSection />
 
-        <h2 id="personalization" className="settings-section-title mb-3 mt-8 text-sm font-semibold uppercase tracking-wider text-zinc-500">MARYX</h2>
+        <h2 id="personalization" className="settings-section-title mb-3 mt-8 text-sm font-semibold uppercase tracking-wider text-zinc-500"><Brain className="settings-title-icon" />MARYX</h2>
         <div className="space-y-4">
           <InstructionsSection />
           <MemorySection />

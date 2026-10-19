@@ -23,7 +23,7 @@ import {
   Sun,
   Trash2,
   X,
-} from "lucide-react";
+} from "@/components/MaryxIcons";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -34,7 +34,7 @@ import { relativeTime } from "@/lib/client/util";
 import { useStoredJson } from "@/lib/client/useStored";
 import { useApp } from "./AppState";
 import { CommandPalette } from "./CommandPalette";
-import { BrandMark } from "./Design";
+import { BrandMark, BrandName } from "./Design";
 
 const LEGAL_PATHS = ["/terms", "/refund", "/privacy"];
 
@@ -156,7 +156,7 @@ function Sidebar({ onNavigate, onPalette, onCollapse }: { onNavigate: () => void
     <div className="flex h-full flex-col">
       <div className="sidebar-brand flex items-center gap-3 px-6 pb-7 pt-8">
         <BrandMark />
-        <span className="brand-wordmark">MARYX <span>Ai</span></span>
+        <BrandName />
         {onCollapse && <button type="button" onClick={onCollapse} title="Свернуть меню" aria-label="Свернуть меню" className="workspace-icon-button ml-auto"><PanelLeftClose size={16} /></button>}
       </div>
 
@@ -394,7 +394,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <main className="app-main relative flex min-w-0 flex-1 flex-col">
         <header className="workspace-topbar">
-          <div className="workspace-breadcrumb"><span className="hidden items-center gap-2 md:flex"><LockKeyhole size={12} />Личное пространство<ChevronRight size={13} /></span><Link href="/" className="flex items-center gap-2 md:hidden"><BrandMark className="!size-7 !rounded-lg" /><span className="brand-wordmark !text-base">MARYX <span>Ai</span></span></Link><strong className="hidden md:block">{NAV.find(n => n.href === pathname)?.label || "MARYX Ai"}</strong></div>
+          <div className="workspace-breadcrumb"><span className="hidden items-center gap-2 md:flex"><LockKeyhole size={12} />Личное пространство<ChevronRight size={13} /></span><Link href="/" className="flex items-center gap-2 md:hidden"><BrandMark className="!size-7 !rounded-lg" /><BrandName className="!text-base" /></Link><strong className="hidden md:block">{NAV.find(n => n.href === pathname)?.label || "MARYX Ai"}</strong></div>
         <div className="workspace-topbar-actions">
           <Link href="/pricing" className="workspace-plan-link"><Sparkles size={13} /><span>Возможности Pro</span></Link>
         <button
@@ -419,6 +419,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
         </header>
         <div className="workspace-content">{children}</div>
+        <nav className="mobile-workspace-nav" aria-label="Быстрая навигация">
+          {NAV.filter(n => n.href !== "/pricing").map(({ href, label, icon: Icon }) => <Link key={href} href={href} aria-current={pathname === href ? "page" : undefined}><Icon size={21} /><span>{href === "/assistants" ? "Ассистенты" : label}</span></Link>)}
+        </nav>
       </main>
       {palette && <CommandPalette onClose={() => setPalette(false)} />}
     </div>

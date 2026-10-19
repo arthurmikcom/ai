@@ -1,6 +1,6 @@
 "use client";
 
-import { Coins, LoaderCircle, RefreshCw } from "lucide-react";
+import { Coins, LoaderCircle, RefreshCw } from "@/components/MaryxIcons";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api } from "@/lib/client/api";
 import type { CostKind, CostReport, PaidBy } from "@/lib/types";

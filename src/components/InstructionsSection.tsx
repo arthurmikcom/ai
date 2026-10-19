@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, LoaderCircle, UserRound } from "lucide-react";
+import { Check, LoaderCircle, UserRound } from "@/components/MaryxIcons";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/client/api";
 import { forgetInstructions } from "@/lib/client/local-ai";
