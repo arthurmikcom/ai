@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { after } from "next/server";
 import { streamChat } from "@/lib/server/chat";
 import { isAdmin, type SessionUser } from "@/lib/server/auth";
@@ -138,6 +138,23 @@ export async function POST(request: Request) {
   let chat = await findChat(user.id, req.chatId);
   if (!chat && (!req.create || !req.message)) return jsonError("Чат не найден", 404);
 
+  // A corrected question replaces the chat's last one. Its pictures go along again (as if attached
+  // anew), so a corrected edit, drawing or video works like the first; its documents are carried over.
+  let replacing: { rows: Awaited<ReturnType<typeof chatMessages>>; documents: StoredFile[]; first: boolean } | null = null;
+  if (req.replace && req.message) {
+    const existing = chat ? await chatMessages(chat.id) : [];
+    const i = existing.findLastIndex((m) => m.role === "user");
+    if (i < 0 || existing[i].id !== req.replace) return jsonError("Это сообщение уже нельзя изменить — обновите страницу.", 409);
+    const files = existing[i].attachments ?? [];
+    const pictures: InlineFile[] = [];
+    for (const f of files.filter((f) => f.mime.startsWith("image/")).slice(0, 4)) {
+      const data = await readFileBase64(f.key);
+      if (data) pictures.push({ mime: f.mime, data, name: f.name });
+    }
+    req.message.attachments = pictures.length ? pictures : undefined;
+    replacing = { rows: existing.slice(i), documents: files.filter((f) => !f.mime.startsWith("image/")), first: i === 0 };
+  }
+
   const maryx = req.provider === "maryx";
   // With their own OpenRouter key, the user's OpenRouter requests (MARYX picks only those) go out with it.
   const key = req.provider === "openrouter" || maryx || req.image || req.video ? await ownKey(user.id) : undefined;
@@ -148,7 +165,7 @@ export async function POST(request: Request) {
   // Nano Banana style: right after a picture, "сделай фон синим" edits that picture and "оживи" brings it to
   // life. It goes along as the message's own photo (and is stored with it), so making the answer again uses it.
   const focus =
-    chat && req.message && !req.message.attachments?.length &&
+    chat && req.message && !replacing && !req.message.attachments?.length &&
     (videoWords ? animate : (maryx || req.image) && !req.video && wantsFollowUpEdit(text))
       ? await pictureInFocus(chat.id)
       : null;
@@ -263,12 +280,34 @@ export async function POST(request: Request) {
         .where(eq(schema.chat.id, chat.id));
     }
 
+    // The chat's new name, when a corrected first question renames it.
+    let retitled: string | undefined;
     // Text of documents attached to the new message (by text key), to skip re-reading it.
     const documentTexts = new Map<string, string>();
     // Files of the new message, and the answer a regeneration will replace once it's allowed to run.
     const stored: StoredFile[] = [];
     let replaced: Awaited<ReturnType<typeof chatMessages>>[number] | undefined;
     if (req.message) {
+      // A corrected question takes the place of the last one, and its answer goes. Its documents
+      // stay with it; its pictures were read back above and are stored again as the new message's.
+      if (replacing) {
+        const { rows: gone, documents } = replacing;
+        await db.delete(schema.message).where(
+          and(eq(schema.message.chatId, chat.id), inArray(schema.message.id, gone.map((m) => m.id))),
+        );
+        stored.push(...documents);
+        const dropped = gone.flatMap((m) => m.attachments ?? []).filter((f) => !documents.includes(f));
+        await deleteFiles(storedKeys(dropped)).catch(() => {});
+        // A chat still named after the question it starts with follows the correction.
+        const old = gone[0];
+        const oldFiles = (old.attachments ?? []).map((f) => ({ mime: f.mime, data: "", name: f.name }));
+        if (replacing.first && chat.title === titleFrom(old.content, oldFiles)) {
+          const title = titleFrom(req.message.content, req.message.attachments);
+          await db.update(schema.chat).set({ title }).where(eq(schema.chat.id, chat.id));
+          chat = { ...chat, title };
+          retitled = title;
+        }
+      }
       try {
         for (const file of req.message.attachments ?? []) {
           const bytes = Buffer.from(file.data, "base64");
@@ -607,7 +646,7 @@ export async function POST(request: Request) {
     // A new MARYX chat with a long first message gets a short name from a fast model.
     // It starts once the answer is actually coming (a failed, refunded answer costs
     // nothing), runs alongside it, and leaves a chat renamed meanwhile alone.
-    let titleJob: Promise<string | null> | undefined;
+    let titleJob: Promise<string | null> | undefined = retitled ? Promise.resolve(retitled) : undefined;
     const firstText = userText.trim();
     const wantTitle = maryx && created && req.message !== undefined && (firstText.length > 40 || firstText.includes("\n"));
     const startTitle = () => {

@@ -4,12 +4,15 @@ import {
   Bot,
   ArrowUpRight,
   Clapperboard,
+  Download,
   Gem,
   Image as ImageIcon,
   LogOut,
   Menu,
   MessageSquare,
   MessageSquarePlus,
+  Pencil,
+  Search,
   Settings,
   Sparkles,
   Trash2,
@@ -18,6 +21,8 @@ import {
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { api } from "@/lib/client/api";
+import { installApp, useInstall } from "@/lib/client/install";
 import { relativeTime } from "@/lib/client/util";
 import { useApp } from "./AppState";
 import { BrandMark } from "./Design";
@@ -69,10 +74,50 @@ function UserMenu() {
   );
 }
 
+/** "Установить приложение": the browser's install dialog, or how to add it on an iPhone. */
+function InstallApp() {
+  const install = useInstall();
+  const [hint, setHint] = useState(false);
+  if (!install) return null;
+  return (
+    <div className="mx-5 mb-3">
+      <button
+        type="button"
+        onClick={() => (install === "prompt" ? void installApp() : setHint((h) => !h))}
+        className="flex w-full items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-xs text-zinc-300 transition hover:border-violet-300/30 hover:text-zinc-100"
+      >
+        <Download className="size-4 text-violet-300" /> Установить приложение
+      </button>
+      {hint && (
+        <p className="mt-2 px-1 text-[11px] leading-5 text-zinc-500">
+          Нажмите «Поделиться» внизу Safari, затем «На экран „Домой“». MARYX откроется как приложение.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function Sidebar({ onNavigate }: { onNavigate: () => void }) {
   const app = useApp();
   const pathname = usePathname();
   const router = useRouter();
+  // Search: titles match at once; chats whose messages contain it come from the server.
+  const [query, setQuery] = useState("");
+  const [found, setFound] = useState<{ query: string; ids: Set<string> } | null>(null);
+  const q = query.trim().toLowerCase();
+  useEffect(() => {
+    if (q.length < 2) return;
+    const timer = setTimeout(() => {
+      api<{ ids: string[] }>(`/api/chats?q=${encodeURIComponent(q)}`).then(
+        (r) => setFound({ query: q, ids: new Set(r.ids) }),
+        () => {},
+      );
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [q]);
+  const chats = q
+    ? app.chats.filter((c) => c.title.toLowerCase().includes(q) || (found?.query === q && found.ids.has(c.id)))
+    : app.chats;
 
   const goToChat = (id: string | null) => {
     app.openChat(id);
@@ -81,9 +126,9 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
   };
 
   // Date headers ("Сегодня", "Вчера"…) above the first chat of each group.
-  const rows = app.chats.map((chat, i) => {
+  const rows = chats.map((chat, i) => {
     const group = relativeTime(chat.updatedAt);
-    const prev = i > 0 ? relativeTime(app.chats[i - 1].updatedAt) : null;
+    const prev = i > 0 ? relativeTime(chats[i - 1].updatedAt) : null;
     return { chat, header: group !== prev ? group : null };
   });
 
@@ -129,7 +174,27 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
 
       <div className="mt-6 flex-1 px-5 pb-4">
         <div className="section-label px-1">Ваши диалоги</div>
-        {rows.length === 0 && (
+        {app.chats.length > 0 && (
+          <label className="mt-3 flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 focus-within:border-violet-300/40">
+            <Search className="size-3.5 shrink-0 text-zinc-500" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Поиск по чатам"
+              aria-label="Поиск по чатам"
+              className="min-w-0 flex-1 bg-transparent text-xs text-zinc-200 outline-none placeholder:text-zinc-500"
+            />
+            {query && (
+              <button type="button" onClick={() => setQuery("")} aria-label="Очистить поиск" className="text-zinc-500 hover:text-zinc-200">
+                <X className="size-3.5" />
+              </button>
+            )}
+          </label>
+        )}
+        {q && rows.length === 0 && (
+          <div className="mt-4 px-1 text-[11px] text-zinc-500">Ничего не нашлось.</div>
+        )}
+        {!q && rows.length === 0 && (
           <div className="mt-4 rounded-xl border border-dashed border-white/10 px-3 py-4 text-[11px] leading-5 text-zinc-500">
             Здесь будет история ваших идей.<br />Начните с нового диалога.
           </div>
@@ -160,6 +225,18 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
                 </button>
                 <button
                   type="button"
+                  title="Переименовать"
+                  aria-label="Переименовать"
+                  onClick={() => {
+                    const title = prompt("Новое название чата", chat.title)?.trim();
+                    if (title && title !== chat.title) app.renameChat(chat.id, title.slice(0, 120));
+                  }}
+                  className="rounded-lg p-1.5 text-zinc-500 opacity-100 hover:text-zinc-200 md:opacity-0 md:group-hover:opacity-100"
+                >
+                  <Pencil className="size-3.5" />
+                </button>
+                <button
+                  type="button"
                   title="Удалить чат"
                   onClick={() => {
                     if (confirm(`Удалить чат «${chat.title}»?`)) app.deleteChat(chat.id);
@@ -173,6 +250,7 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
           );
         })}
       </div>
+      <InstallApp />
       {app.me?.plan.id === "free" && (
         <Link href="/pricing" onClick={onNavigate} className="sidebar-upgrade mx-5 mb-5 rounded-2xl border border-violet-300/15 p-4 hover:border-violet-300/35">
           <div className="flex items-center justify-between text-xs font-medium text-violet-200">

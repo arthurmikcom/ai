@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, or } from "drizzle-orm";
 import type { Assistant, Chat, ChatMessage, ChatSummary, InlineFile, ProviderId } from "@/lib/types";
 import { isImageModel, maryxOnly, publicError, publicNotices } from "./brand";
 import { isDocumentMime } from "./documents";
@@ -80,6 +80,21 @@ export async function listChats(userId: string): Promise<ChatSummary[]> {
     .orderBy(desc(schema.chat.updatedAt))
     .limit(500);
   return rows.map(toSummary);
+}
+
+/** The user's chats whose title or any message contains `query` (newest first). */
+export async function searchChats(userId: string, query: string): Promise<string[]> {
+  const db = await getDb();
+  // LIKE's own wildcards in the query are matched literally.
+  const pattern = `%${query.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+  const rows = await db
+    .selectDistinct({ id: schema.chat.id, updatedAt: schema.chat.updatedAt })
+    .from(schema.chat)
+    .leftJoin(schema.message, eq(schema.message.chatId, schema.chat.id))
+    .where(and(eq(schema.chat.userId, userId), or(ilike(schema.chat.title, pattern), ilike(schema.message.content, pattern))))
+    .orderBy(desc(schema.chat.updatedAt))
+    .limit(100);
+  return rows.map((r) => r.id);
 }
 
 export async function findChat(userId: string, chatId: string): Promise<ChatRow | undefined> {

@@ -43,7 +43,10 @@ function CodePreview({ code, onClose }: { code: string; onClose: () => void }) {
     const a = document.createElement("a");
     a.href = url;
     a.download = "maryx.html";
+    // Attached for the click, so every browser keeps the file name.
+    document.body.append(a);
     a.click();
+    a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
   const button = "rounded-lg p-1.5 text-zinc-400 hover:bg-white/5 hover:text-zinc-100";

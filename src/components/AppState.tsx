@@ -57,6 +57,7 @@ interface AppState {
   activeChat: LocalChat | null;
   openChat: (id: string | null) => void;
   deleteChat: (id: string) => void;
+  renameChat: (id: string, title: string) => void;
   setChatModel: (id: string, choice: ModelChoice) => void;
 
   /** Model used for the next new chat. */
@@ -69,6 +70,8 @@ interface AppState {
   /** Sends to the open chat, or starts a new one on `model`. */
   send: (text: string, attachments: Attachment[], options: SendOptions, model: ModelChoice | null) => void;
   regenerate: (chatId: string, options: SendOptions) => void;
+  /** Sends a corrected version of the chat's last question; it (and its answer) are replaced. */
+  editLast: (chatId: string, text: string, options: SendOptions) => void;
   stop: (chatId: string) => void;
   isStreaming: (chatId: string) => boolean;
 
@@ -177,7 +180,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const run = useCallback(
     async (
       chatId: string,
-      options: SendOptions & { message?: ChatMessage },
+      // `replace`: the id of the last question, which `message` corrects (it and its answer go).
+      options: SendOptions & { message?: ChatMessage; replace?: string },
     ) => {
       const chat = chatsRef.current.get(chatId);
       if (!chat || controllers.current.has(chatId)) return;
@@ -386,10 +390,12 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           message: message && {
             id: message.id,
             content: message.content,
-            attachments: message.attachments?.flatMap((a) =>
-              a.data ? [{ mime: a.mime, data: a.data, name: a.name }] : [],
-            ),
+            // A corrected question keeps the stored files of the one it replaces (the server moves them).
+            attachments: options.replace
+              ? undefined
+              : message.attachments?.flatMap((a) => (a.data ? [{ mime: a.mime, data: a.data, name: a.name }] : [])),
           },
+          replace: options.replace,
           answerId,
         };
         const res = await fetch("/api/chat", {
@@ -542,6 +548,21 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     [run, update],
   );
 
+  const editLast = useCallback(
+    (chatId: string, text: string, options: SendOptions) => {
+      const chat = chatsRef.current.get(chatId);
+      if (!chat || controllers.current.has(chatId)) return;
+      const i = chat.messages.findLastIndex((m) => m.role === "user");
+      if (i < 0) return;
+      const old = chat.messages[i];
+      const message: ChatMessage = { ...old, id: uid(), content: text, unsent: undefined, createdAt: Date.now() };
+      update(chatId, (c) => ({ ...c, messages: [...c.messages.slice(0, i), message] }));
+      // A question the server never got is simply sent (with its files) instead.
+      void run(chatId, { ...options, message, replace: old.unsent ? undefined : old.id });
+    },
+    [run, update],
+  );
+
   const stop = useCallback((chatId: string) => controllers.current.get(chatId)?.abort(), []);
 
   const openChat = useCallback(
@@ -571,6 +592,14 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       api(`/api/chats/${id}`, { method: "DELETE" }).catch((e) => console.error(e));
     },
     [syncChats],
+  );
+
+  const renameChat = useCallback(
+    (id: string, title: string) => {
+      update(id, (c) => ({ ...c, title }));
+      api(`/api/chats/${id}`, { method: "PATCH", body: JSON.stringify({ title }) }).catch((e) => console.error(e));
+    },
+    [update],
   );
 
   const setChatModel = useCallback(
@@ -632,6 +661,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       activeChat: (activeId && chats.find((c) => c.id === activeId)) || null,
       openChat,
       deleteChat,
+      renameChat,
       setChatModel,
       model,
       setModel,
@@ -639,6 +669,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       startChatWith,
       send,
       regenerate,
+      editLast,
       stop,
       isStreaming: (id) => streaming.has(id),
       assistants,
@@ -655,6 +686,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       activeId,
       openChat,
       deleteChat,
+      renameChat,
       setChatModel,
       model,
       setModel,
@@ -662,6 +694,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       startChatWith,
       send,
       regenerate,
+      editLast,
       stop,
       streaming,
       assistants,

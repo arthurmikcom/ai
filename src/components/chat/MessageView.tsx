@@ -43,6 +43,43 @@ interface Props {
   onEditPicture?: (src: string, prompt?: string) => void;
   /** Bring a picture of this answer to life: a video that starts from it. */
   onAnimatePicture?: (src: string) => void;
+  /** The user's last question can be corrected and sent again (its answer is made anew). */
+  onEdit?: (text: string) => void;
+}
+
+/** Correcting a sent question in place. */
+function EditQuestion({ text, onSend, onCancel }: { text: string; onSend: (text: string) => void; onCancel: () => void }) {
+  const [value, setValue] = useState(text);
+  const send = () => {
+    if (value.trim()) onSend(value.trim());
+  };
+  return (
+    <div className="w-full max-w-[90%] rounded-2xl border border-violet-300/30 bg-violet-300/[0.07] p-3">
+      <textarea
+        value={value}
+        autoFocus
+        rows={Math.min(8, Math.max(2, value.split("\n").length))}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+            e.preventDefault();
+            send();
+          }
+          if (e.key === "Escape") onCancel();
+        }}
+        aria-label="Исправленное сообщение"
+        className="w-full resize-none bg-transparent text-[15px] leading-relaxed text-zinc-100 outline-none"
+      />
+      <div className="mt-2 flex justify-end gap-2">
+        <button type="button" onClick={onCancel} className="rounded-lg px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-100">
+          Отмена
+        </button>
+        <button type="button" onClick={send} disabled={!value.trim()} className="maryx-button rounded-lg px-3 py-1.5 text-sm">
+          Отправить
+        </button>
+      </div>
+    </div>
+  );
 }
 
 /** One-click changes to the last answer, sent as the next message (the user sees what was asked). */
@@ -216,14 +253,16 @@ export function MessageView({
   maryxOnly,
   onEditPicture,
   onAnimatePicture,
+  onEdit,
 }: Props) {
   const [copied, setCopied] = useState(false);
+  const [editing, setEditing] = useState(false);
   const speaking = useSpeaking() === message.id;
   const canSpeak = useVoiceSupport()?.speak ?? false;
 
   if (message.role === "user") {
     return (
-      <div className="flex flex-col items-end gap-2">
+      <div className="group/question flex flex-col items-end gap-2">
         {message.attachments && (
           <div className="flex flex-wrap justify-end gap-2">
             {message.attachments.map((a, i) =>
@@ -261,10 +300,31 @@ export function MessageView({
             )}
           </div>
         )}
-        {message.content && (
-          <div className="max-w-[90%] whitespace-pre-wrap rounded-2xl rounded-tr-sm border border-violet-300/10 bg-violet-300/[0.07] px-5 py-3.5 text-[15px] leading-relaxed text-zinc-100">
-            {message.content}
-          </div>
+        {editing && onEdit ? (
+          <EditQuestion
+            text={message.content}
+            onCancel={() => setEditing(false)}
+            onSend={(text) => {
+              setEditing(false);
+              onEdit(text);
+            }}
+          />
+        ) : (
+          message.content && (
+            <div className="max-w-[90%] whitespace-pre-wrap rounded-2xl rounded-tr-sm border border-violet-300/10 bg-violet-300/[0.07] px-5 py-3.5 text-[15px] leading-relaxed text-zinc-100">
+              {message.content}
+            </div>
+          )
+        )}
+        {onEdit && !editing && message.content && (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            title="Исправить вопрос и спросить заново"
+            className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-zinc-500 opacity-100 transition hover:bg-white/5 hover:text-zinc-200 md:opacity-0 md:group-hover/question:opacity-100"
+          >
+            <Pencil className="size-3.5" /> Изменить
+          </button>
         )}
         {/* A question left without an answer (e.g. the tab was closed mid-answer) can be asked again. */}
         {isLast && !streaming && onRegenerate && (

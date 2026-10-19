@@ -33,12 +33,13 @@ function isObject(value: unknown): value is Record<string, unknown> {
 /** Returns the parsed request, or an error message for the client. */
 export function parseChatSendRequest(body: unknown): ChatSendRequest | string {
   if (!isObject(body)) return "Пустой запрос";
-  const { chatId, create, deepThinking, image, video, camera, style, webSearch, message, answerId, replyTo } = body;
+  const { chatId, create, deepThinking, image, video, camera, style, webSearch, message, answerId, replyTo, replace } = body;
   // Tabs opened before the rename to MARYX still say "nexus".
   const provider = body.provider === "nexus" ? "maryx" : body.provider;
   const model = body.model === "nexus" ? "maryx" : body.model;
   if (!isValidId(chatId) || !isValidId(answerId)) return "Неверный идентификатор";
   if (replyTo !== undefined && !isValidId(replyTo)) return "Неверный идентификатор";
+  if (replace !== undefined && (!isValidId(replace) || message === undefined)) return "Неверный идентификатор";
   if (!isProvider(provider)) return "Неизвестный провайдер";
   // Browser models answer on the visitor's device and save through /api/chat/local.
   if (provider === "browser") return "Эта модель работает в браузере — обновите страницу";
@@ -99,6 +100,7 @@ export function parseChatSendRequest(body: unknown): ChatSendRequest | string {
     ...(typeof style === "string" ? { style } : {}),
     webSearch: webSearch === true,
     replyTo: replyTo as string | undefined,
+    ...(typeof replace === "string" ? { replace } : {}),
     message: parsedMessage,
     answerId,
   };

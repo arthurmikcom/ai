@@ -1,13 +1,13 @@
 "use client";
 
-import { ArrowRight, ArrowUpRight, Clapperboard, Code2, Compass, FileText, Gamepad2, Image as ImageIcon, KeyRound, Lightbulb, LoaderCircle, Plus, Sparkles, X } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Clapperboard, Code2, Compass, Download, FileText, Gamepad2, Image as ImageIcon, KeyRound, Lightbulb, LoaderCircle, Plus, Sparkles, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BROWSER_MODELS } from "@/lib/catalog";
 import { autoModel, useLocalSupport } from "@/lib/client/local-ai";
 import { useModels } from "@/lib/client/useModels";
 import { imageToAttachment, uid } from "@/lib/client/util";
-import type { Attachment, SendOptions } from "@/lib/types";
+import type { Attachment, ChatMessage, SendOptions } from "@/lib/types";
 import { speak, stopSpeaking, useVoiceSupport } from "@/lib/client/voice";
 import { useApp, type ModelChoice } from "../AppState";
 import { findModel, MaryxBadge, ModelPicker } from "../ModelPicker";
@@ -167,6 +167,41 @@ export function ChatView() {
   }, [streaming, lastMessage, chat]);
 
   const onPick = (c: ModelChoice) => (chat ? app.setChatModel(chat.id, c) : app.setModel(c));
+  const lastQuestion = chat ? chat.messages.findLastIndex((m) => m.role === "user") : -1;
+
+  /** The chat as a Markdown file (pictures and files as links to this site). */
+  const exportChat = () => {
+    if (!chat) return;
+    const lines = [`# ${chat.title}`, ""];
+    for (const m of chat.messages) {
+      lines.push(m.role === "user" ? "**Вы:**" : "**MARYX:**", "");
+      if (m.content) lines.push(m.content, "");
+      for (const a of m.attachments ?? []) {
+        if (a.url) lines.push(`[${a.name ?? (a.mime.startsWith("image/") ? "Изображение" : "Файл")}](${new URL(a.url, location.origin).href})`, "");
+      }
+    }
+    const url = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${chat.title.replace(/[\\/:*?"<>|]+/g, " ").trim().slice(0, 80) || "чат"}.md`;
+    // Attached for the click, so every browser keeps the file name.
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  /** How an answer is made again: a video as a video, a picture (also a failed or stopped one) as a picture. */
+  const answerMode = (m: ChatMessage): Partial<SendOptions> =>
+    m.role === "user"
+      ? {}
+      : m.mediaId || m.generating === "video" || videos.data?.models.some((x) => x.provider === m.provider && x.id === m.model)
+      ? { video: true }
+      : {
+          image:
+            m.generating === "image" ||
+            Boolean(m.attachments?.length) ||
+            Boolean(images.data?.models.some((x) => x.provider === m.provider && x.id === m.model)),
+        };
 
   // Nano Banana style: a picture in the chat is changed further (with an effect right away, or in
   // words), or brought to life as a video.
@@ -214,7 +249,18 @@ export function ChatView() {
       <header className="chat-header flex shrink-0 items-center gap-2 px-4 md:px-8">
         {only ? <MaryxBadge /> : <ModelPicker models={models} value={choice} onChange={onPick} loading={loading} />}
         <span className="ml-auto hidden items-center gap-2 text-[11px] text-zinc-500 lg:flex">Ваш личный диалог</span>
-        <Link href="/settings" aria-label="Открыть профиль" className="profile-shortcut ml-auto lg:ml-3">{(app.me?.user.name || "M").slice(0, 1).toUpperCase()}</Link>
+        {chat && chat.messages.length > 0 && (
+          <button
+            type="button"
+            onClick={exportChat}
+            title="Сохранить чат в файл"
+            aria-label="Сохранить чат в файл"
+            className="ml-auto rounded-lg p-2 text-zinc-500 transition hover:bg-white/5 hover:text-zinc-200 lg:ml-2"
+          >
+            <Download className="size-4" />
+          </button>
+        )}
+        <Link href="/settings" aria-label="Открыть профиль" className={`profile-shortcut ${chat && chat.messages.length > 0 ? "ml-2" : "ml-auto"} lg:ml-3`}>{(app.me?.user.name || "M").slice(0, 1).toUpperCase()}</Link>
         {assistant && (
           <span className="flex min-w-0 max-w-[45%] items-center gap-1.5 rounded-full bg-violet-500/15 px-3 py-1 text-xs text-violet-200">
             <span>{assistant.emoji}</span>
@@ -249,6 +295,17 @@ export function ChatView() {
           <div ref={thread} className="mx-auto flex max-w-3xl flex-col gap-8 px-4 py-6">
             {chat.messages.map((m, i) => (
               <MessageView
+                onEdit={
+                  m.role === "user" && i === lastQuestion && !streaming && !localBlocked && !current?.local
+                    ? (text) => {
+                        stickToBottom.current = true;
+                        stopSpeaking();
+                        // The corrected question is answered the way the first one was (text, picture or video).
+                        const answer = chat.messages[i + 1];
+                        app.editLast(chat.id, text, sendOptions(answer ? answerMode(answer) : {}));
+                      }
+                    : undefined
+                }
                 key={m.id}
                 message={m}
                 models={allModels}
@@ -266,23 +323,7 @@ export function ChatView() {
                         app.send(text, [], sendOptions(), choice);
                       }
                 }
-                onRegenerate={localBlocked ? undefined : () =>
-                  app.regenerate(
-                    chat.id,
-                    sendOptions(
-                      // A video answer is made again as a video.
-                      m.mediaId || m.generating === "video" || videos.data?.models.some((x) => x.provider === m.provider && x.id === m.model)
-                        ? { video: true }
-                        : {
-                            // Redraw a picture — also one that failed or was stopped (its model is an image model).
-                            image:
-                              m.generating === "image" ||
-                              Boolean(m.attachments?.length) ||
-                              Boolean(images.data?.models.some((x) => x.provider === m.provider && x.id === m.model)),
-                          },
-                    ),
-                  )
-                }
+                onRegenerate={localBlocked ? undefined : () => app.regenerate(chat.id, sendOptions(answerMode(m)))}
               />
             ))}
           </div>

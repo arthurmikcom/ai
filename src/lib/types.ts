@@ -186,6 +186,8 @@ export interface ChatSendRequest {
   answerId: string;
   /** Regenerate: the user message being answered, so a lost one isn't answered by mistake. */
   replyTo?: string;
+  /** A corrected question: the id of the chat's last question, which `message` replaces (with its answer). */
+  replace?: string;
 }
 
 /** Server → model provider adapters. */

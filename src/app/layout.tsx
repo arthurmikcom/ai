@@ -8,6 +8,9 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "MARYX Ai",
   description: "MARYX Ai — собственный искусственный интеллект: чат, генерация изображений и видео, свои ассистенты.",
+  // Installed on a phone's home screen, it opens like an app (see manifest.ts).
+  appleWebApp: { capable: true, title: "MARYX", statusBarStyle: "black-translucent" },
+  icons: { apple: "/icons/apple-touch-icon.png" },
 };
 
 export const viewport: Viewport = {
