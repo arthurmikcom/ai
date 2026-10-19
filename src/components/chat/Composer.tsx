@@ -104,6 +104,11 @@ export interface ComposerInject {
 
 const MAX_ATTACHMENTS = 4;
 
+/** A video file (phones don't always say its type; the name does). */
+function isVideoFile(file: File): boolean {
+  return file.type.startsWith("video/") || /\.(mp4|m4v|mov|webm|mkv|avi|3gp)$/i.test(file.name);
+}
+
 /** One line of the attach menu. */
 function MenuItem({
   icon: Icon,
@@ -263,6 +268,13 @@ export function Composer({
             total += doc.data?.length ?? 0;
             added.push(doc);
           }
+        } else if (isVideoFile(file)) {
+          // A video goes as its frames on one sheet, read right here (like «Разобрать видео»).
+          if (!canSeeImages) {
+            problems.push("Эта модель не видит изображения — выберите другую модель, чтобы разобрать видео.");
+            continue;
+          }
+          await addVideo(file);
         } else {
           problems.push(`«${file.name}»: такой тип файла пока не поддерживается.`);
         }
@@ -587,7 +599,7 @@ export function Composer({
           <input
             ref={fileInput}
             type="file"
-            accept={takesPhotos ? "image/*" : ATTACH_ACCEPT}
+            accept={takesPhotos ? "image/*" : `${ATTACH_ACCEPT},video/*`}
             multiple
             hidden
             onChange={(e) => {
@@ -609,7 +621,7 @@ export function Composer({
                   : !allowFiles
                   ? "ИИ на вашем устройстве читает только текст"
                   : canSeeImages
-                  ? "Прикрепить файл: PDF, Word, Excel, CSV, TXT или изображение"
+                  ? "Прикрепить файл: PDF, Word, Excel, CSV, TXT, изображение или видео"
                   : "Прикрепить документ: PDF, Word, Excel, CSV, TXT"
             }
             disabled={!canAttach || disabled || attachments.length >= MAX_ATTACHMENTS || busy !== null}
