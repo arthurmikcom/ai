@@ -111,11 +111,14 @@ export const Chart = glyph("Analysis", <><rect x="3" y="12" width="4" height="9"
 export const ChefHat = glyph("Cooking", <><path d="M7 14C1 14 1 5 7 5c1-4 9-4 10 0 6 0 6 9 0 9v7H7Z" fill="currentColor" fillOpacity=".1" /><path d="M7 17h10M10 10v3M14 10v3" /></>);
 // Maps, scheduled tasks and the temporary chat.
 export const MapPin = glyph("Place", <><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21Z" fill="currentColor" fillOpacity=".12" /><circle cx="12" cy="9.5" r="2.5" /></>);
-export const MapIcon = glyph("Map", <><path d="M3.5 6.5 9 4l6 2.5 5.5-2.5v13.5L15 20l-6-2.5-5.5 2.5Z" fill="currentColor" fillOpacity=".09" /><path d="M9 4v13.5M15 6.5V20" /></>);
+export const MapIcon = glyph("Map", <><path d="m3 8 5-2 5 2 8-3v14l-8 3-5-2-5 2Z" fill="currentColor" fillOpacity=".09" /><path d="M8 12v8M13 13v9M17 5.5c0 3-4 6-4 6s-4-3-4-6a4 4 0 0 1 8 0Z" fill="currentColor" fillOpacity=".12" /><circle cx="13" cy="5.5" r="1" /></>);
 export const Navigation = glyph("Route", <path d="m3.5 11 17-7.5-7.5 17-2-7.5Z" fill="currentColor" fillOpacity=".12" />);
 export const LocateFixed = glyph("MyLocation", <><circle cx="12" cy="12" r="6.5" fill="currentColor" fillOpacity=".08" /><circle cx="12" cy="12" r="2" /><path d="M12 2v3.5M12 18.5V22M2 12h3.5M18.5 12H22" /></>);
 export const Clock = glyph("Time", <><circle cx="12" cy="12" r="9" fill="currentColor" fillOpacity=".09" /><path d="M12 7v5l3.5 2" /></>);
 export const CalendarClock = glyph("Scheduled", <><path d="M11 19.5H7.5C5 19.5 3.5 18 3.5 15.5v-7C3.5 6 5 4.5 7.5 4.5h7c2.5 0 4 1.5 4 4V11" fill="currentColor" fillOpacity=".09" /><path d="M7.5 2.5v4M14.5 2.5v4M3.5 9.5h15" /><circle cx="17" cy="17" r="4.5" /><path d="M17 15v2.2l1.4 1" /></>);
+export const CalendarDays = glyph("Calendar", <><rect x="3" y="4.5" width="18" height="17" rx="4" fill="currentColor" fillOpacity=".09" /><path d="M7.5 2v5M16.5 2v5M3 10h18M7 14h1M12 14h1M17 14h.01M7 18h1M12 18h1" /></>);
+export const Repeat2 = glyph("Routine", <><path d="M3 9V7a3 3 0 0 1 3-3h13m-4-3 4 3-4 3M21 15v2a3 3 0 0 1-3 3H5m4-3-4 3 4 3" /><circle cx="12" cy="12" r="3.5" fill="currentColor" fillOpacity=".12" /><path d="M12 10v2l1.3.8" /></>);
+export const ShieldCheck = glyph("Privacy", <><path d="M12 2.5 21 6v5c0 6-9 11-9 11S3 17 3 11V6Z" fill="currentColor" fillOpacity=".09" /><path d="m8 11.5 3 3 5-6" /></>);
 export const Ghost = glyph("Temporary", <><path d="M5 20.5V11a7 7 0 0 1 14 0v9.5l-2.4-1.8-2.3 1.8-2.3-1.8-2.3 1.8-2.3-1.8Z" fill="currentColor" fillOpacity=".1" /><path d="M9.5 11h.01M14.5 11h.01" strokeWidth="2.4" /></>);
 export const Pause = glyph("Pause", <><rect x="6" y="5" width="4" height="14" rx="1.5" fill="currentColor" fillOpacity=".12" /><rect x="14" y="5" width="4" height="14" rx="1.5" fill="currentColor" fillOpacity=".12" /></>);
 export const Bell = glyph("Notice", <><path d="M6 10a6 6 0 0 1 12 0c0 5 2 6.5 2 6.5H4S6 15 6 10Z" fill="currentColor" fillOpacity=".1" /><path d="M10 20a2.2 2.2 0 0 0 4 0" /></>);

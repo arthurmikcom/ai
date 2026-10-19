@@ -1,6 +1,6 @@
 "use client";
 
-import { Ghost, PersonaSymbol, ArrowRight, ArrowUpRight, Clapperboard, Code2, Compass, Download, FileText, Gamepad2, Image as ImageIcon, KeyRound, Lightbulb, LoaderCircle, Plus, Presentation, Sparkles, X, Zap } from "@/components/MaryxIcons";
+import { Ghost, ShieldCheck, PersonaSymbol, ArrowRight, ArrowUpRight, Clapperboard, Code2, Compass, Download, FileText, Gamepad2, Image as ImageIcon, KeyRound, Lightbulb, LoaderCircle, Plus, Presentation, Sparkles, X, Zap } from "@/components/MaryxIcons";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { BROWSER_MODELS } from "@/lib/catalog";
@@ -338,12 +338,10 @@ export function ChatView() {
           aria-pressed={temporary}
           aria-label="Временный чат"
           title={temporary ? "Выйти из временного чата — он удалится" : "Временный чат: не сохранится в истории и в памяти MARYX"}
-          className={`ml-auto flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs transition ${
-            temporary ? "border-violet-300/50 bg-violet-500/15 text-violet-100" : "border-white/10 text-zinc-400 hover:border-violet-300/30 hover:text-zinc-100"
-          }`}
+          className="temporary-chat-toggle"
         >
           <Ghost className="size-3.5" />
-          <span className="hidden sm:inline">{temporary ? "Временный чат" : "Временный"}</span>
+          <span>Временный<span className="hidden sm:inline"> чат</span></span><span className="temporary-toggle-track" aria-hidden="true" />
         </button>
         <span className="hidden items-center gap-2 text-[11px] text-zinc-500 lg:flex">{temporary ? "Не сохраняется" : "Ваш личный диалог"}</span>
         {chat && chat.messages.length > 0 && (
@@ -391,8 +389,8 @@ export function ChatView() {
         ) : chat ? (
           <div ref={thread} className="conversation-thread mx-auto flex max-w-3xl flex-col gap-8 px-4 py-6">
             {chat.temporary && (
-              <p className="flex items-center justify-center gap-2 text-center text-xs text-zinc-500">
-                <Ghost className="size-3.5 shrink-0" /> Временный чат: не сохранится в истории и удалится, когда вы из него выйдете.
+              <p className="temporary-thread-notice">
+                <ShieldCheck className="size-4 shrink-0" /> Временный чат: не сохранится в истории и удалится, когда вы из него выйдете.
               </p>
             )}
             {chat.messages.map((m, i) => (
@@ -440,14 +438,14 @@ export function ChatView() {
             ))}
           </div>
         ) : temporary ? (
-          <div className="chat-welcome">
-            <div className="mb-5 flex size-14 items-center justify-center rounded-2xl border border-violet-300/20 bg-violet-500/10 text-violet-200">
-              <Ghost className="size-7" />
-            </div>
-            <h1>Временный чат</h1>
+          <div className="chat-welcome temporary-welcome">
+            <div className="temporary-orbit" aria-hidden="true"><span /><span /><Ghost size={40} /></div>
+            <span className="section-kicker">Пространство для личного</span>
+            <h1>Только здесь.<br /><span>Только сейчас.</span></h1>
             <p className="mt-3 max-w-md text-center text-sm leading-6 text-zinc-400">
-              Этот чат не появится в истории и не попадёт в память MARYX. Он удалится, как только вы из него выйдете.
+              Временный чат не появится в истории и не попадёт в память MARYX. Он удалится, как только вы из него выйдете.
             </p>
+            <div className="temporary-facts"><span><ShieldCheck size={15} />Без сохранения в истории</span><span><Sparkles size={15} />Все возможности чата</span></div>
           </div>
         ) : (
           <div className="home-dashboard">

@@ -2,14 +2,19 @@
 
 import "leaflet/dist/leaflet.css";
 import type * as Leaflet from "leaflet";
+import Image from "next/image";
 import { useEffect, useRef, useState, type ComponentType } from "react";
 import { api } from "@/lib/client/api";
 import { useStoredJson } from "@/lib/client/useStored";
 import type { Place, PlaceCategory } from "@/lib/types";
 import { useApp } from "./AppState";
 import { PageHeading } from "./Design";
+import mapboxLogo from "./assets/mapbox-logo.svg";
+import { MapWelcome } from "./MapWelcome";
 import {
   ArrowUp,
+  Compass,
+  MapIcon,
   Banknote,
   BedDouble,
   Camera,
@@ -77,18 +82,19 @@ const IDEAS = [
   "Где вкусно поужинать?",
 ];
 
-/** Free OpenStreetMap tiles by CARTO, dark or light like the site; an admin can set their own. */
+/** Public browser token; configured at build time, never hard-coded in source. */
 const CUSTOM_TILES = process.env.NEXT_PUBLIC_MAP_TILES;
-const TILES = {
-  dark: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-  light: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
-};
-const ATTRIBUTION = CUSTOM_TILES
-  ? '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-  : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>';
+const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+const MAP_PROVIDER = CUSTOM_TILES ? "custom" : MAPBOX_TOKEN ? "mapbox" : "osm";
+const ATTRIBUTION = `${MAP_PROVIDER === "mapbox" ? '&copy; <a href="https://www.mapbox.com/about/maps/">Mapbox</a> ' : ""}&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>`;
 
 function tileUrl(): string {
-  return CUSTOM_TILES || (document.documentElement.dataset.theme === "light" ? TILES.light : TILES.dark);
+  if (CUSTOM_TILES) return CUSTOM_TILES;
+  if (MAPBOX_TOKEN) {
+    const style = document.documentElement.dataset.theme === "light" ? "light-v11" : "dark-v11";
+    return `https://api.mapbox.com/styles/v1/mapbox/${style}/tiles/256/{z}/{x}/{y}{r}?access_token=${encodeURIComponent(MAPBOX_TOKEN)}`;
+  }
+  return "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 }
 
 /** "350 м", "1,2 км". */
@@ -142,6 +148,7 @@ function apart(a: { lat: number; lon: number }, b: { lat: number; lon: number })
 interface MapParts {
   L: typeof Leaflet;
   map: Leaflet.Map;
+  tiles: Leaflet.TileLayer;
   pins: Leaflet.LayerGroup;
   here: Leaflet.Marker;
   markers: Map<string, Leaflet.Marker>;
@@ -169,7 +176,9 @@ export function MapsView() {
   const [error, setError] = useState<string | null>(null);
   const [drift, setDrift] = useState<{ lat: number; lon: number } | null>(null);
   const [ready, setReady] = useState(false);
+  const [tilesFailed, setTilesFailed] = useState(false);
   const box = useRef<HTMLDivElement>(null);
+  const addressInput = useRef<HTMLInputElement>(null);
   const parts = useRef<MapParts | null>(null);
   const list = useRef<HTMLUListElement>(null);
 
@@ -216,9 +225,13 @@ export function MapsView() {
       const map = L.map(box.current, { zoomControl: false }).setView([DEFAULT_POINT.lat, DEFAULT_POINT.lon], 15);
       L.control.zoom({ position: "bottomright", zoomInTitle: "Приблизить", zoomOutTitle: "Отдалить" }).addTo(map);
       map.attributionControl.setPrefix(false);
-      const tiles = L.tileLayer(tileUrl(), { attribution: ATTRIBUTION, subdomains: "abcd", maxZoom: 19 }).addTo(map);
+      let loadedTiles = false;
+      const tiles = L.tileLayer(tileUrl(), { attribution: ATTRIBUTION, subdomains: "abcd", maxZoom: 19 });
+      tiles.on("tileload", () => { loadedTiles = true; setTilesFailed(false); });
+      tiles.on("tileerror", () => { if (!loadedTiles) setTilesFailed(true); });
+      tiles.addTo(map);
       // The map follows the site's light or dark look.
-      observer = new MutationObserver(() => tiles.setUrl(tileUrl()));
+      observer = new MutationObserver(() => { loadedTiles = false; setTilesFailed(false); tiles.setUrl(tileUrl()); });
       observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
       const here = L.marker([DEFAULT_POINT.lat, DEFAULT_POINT.lon], {
         icon: L.divIcon({ className: "maryx-here", html: "<span></span>", iconSize: [22, 22], iconAnchor: [11, 11] }),
@@ -232,7 +245,7 @@ export function MapsView() {
         const c = map.getCenter();
         setDrift(parts.current?.quiet ? null : { lat: c.lat, lon: c.lng });
       });
-      parts.current = { L, map, pins, here, markers: new Map(), quiet: false };
+      parts.current = { L, map, tiles, pins, here, markers: new Map(), quiet: false };
       setReady(true);
     });
     return () => {
@@ -264,13 +277,16 @@ export function MapsView() {
       const n = pickOf(place.id);
       const icon = p.L.divIcon({
         className: "maryx-pin-wrap",
-        html: `<span class="maryx-pin${n >= 0 ? " is-pick" : ""}">${n >= 0 ? n + 1 : ""}</span>`,
-        iconSize: n >= 0 ? [30, 30] : [16, 16],
-        iconAnchor: n >= 0 ? [15, 15] : [8, 8],
+        html: `<span class="maryx-pin${n >= 0 ? " is-pick" : ""}">${n >= 0 ? n + 1 : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 21S5 15 5 10a7 7 0 0 1 14 0c0 5-7 11-7 11Z"/><circle cx="12" cy="10" r="2.5"/></svg>'}</span>`,
+        iconSize: [34, 34],
+        iconAnchor: [17, 17],
       });
       const marker = p.L.marker([place.lat, place.lon], { icon, title: place.name, alt: place.name, zIndexOffset: n >= 0 ? 500 - n : 0 })
         .on("click", () => setSelected(place.id))
         .addTo(p.pins);
+      const label = document.createElement("span");
+      label.textContent = place.name;
+      marker.bindTooltip(label, { direction: "top", offset: [0, -18], className: "maryx-map-tooltip" });
       p.markers.set(place.id, marker);
     }
     const shown = picks.length ? ordered.slice(0, picks.length) : ordered.slice(0, 12);
@@ -365,16 +381,19 @@ export function MapsView() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="page-content !max-w-[1280px]">
+      <div className="page-content maps-page">
         <PageHeading
           number="08"
-          eyebrow="Что рядом"
-          title="Карты"
-          description="Кафе, аптеки, парки и интересные места рядом с вами или в любом городе. Спросите MARYX — он выберет лучшее из настоящих мест на карте и подскажет маршрут."
-        />
+          eyebrow="Маленькие планы. Большие открытия"
+          title="Откройте своё рядом."
+          description="Найдите любимое кафе, тихий парк или маршрут на выходные. Настоящие места на карте и рекомендации MARYX — в одном пространстве."
+        ><div className="section-status"><MapIcon size={16} /><span>Смотреть карту — бесплатно</span></div></PageHeading>
+        <MapWelcome onLocate={findMe} onManual={() => addressInput.current?.focus()} />
 
+        <section className="map-discovery" aria-label="Помощь MARYX в поиске мест">
+        <div className="map-discovery-label"><span className="section-symbol"><Compass size={20} /></span><div><h2>Куда отправимся?</h2><p>Опишите планы — MARYX подберёт места</p></div></div>
         <form
-          className="composer-panel flex items-center gap-2 rounded-3xl border p-2 pl-4"
+          className="composer-panel map-ask-form"
           onSubmit={(e) => {
             e.preventDefault();
             void ask();
@@ -394,14 +413,14 @@ export function MapsView() {
           </button>
         </form>
         {!answer && (
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className="map-ideas">
             {IDEAS.map((idea) => (
               <button
                 key={idea}
                 type="button"
                 disabled={asking}
                 onClick={() => void ask(idea)}
-                className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-zinc-300 transition hover:border-violet-300/30 hover:text-zinc-100 disabled:opacity-50"
+                className="map-idea"
               >
                 {idea}
               </button>
@@ -409,9 +428,10 @@ export function MapsView() {
           </div>
         )}
 
-        <div className="mt-5 flex flex-wrap items-center gap-2">
+        </section>
+        <div className="map-location-controls">
           <form
-            className="flex min-w-[240px] flex-1 items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.03] py-1 pl-3 pr-1"
+            className="map-address-form"
             onSubmit={(e) => {
               e.preventDefault();
               void findAddress();
@@ -419,6 +439,7 @@ export function MapsView() {
           >
             <Search className="size-4 shrink-0 text-zinc-500" />
             <input
+              ref={addressInput}
               value={address}
               onChange={(e) => setAddress(e.target.value)}
               maxLength={200}
@@ -434,13 +455,13 @@ export function MapsView() {
             type="button"
             onClick={findMe}
             disabled={finding !== null}
-            className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm text-zinc-200 transition hover:border-violet-300/30 disabled:opacity-50"
+            className="map-locate-button"
           >
             {finding === "me" ? <LoaderCircle className="size-4 animate-spin" /> : <LocateFixed className="size-4 text-violet-300" />}
             Где я
           </button>
         </div>
-        <div role="group" aria-label="Что искать" className="-mx-1 mt-3 [scrollbar-width:none] flex gap-1.5 overflow-x-auto px-1 pb-1">
+        <div role="group" aria-label="Что искать" className="map-categories">
           {CATEGORIES.map(({ id, label, Icon }) => {
             const on = categories.includes(id);
             return (
@@ -449,25 +470,27 @@ export function MapsView() {
                 type="button"
                 aria-pressed={on}
                 onClick={() => toggle(id)}
-                className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition ${
-                  on ? "border-violet-300/40 bg-violet-500/15 text-violet-100" : "border-white/10 text-zinc-400 hover:text-zinc-100"
-                }`}
+                className="map-category"
+                data-category={id}
               >
-                <Icon className="size-3.5" />
-                {label}
+                <span className="map-category-symbol"><Icon className="size-4" /></span>
+                <span>{label}</span>
               </button>
             );
           })}
         </div>
         {error && (
-          <p role="alert" className="mt-3 flex items-center gap-2 text-sm text-red-300">
+          <p role="alert" className="section-error">
             <TriangleAlert className="size-4 shrink-0" /> {error}
           </p>
         )}
 
-        <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_400px]">
-          <div className="maps-canvas relative h-[46vh] min-h-[300px] overflow-hidden rounded-3xl border border-white/10 lg:h-[640px]">
+        <div className="map-results-grid">
+          <div className="maps-canvas" data-map-provider={MAP_PROVIDER}>
             <div ref={box} className="absolute inset-0" role="region" aria-label="Карта" />
+            {MAP_PROVIDER === "mapbox" && <a className="mapbox-brand" href="https://www.mapbox.com/about/maps/" target="_blank" rel="noopener noreferrer" aria-label="Карты Mapbox"><Image src={mapboxLogo} width={88} height={23} alt="Mapbox" unoptimized /></a>}
+            <div className="map-location-badge"><span className="map-live-dot" /><span>{where}</span></div>
+            {tilesFailed && <div className="map-tiles-notice" role="status"><MapIcon size={18} /><div><strong>Подложка карты недоступна</strong><p>Места и маршруты по-прежнему доступны.</p><button type="button" onClick={() => { setTilesFailed(false); parts.current?.tiles.redraw(); }}>Повторить загрузку</button></div></div>}
             {!ready && (
               <div className="absolute inset-0 flex items-center justify-center">
                 <LoaderCircle className="size-6 animate-spin text-zinc-500" />
@@ -484,19 +507,18 @@ export function MapsView() {
             )}
           </div>
 
-          <div className="flex min-h-0 flex-col rounded-3xl border border-white/10 bg-white/[0.02] lg:h-[640px]">
-            <div className="flex items-center gap-2 border-b border-white/5 px-4 py-3">
+          <div className="map-places-panel">
+            <div className="map-places-heading">
               <MapPin className="size-4 shrink-0 text-violet-300" />
-              <div className="min-w-0 flex-1 truncate text-sm text-zinc-200" title={where}>
-                {where}
-              </div>
-              <span className="shrink-0 text-xs text-zinc-500">{loading ? "" : placesText(places.length)}</span>
+              <div className="min-w-0 flex-1"><h2>Места рядом</h2><p title={where}>{where}</p></div>
+              <span className="map-count" aria-live="polite">{loading ? "Поиск…" : placesText(places.length)}</span>
             </div>
 
             {answer && (
-              <div className="m-3 rounded-2xl border border-violet-300/20 bg-violet-500/[0.07] p-4">
+              <div className="map-answer">
                 <div className="flex items-start gap-2">
                   <div className="min-w-0 flex-1">
+                    <div className="map-answer-label"><Sparkles size={13} />Выбор MARYX</div>
                     <div className="text-xs text-violet-200/80">{answer.question}</div>
                     <p className="mt-1.5 text-sm leading-6 text-zinc-100">{answer.answer}</p>
                   </div>
@@ -507,7 +529,7 @@ export function MapsView() {
               </div>
             )}
 
-            <ul ref={list} aria-label="Места рядом" className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 max-lg:max-h-[70vh]">
+            <ul ref={list} aria-label="Места рядом" className="map-places-list">
               {loading && (
                 <li className="flex justify-center p-8">
                   <LoaderCircle className="size-5 animate-spin text-zinc-500" />
@@ -515,7 +537,7 @@ export function MapsView() {
               )}
               {!loading && result?.error && !answer && <li className="p-6 text-center text-sm text-amber-300">{result.error}</li>}
               {!loading && !result?.error && !places.length && !answer && (
-                <li className="flex flex-col items-center gap-2 p-8 text-center">
+                <li className="section-empty">
                   <MapPin className="size-7 text-zinc-500" />
                   <p className="text-sm text-zinc-300">Рядом ничего не нашлось</p>
                   <p className="text-xs text-zinc-500">Выберите другое место на карте или другие категории.</p>
@@ -531,21 +553,19 @@ export function MapsView() {
                   <li
                     key={place.id}
                     data-place={place.id}
-                    className={`mt-1 rounded-2xl border p-3 transition ${active ? "border-violet-300/30 bg-violet-500/[0.08]" : "border-transparent hover:bg-white/[0.03]"}`}
+                    className="map-place-card"
+                    data-active={active || undefined}
+                    data-category={place.category}
                   >
                     <button type="button" onClick={() => setSelected(place.id)} className="flex w-full items-start gap-3 text-left" aria-current={active || undefined}>
                       <span
-                        className={`flex size-9 shrink-0 items-center justify-center rounded-xl text-sm font-semibold ${
-                          n >= 0 ? "bg-gradient-to-br from-violet-500 to-violet-600 text-[#fff]" : "border border-white/10 bg-white/[0.04] text-zinc-300"
-                        }`}
+                        className={`map-place-symbol ${n >= 0 ? "is-pick" : ""}`}
                       >
                         {n >= 0 ? n + 1 : <Icon className="size-4" />}
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-[15px] font-medium text-zinc-100">{place.name}</span>
-                        <span className="block text-xs text-zinc-400">
-                          {place.kind} · {distanceText(place.distance)}
-                        </span>
+                        <span className="map-place-meta"><span>{place.kind}</span><span><Navigation size={11} />{distanceText(place.distance)}</span></span>
                       </span>
                     </button>
                     {n >= 0 && picks[n].why && <p className="ml-12 mt-1.5 text-[13px] leading-5 text-violet-100/90">{picks[n].why}</p>}
@@ -561,7 +581,7 @@ export function MapsView() {
                       </div>
                     )}
                     {active && (
-                      <div className="ml-12 mt-2.5 flex flex-wrap gap-1.5">
+                      <div className="map-place-actions">
                         <a
                           href={`https://www.google.com/maps/dir/?api=1&destination=${place.lat},${place.lon}`}
                           target="_blank"
@@ -596,7 +616,7 @@ export function MapsView() {
             </ul>
           </div>
         </div>
-        <p className="mt-4 text-xs leading-5 text-zinc-500">
+        <p className="section-footnote">
           Места — из OpenStreetMap: часы работы и телефоны могут устареть, перед поездкой лучше уточнить. Вопрос к MARYX считается
           одним сообщением; просто смотреть карту — бесплатно.
         </p>

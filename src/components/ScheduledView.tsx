@@ -7,8 +7,11 @@ import type { Task, TaskSchedule } from "@/lib/types";
 import { useApp } from "./AppState";
 import { PageHeading } from "./Design";
 import {
-  ArrowUp,
   Bell,
+  ArrowUpRight,
+  CalendarDays,
+  Repeat2,
+  Sparkles,
   CalendarClock,
   Clock,
   Globe,
@@ -25,12 +28,12 @@ import {
 
 type Kind = TaskSchedule["kind"];
 
-const KINDS: { id: Kind; label: string }[] = [
-  { id: "once", label: "Один раз" },
-  { id: "daily", label: "Каждый день" },
-  { id: "weekly", label: "Каждую неделю" },
-  { id: "hourly", label: "Слежение" },
-];
+const KINDS = [
+  { id: "once", label: "Один раз", Icon: Bell },
+  { id: "daily", label: "Каждый день", Icon: Repeat2 },
+  { id: "weekly", label: "Каждую неделю", Icon: CalendarDays },
+  { id: "hourly", label: "Слежение", Icon: Telescope },
+] as const;
 /** Sunday is 0 (like Date.getDay); the week starts on Monday. */
 const WEEKDAYS = [
   { id: 1, label: "Пн", long: "понедельник" },
@@ -87,7 +90,7 @@ function lastRunText(t: Task): string | null {
 function TaskIcon({ task }: { task: Pick<Task, "schedule" | "search"> }) {
   const Icon = task.schedule.kind === "hourly" ? Telescope : task.schedule.kind === "once" ? Bell : task.search ? Globe : CalendarClock;
   return (
-    <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-violet-300/15 bg-violet-500/10 text-violet-200">
+    <div className="section-symbol" data-tone={task.schedule.kind === "hourly" ? "cyan" : task.schedule.kind === "once" ? "amber" : "accent"}>
       <Icon className="size-5" />
     </div>
   );
@@ -218,185 +221,138 @@ export function ScheduledView() {
   };
 
   const shown = (tasks ?? []).filter((t) => filter === "all" || t.active);
-  const chip = (on: boolean) =>
-    `rounded-lg px-3 py-1.5 text-xs transition ${on ? "bg-white/10 text-zinc-100" : "text-zinc-500 hover:text-zinc-200"}`;
+  const activeCount = (tasks ?? []).filter((t) => t.active).length;
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="page-content !max-w-[900px]">
+      <div className="page-content scheduled-page">
         <PageHeading
           number="07"
-          eyebrow="Работает, пока вы заняты"
-          title="Задачи"
-          description="Поручите MARYX дела по расписанию: утренние сводки, напоминания, слежение за новостями и ценами. Он выполнит их сам, а результат пришлёт в чат."
-        />
+          eyebrow="Меньше рутины. Больше вашего времени"
+          title="Дела идут. Вы свободны."
+          description="Новости к утреннему кофе, план на неделю или важное напоминание. Поручите это MARYX — результат придёт в отдельный чат."
+        >
+          <div className="section-status"><CalendarClock size={16} /><span>Задачи по расписанию</span></div>
+        </PageHeading>
 
-        <div className="composer-panel rounded-3xl border p-4 md:p-5">
-          <textarea
-            ref={input}
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            rows={2}
-            maxLength={2000}
-            placeholder="Что сделать? Например: каждое утро присылай главные новости о технологиях"
-            aria-label="Что сделать"
-            className="w-full resize-none bg-transparent px-1 text-[15px] text-zinc-100 outline-none placeholder:text-zinc-500"
-          />
-          <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-white/5 pt-3">
-            <div role="radiogroup" aria-label="Когда" className="flex flex-wrap rounded-xl bg-black/30 p-0.5">
-              {KINDS.map((k) => (
-                <button key={k.id} type="button" role="radio" aria-checked={kind === k.id} onClick={() => setKind(k.id)} className={chip(kind === k.id)}>
-                  {k.label}
-                </button>
-              ))}
+        <div className="task-setup-grid">
+          <section className="task-composer composer-panel" aria-labelledby="task-create-heading">
+            <div className="section-card-heading">
+              <span className="section-symbol"><Sparkles size={20} /></span>
+              <div><h2 id="task-create-heading">Новая задача</h2><p>Расскажите, что нужно сделать</p></div>
             </div>
-            {kind === "once" && (
-              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} aria-label="Дата" className="rounded-xl bg-black/30 px-3 py-1.5 text-xs text-zinc-200 outline-none" />
-            )}
-            {kind === "weekly" && (
-              <div role="radiogroup" aria-label="День недели" className="flex rounded-xl bg-black/30 p-0.5">
-                {WEEKDAYS.map((w) => (
-                  <button key={w.id} type="button" role="radio" aria-checked={weekday === w.id} onClick={() => setWeekday(w.id)} className={chip(weekday === w.id)}>
-                    {w.label}
+            <label className="sr-only" htmlFor="task-prompt">Что сделать</label>
+            <textarea
+              id="task-prompt"
+              ref={input}
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              rows={3}
+              maxLength={2000}
+              placeholder="Например: собирай главные новости о технологиях каждое утро"
+              className="task-prompt"
+            />
+            <div className="task-form-section">
+              <div className="task-field-label"><Clock size={14} /> Когда выполнять</div>
+              <div role="radiogroup" aria-label="Когда" className="schedule-kinds">
+                {KINDS.map(({ id, label, Icon }) => (
+                  <button key={id} type="button" role="radio" aria-checked={kind === id} onClick={() => setKind(id)}>
+                    <Icon size={17} /><span>{label}</span>
                   </button>
                 ))}
               </div>
-            )}
-            {kind === "hourly" ? (
-              <label className="flex items-center gap-2 text-xs text-zinc-400">
-                каждые
-                <select value={every} onChange={(e) => setEvery(Number(e.target.value))} aria-label="Как часто" className="rounded-xl bg-black/30 px-2 py-1.5 text-xs text-zinc-200 outline-none">
-                  {INTERVALS.map((n) => (
-                    <option key={n} value={n}>
-                      {n === 24 ? "24 ч (раз в сутки)" : `${n} ч`}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : (
-              <input type="time" value={time} onChange={(e) => setTime(e.target.value)} aria-label="Время" className="rounded-xl bg-black/30 px-3 py-1.5 text-xs text-zinc-200 outline-none" />
-            )}
-            <label className="flex items-center gap-2 text-xs text-zinc-400" title="Нужны свежие данные: новости, цены, погода">
-              <input type="checkbox" checked={search || kind === "hourly"} disabled={kind === "hourly"} onChange={(e) => setSearch(e.target.checked)} className="accent-violet-400" />
-              Искать в интернете
-            </label>
-            <div className="flex-1" />
-            <button type="button" onClick={() => void create()} disabled={prompt.trim().length < 3 || saving} className="maryx-button flex items-center gap-2 rounded-xl px-4 py-2 text-sm">
-              {saving ? <LoaderCircle className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
-              Создать задачу
-            </button>
-          </div>
-        </div>
-        {error && (
-          <p role="alert" className="mt-3 flex items-center gap-2 text-sm text-red-300">
-            <TriangleAlert className="size-4 shrink-0" /> {error}
-          </p>
-        )}
-
-        <div className="mt-8 flex items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Ваши задачи</h2>
-          <div role="radiogroup" aria-label="Показать" className="flex rounded-xl bg-white/[0.04] p-0.5">
-            <button type="button" role="radio" aria-checked={filter === "active"} onClick={() => setFilter("active")} className={chip(filter === "active")}>
-              Активные
-            </button>
-            <button type="button" role="radio" aria-checked={filter === "all"} onClick={() => setFilter("all")} className={chip(filter === "all")}>
-              Все
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-3 divide-y divide-white/5 rounded-2xl border border-white/5">
-          {tasks === null && !error && (
-            <div className="flex justify-center p-6">
-              <LoaderCircle className="size-5 animate-spin text-zinc-500" />
-            </div>
-          )}
-          {tasks !== null && shown.length === 0 && (
-            <div className="flex flex-col items-center gap-2 px-6 py-10 text-center">
-              <Clock className="size-7 text-zinc-500" />
-              <p className="text-sm text-zinc-300">{filter === "active" && tasks.length ? "Все задачи на паузе" : "Пока нет задач"}</p>
-              <p className="text-xs text-zinc-500">Опишите задачу выше или возьмите готовую ниже.</p>
-            </div>
-          )}
-          {shown.map((t) => (
-            <div key={t.id} className="flex flex-wrap items-center gap-3 p-4">
-              <TaskIcon task={t} />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="truncate text-[15px] font-medium text-zinc-100" title={t.prompt}>{t.title}</span>
-                  {t.unread && <span className="size-2 shrink-0 rounded-full bg-violet-400" aria-label="Новый результат" />}
-                </div>
-                <div className="mt-0.5 text-xs text-zinc-400">
-                  {scheduleText(t.schedule)}
-                  {" · "}
-                  {!t.active ? (t.schedule.kind === "once" && t.runs ? "выполнена" : "на паузе") : t.nextRunAt ? `следующий запуск ${inTime(t.nextRunAt, now)}` : ""}
-                </div>
-                {t.lastStatus && t.lastStatus !== "ok" ? (
-                  <div className="mt-0.5 text-xs text-amber-300">{t.lastError}</div>
+              <div className="schedule-details">
+                {kind === "once" && (
+                  <label className="schedule-field">Дата<input type="date" value={date} onChange={(e) => setDate(e.target.value)} aria-label="Дата" /></label>
+                )}
+                {kind === "weekly" && (
+                  <div className="schedule-week">
+                    <span>День недели</span>
+                    <div role="radiogroup" aria-label="День недели">
+                      {WEEKDAYS.map((w) => (
+                        <button key={w.id} type="button" role="radio" aria-checked={weekday === w.id} onClick={() => setWeekday(w.id)}>{w.label}</button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {kind === "hourly" ? (
+                  <label className="schedule-field">Проверять каждые
+                    <select value={every} onChange={(e) => setEvery(Number(e.target.value))} aria-label="Как часто">
+                      {INTERVALS.map((n) => <option key={n} value={n}>{n === 24 ? "24 ч (раз в сутки)" : `${n} ч`}</option>)}
+                    </select>
+                  </label>
                 ) : (
-                  lastRunText(t) && <div className="mt-0.5 text-[11px] text-zinc-500">{lastRunText(t)}</div>
+                  <label className="schedule-field">Время<input type="time" value={time} onChange={(e) => setTime(e.target.value)} aria-label="Время" /></label>
                 )}
               </div>
-              <div className="flex items-center gap-1">
-                {t.chatId && (
-                  <button type="button" onClick={() => open(t.chatId!)} className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-violet-200 hover:bg-violet-500/10">
-                    <MessageSquare className="size-3.5" /> Результаты
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => void act(t.id, "run")}
-                  disabled={busy !== null}
-                  title="Запустить сейчас"
-                  aria-label={`Запустить сейчас: ${t.title}`}
-                  className="rounded-lg p-2 text-zinc-400 hover:bg-white/5 hover:text-zinc-100 disabled:opacity-40"
-                >
-                  {busy === `run:${t.id}` ? <LoaderCircle className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-                </button>
-                {(t.active || t.schedule.kind !== "once") && (
-                  <button
-                    type="button"
-                    onClick={() => void act(t.id, t.active ? "pause" : "resume")}
-                    disabled={busy !== null}
-                    title={t.active ? "Пауза" : "Возобновить"}
-                    aria-label={`${t.active ? "Пауза" : "Возобновить"}: ${t.title}`}
-                    className="rounded-lg p-2 text-zinc-400 hover:bg-white/5 hover:text-zinc-100 disabled:opacity-40"
-                  >
-                    {t.active ? <Pause className="size-4" /> : <Play className="size-4" />}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => confirm(`Удалить задачу «${t.title}»? Результаты останутся в чате.`) && void act(t.id, "delete")}
-                  disabled={busy !== null}
-                  title="Удалить"
-                  aria-label={`Удалить: ${t.title}`}
-                  className="rounded-lg p-2 text-zinc-500 hover:bg-white/5 hover:text-red-300 disabled:opacity-40"
-                >
-                  <Trash2 className="size-4" />
-                </button>
-              </div>
+              <p className="schedule-timezone">По времени вашего устройства</p>
             </div>
-          ))}
-        </div>
+            <label className="task-search-option">
+              <span className="section-symbol" data-tone="cyan"><Globe size={18} /></span>
+              <span><strong>Свежие данные из интернета</strong><small>Для новостей, погоды и актуальных цен</small></span>
+              <input type="checkbox" checked={search || kind === "hourly"} disabled={kind === "hourly"} onChange={(e) => setSearch(e.target.checked)} />
+            </label>
+            <div className="task-create-footer">
+              <div><span>Расписание</span><p>{scheduleText(schedule())}</p></div>
+              <button type="button" onClick={() => void create()} disabled={prompt.trim().length < 3 || saving} className="maryx-button task-create-button">
+                {saving ? <LoaderCircle size={17} className="animate-spin" /> : <Plus size={17} />} Создать задачу
+              </button>
+            </div>
+          </section>
 
-        <h2 className="mb-3 mt-10 text-sm font-semibold uppercase tracking-wider text-zinc-500">Готовые задачи</h2>
-        <div className="divide-y divide-white/5 rounded-2xl border border-white/5">
-          {IDEAS.map((idea) => (
-            <button key={idea.title} type="button" onClick={() => takeIdea(idea)} className="flex w-full items-center gap-3 p-4 text-left transition hover:bg-white/[0.03]">
-              <TaskIcon task={idea} />
-              <div className="min-w-0 flex-1">
-                <div className="text-[15px] font-medium text-zinc-100">{idea.title}</div>
-                <div className="truncate text-xs text-zinc-400">{scheduleText(idea.schedule)} · {idea.prompt}</div>
-              </div>
-              <Plus className="size-5 shrink-0 text-zinc-400" aria-label="Добавить" />
-            </button>
-          ))}
+          <aside className="task-ideas" aria-labelledby="task-ideas-heading">
+            <div className="task-ideas-intro"><span className="section-kicker">Можно начать с этого</span><h2 id="task-ideas-heading">Пять идей на каждый день</h2><p>Выберите идею и настройте её под себя.</p></div>
+            {IDEAS.map((idea) => (
+              <button key={idea.title} type="button" onClick={() => takeIdea(idea)} className="task-idea">
+                <TaskIcon task={idea} />
+                <span><strong>{idea.title}</strong><small>{scheduleText(idea.schedule)}</small></span>
+                <ArrowUpRight size={16} />
+              </button>
+            ))}
+            <div className="task-ideas-note"><MessageSquare size={16} /><p>У каждой задачи свой чат.<br />Все результаты останутся в одном месте.</p></div>
+          </aside>
         </div>
-        <p className="mt-6 text-xs leading-5 text-zinc-500">
-          Каждый запуск задачи считается одним сообщением. Задачи выполняются, пока сайт открыт, и раз в сутки сами; чтобы они
-          всегда приходили минута в минуту, администратор может подключить бесплатный «будильник» (см. README).
-        </p>
+        {error && <p role="alert" className="section-error"><TriangleAlert size={17} />{error}</p>}
+
+        <section className="task-list-section" aria-labelledby="task-list-heading">
+          <div className="task-list-heading">
+            <div><span className="section-kicker">Под контролем</span><h2 id="task-list-heading">Ваши задачи <span>{tasks === null ? "—" : activeCount + " в работе"}</span></h2></div>
+            <div role="radiogroup" aria-label="Показать" className="section-segment">
+              <button type="button" role="radio" aria-checked={filter === "active"} onClick={() => setFilter("active")}>Активные</button>
+              <button type="button" role="radio" aria-checked={filter === "all"} onClick={() => setFilter("all")}>Все</button>
+            </div>
+          </div>
+          <div className="task-list">
+            {tasks === null && !error && <div className="section-empty" role="status"><LoaderCircle size={24} className="animate-spin" /><p>Загружаем задачи…</p></div>}
+            {tasks !== null && shown.length === 0 && (
+              <div className="section-empty">
+                <div className="empty-orbit"><CalendarClock size={30} /></div>
+                <h3>{filter === "active" && tasks.length ? "Можно сделать паузу" : "Ваша рутина — на автопилоте"}</h3>
+                <p>{filter === "active" && tasks.length ? "Все задачи на паузе. Выберите «Все», чтобы возобновить их." : "Создайте первую задачу выше. MARYX займётся ею по расписанию."}</p>
+              </div>
+            )}
+            {shown.map((t) => (
+              <article key={t.id} className="task-row" data-paused={!t.active || undefined}>
+                <TaskIcon task={t} />
+                <div className="task-row-body">
+                  <div className="task-row-title"><h3 title={t.prompt}>{t.title}</h3>{t.unread && <span className="task-unread" aria-label="Новый результат" />}</div>
+                  <p className="task-row-schedule"><Clock size={12} />{scheduleText(t.schedule)}</p>
+                  <p className="task-row-next">{!t.active ? (t.schedule.kind === "once" && t.runs ? "Выполнена" : "На паузе") : t.nextRunAt ? `Следующий запуск ${inTime(t.nextRunAt, now)}` : ""}</p>
+                  {t.lastStatus && t.lastStatus !== "ok" ? <p className="task-row-error">{t.lastError}</p> : lastRunText(t) && <p className="task-row-history">{lastRunText(t)}</p>}
+                </div>
+                <div className="task-row-actions">
+                  {t.chatId && <button type="button" onClick={() => open(t.chatId!)} className="task-results"><MessageSquare size={15} />Результаты</button>}
+                  <button type="button" onClick={() => void act(t.id, "run")} disabled={busy !== null} title="Запустить сейчас" aria-label={`Запустить сейчас: ${t.title}`} className="workspace-icon-button">
+                    {busy === `run:${t.id}` ? <LoaderCircle size={17} className="animate-spin" /> : <RefreshCw size={17} />}
+                  </button>
+                  {(t.active || t.schedule.kind !== "once") && <button type="button" onClick={() => void act(t.id, t.active ? "pause" : "resume")} disabled={busy !== null} title={t.active ? "Пауза" : "Возобновить"} aria-label={`${t.active ? "Пауза" : "Возобновить"}: ${t.title}`} className="workspace-icon-button">{t.active ? <Pause size={17} /> : <Play size={17} />}</button>}
+                  <button type="button" onClick={() => confirm(`Удалить задачу «${t.title}»? Результаты останутся в чате.`) && void act(t.id, "delete")} disabled={busy !== null} title="Удалить" aria-label={`Удалить: ${t.title}`} className="workspace-icon-button task-delete"><Trash2 size={17} /></button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+        <p className="section-footnote">Каждый запуск считается одним сообщением. Задачи выполняются, пока сайт открыт, и при ежедневной фоновой проверке. Время доставки может отличаться от расписания.</p>
       </div>
     </div>
   );

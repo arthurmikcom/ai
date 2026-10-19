@@ -22,7 +22,7 @@ const nextConfig: NextConfig = {
   // Second line of defence for model output: images may only come from this
   // site (and the map tiles of «Карты»).
   async headers() {
-    const img = ["'self'", "data:", "blob:", "https://*.basemaps.cartocdn.com", tilesOrigin()].filter(Boolean).join(" ");
+    const img = ["'self'", "data:", "blob:", "https://*.basemaps.cartocdn.com", "https://api.mapbox.com", "https://tile.openstreetmap.org", tilesOrigin()].filter(Boolean).join(" ");
     return [{ source: "/(.*)", headers: [{ key: "Content-Security-Policy", value: `img-src ${img}` }] }];
   },
   turbopack: {

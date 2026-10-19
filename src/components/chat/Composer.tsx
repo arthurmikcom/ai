@@ -497,13 +497,18 @@ export function Composer({
         {attachments.length > 0 && (
           <div className="flex flex-wrap gap-2 p-2">
             {attachments.map((a, i) => a.hidden ? null : (
-              <div key={i} className={`relative ${sending.includes(a) ? "" : "opacity-40"}`}>
+              <div key={i} className={`attachment-preview relative ${sending.includes(a) ? "" : "opacity-40"}`}>
                 {a.mime.startsWith("video/") ? (
-                  <div className="relative size-16 overflow-hidden rounded-xl bg-black" title={a.name} data-uploading={a.progress !== undefined || undefined}>
-                    <video src={a.preview ?? a.url} muted playsInline preload="metadata" aria-label={`Видео «${a.name ?? ""}»`} className="size-full object-cover" />
-                    <span className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 bg-black/60 py-0.5 text-[10px] text-[#fff]">
-                      {a.progress !== undefined ? <><LoaderCircle className="size-3 animate-spin" />{a.progress}%</> : <><Play className="size-3" />Видео</>}
-                    </span>
+                  <div className="video-attachment" title={a.name} data-uploading={a.progress !== undefined || undefined}>
+                    <div className="video-attachment-poster">
+                      <video src={a.preview ?? a.url} muted playsInline preload="metadata" aria-label={`Видео «${a.name ?? ""}»`} className="size-full object-cover" />
+                      <span>{a.progress !== undefined ? <LoaderCircle size={16} className="animate-spin" /> : <Play size={16} />}</span>
+                    </div>
+                    <div className="video-attachment-info">
+                      <strong>{a.name || "Видео"}</strong>
+                      <span>{a.progress !== undefined ? `Загрузка · ${a.progress}%` : "Готово к отправке"}</span>
+                      {a.progress !== undefined && <progress max={100} value={a.progress} aria-label={`Загрузка видео «${a.name ?? ""}»`} />}
+                    </div>
                   </div>
                 ) : isDocumentAttachment(a) ? (
                   <div className="flex h-16 max-w-52 items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 text-xs text-zinc-300">
@@ -528,7 +533,7 @@ export function Composer({
                     if (a.key) discardVideo(a.key);
                     if (a.preview) URL.revokeObjectURL(a.preview);
                   }}
-                  className="absolute -right-1.5 -top-1.5 rounded-full bg-zinc-700 p-0.5 text-zinc-200 hover:bg-zinc-600"
+                  className="attachment-remove absolute -right-1.5 -top-1.5 rounded-full bg-zinc-700 p-0.5 text-zinc-200 hover:bg-zinc-600"
                 >
                   <X className="size-3" />
                 </button>

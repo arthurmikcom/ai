@@ -55,7 +55,7 @@ const NAV = [
 /** The phone's bottom bar: five places; the rest are in the menu. */
 const MOBILE_NAV = [
   { href: "/", label: "Чат", icon: MessageSquare },
-  { href: "/images", label: "Фото", icon: ImageIcon },
+  { href: "/images", label: "Картинки", icon: ImageIcon },
   { href: "/video", label: "Видео", icon: Clapperboard },
   { href: "/maps", label: "Карты", icon: MapIcon },
   { href: "/scheduled", label: "Задачи", icon: CalendarClock },
@@ -209,11 +209,12 @@ function Sidebar({ onNavigate, onPalette, onCollapse }: { onNavigate: () => void
               href={href}
               onClick={onNavigate}
               aria-current={active ? "page" : undefined}
+              data-tool={href.slice(1) || "chat"}
               className={`sidebar-nav flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] ${
                 active ? "is-active" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-100"
               }`}
             >
-              <Icon className="size-4" /> {label}
+              <span className="sidebar-tool-symbol"><Icon className="size-4" /></span><span>{label}</span>
             </Link>
           );
         })}
