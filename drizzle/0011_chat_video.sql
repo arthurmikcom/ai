@@ -1,0 +1,1 @@
+ALTER TABLE "message" ADD COLUMN "media_id" text;

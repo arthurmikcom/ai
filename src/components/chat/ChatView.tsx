@@ -6,11 +6,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { BROWSER_MODELS } from "@/lib/catalog";
 import { autoModel, useLocalSupport } from "@/lib/client/local-ai";
 import { useModels } from "@/lib/client/useModels";
-import type { SendOptions } from "@/lib/types";
+import { imageToAttachment, uid } from "@/lib/client/util";
+import type { Attachment, SendOptions } from "@/lib/types";
 import { speak, stopSpeaking, useVoiceSupport } from "@/lib/client/voice";
 import { useApp, type ModelChoice } from "../AppState";
 import { findModel, MaryxBadge, ModelPicker } from "../ModelPicker";
-import { Composer } from "./Composer";
+import { Composer, type ComposerInject } from "./Composer";
 import { MessageView } from "./MessageView";
 import { MaryxVisual } from "../Design";
 
@@ -50,10 +51,20 @@ export function ChatView() {
   const canDraw = Boolean(images.data?.models.length);
   // …and one that edits photos, for photos attached in "draw" mode.
   const canEditPhotos = Boolean(images.data?.models.some((m) => m.photoEdit));
-  // Answers name their model; pictures come from image models.
-  const allModels = useMemo(() => [...models, ...(images.data?.models ?? [])], [models, images.data]);
+  // Videos in the chat need a video model (and one that starts from a photo, to animate one).
+  const videos = useModels("video");
+  const [videoMode, setVideoMode] = useState(false);
+  const [camera, setCamera] = useState<string | null>(null);
+  // Answers name their model; pictures and clips come from image and video models.
+  const allModels = useMemo(
+    () => [...models, ...(images.data?.models ?? []), ...(videos.data?.models ?? [])],
+    [models, images.data, videos.data],
+  );
   const scroller = useRef<HTMLDivElement>(null);
+  const thread = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
+  // A chat picture put into the composer to be changed.
+  const [inject, setInject] = useState<ComposerInject | null>(null);
 
   // Only MARYX is offered: every chat, old ones too, talks to it.
   const only = app.maryxOnly;
@@ -80,6 +91,8 @@ export function ChatView() {
   const localModel = current?.local ? (current.provider === "browser" ? current.id : autoModel(localSupportState)) : undefined;
   // A browser model can't be used until this browser is checked, nor where it can't run.
   const localBlocked = Boolean(current?.local && (!localSupportState || !localSupportState.ok));
+  const canFilm = Boolean(videos.data?.models.length) && !current?.local;
+  const canAnimate = canFilm && Boolean(videos.data?.models.some((m) => m.photoEdit));
   const localLabel = BROWSER_MODELS.find((m) => m.id === localModel);
   /** What every send uses: the toggles, and the browser model when the chosen one runs here. */
   const sendOptions = (extra: Partial<SendOptions> = {}): SendOptions => ({
@@ -87,7 +100,7 @@ export function ChatView() {
     deepThinking: deepThinking && Boolean(current?.reasoning),
     webSearch: webSearch && Boolean(current?.search),
     ...extra,
-    ...(localModel ? { image: false, local: { model: localModel } } : {}),
+    ...(localModel ? { image: false, video: false, local: { model: localModel } } : {}),
   });
   const disabledText =
     !app.ready || loading
@@ -118,6 +131,19 @@ export function ChatView() {
     if (!chat?.id) scroller.current?.scrollTo({ top: 0 });
   }, [chat?.id]);
 
+  // Pictures and videos load (and grow) after the answer arrived: stay at the bottom while following it.
+  const threadShown = Boolean(chat?.loaded);
+  useEffect(() => {
+    const el = scroller.current;
+    const inner = thread.current;
+    if (!el || !inner || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (stickToBottom.current) el.scrollTop = el.scrollHeight;
+    });
+    observer.observe(inner);
+    return () => observer.disconnect();
+  }, [chat?.id, threadShown]);
+
   // Switching chats (or leaving the page) stops reading aloud.
   useEffect(() => () => stopSpeaking(), [chat?.id]);
 
@@ -138,6 +164,47 @@ export function ChatView() {
   }, [streaming, lastMessage, chat]);
 
   const onPick = (c: ModelChoice) => (chat ? app.setChatModel(chat.id, c) : app.setModel(c));
+
+  // Nano Banana style: a picture in the chat is changed further (with an effect right away, or in
+  // words), or brought to life as a video.
+  const canChangePictures = canEditPhotos && !current?.local && !localBlocked && !noProviders && !streaming;
+  const canAnimatePictures = canAnimate && !localBlocked && !noProviders && !streaming;
+  const pictureFrom = async (src: string) => {
+    try {
+      const res = await fetch(src);
+      if (!res.ok) throw new Error(String(res.status));
+      const photo = await imageToAttachment(await res.blob());
+      return { mime: photo.mime, data: photo.data, name: "Картинка" };
+    } catch {
+      setInject({ id: uid(), attachments: [], error: "Не удалось загрузить картинку — попробуйте ещё раз." });
+      return null;
+    }
+  };
+  const sendNow = (text: string, attachments: Attachment[], options: Partial<SendOptions>) => {
+    stickToBottom.current = true;
+    stopSpeaking();
+    app.send(text, attachments, sendOptions(options), choice);
+  };
+  const editPicture = async (src: string, prompt?: string) => {
+    const picture = await pictureFrom(src);
+    if (!picture) return;
+    if (prompt) return sendNow(prompt, [picture], { image: true });
+    setVideoMode(false);
+    setImageMode(true);
+    setInject({ id: uid(), attachments: [picture] });
+  };
+  const animatePicture = async (src: string) => {
+    const picture = await pictureFrom(src);
+    if (picture) sendNow("Оживи это фото", [picture], { video: true, camera: camera ?? undefined });
+  };
+  const changeImageMode = (on: boolean) => {
+    setImageMode(on);
+    if (on) setVideoMode(false);
+  };
+  const changeVideoMode = (on: boolean) => {
+    setVideoMode(on);
+    if (on) setImageMode(false);
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -176,7 +243,7 @@ export function ChatView() {
             <LoaderCircle className="size-6 animate-spin text-zinc-500" />
           </div>
         ) : chat ? (
-          <div className="mx-auto flex max-w-3xl flex-col gap-8 px-4 py-6">
+          <div ref={thread} className="mx-auto flex max-w-3xl flex-col gap-8 px-4 py-6">
             {chat.messages.map((m, i) => (
               <MessageView
                 key={m.id}
@@ -185,6 +252,8 @@ export function ChatView() {
                 maryxOnly={only}
                 isLast={i === chat.messages.length - 1}
                 streaming={streaming && i === chat.messages.length - 1}
+                onEditPicture={canChangePictures ? (src, prompt) => void editPicture(src, prompt) : undefined}
+                onAnimatePicture={canAnimatePictures ? (src) => void animatePicture(src) : undefined}
                 onSuggest={
                   noProviders || localBlocked
                     ? undefined
@@ -197,13 +266,18 @@ export function ChatView() {
                 onRegenerate={localBlocked ? undefined : () =>
                   app.regenerate(
                     chat.id,
-                    sendOptions({
-                      // Redraw a picture — also one that failed or was stopped (its model is an image model).
-                      image:
-                        m.generating === "image" ||
-                        Boolean(m.attachments?.length) ||
-                        Boolean(images.data?.models.some((x) => x.provider === m.provider && x.id === m.model)),
-                    }),
+                    sendOptions(
+                      // A video answer is made again as a video.
+                      m.mediaId || m.generating === "video" || videos.data?.models.some((x) => x.provider === m.provider && x.id === m.model)
+                        ? { video: true }
+                        : {
+                            // Redraw a picture — also one that failed or was stopped (its model is an image model).
+                            image:
+                              m.generating === "image" ||
+                              Boolean(m.attachments?.length) ||
+                              Boolean(images.data?.models.some((x) => x.provider === m.provider && x.id === m.model)),
+                          },
+                    ),
                   )
                 }
               />
@@ -309,7 +383,13 @@ export function ChatView() {
           canDraw={canDraw && !current?.local}
           canEditPhotos={canEditPhotos}
           imageMode={imageMode && canDraw && !current?.local}
-          onImageModeChange={setImageMode}
+          onImageModeChange={changeImageMode}
+          canFilm={canFilm}
+          canAnimate={canAnimate}
+          videoMode={videoMode && canFilm}
+          onVideoModeChange={changeVideoMode}
+          camera={camera}
+          onCameraChange={setCamera}
           voiceInput={voiceInput}
           voiceMode={voiceMode && Boolean(voice?.speak)}
           onVoiceModeChange={voice?.speak ? setVoiceMode : null}
@@ -317,12 +397,23 @@ export function ChatView() {
             stickToBottom.current = true;
             stopSpeaking();
             speakNext.current = viaVoice && voiceMode && voice?.speak ? (chat?.id ?? "new") : null;
-            app.send(text, attachments, sendOptions({ image: imageMode && canDraw && !current?.local }), choice);
+            const filming = videoMode && canFilm;
+            app.send(
+              text,
+              attachments,
+              sendOptions({
+                image: !filming && imageMode && canDraw && !current?.local,
+                video: filming,
+                camera: filming ? (camera ?? undefined) : undefined,
+              }),
+              choice,
+            );
           }}
           onStop={() => {
             speakNext.current = null;
             if (chat) app.stop(chat.id);
           }}
+          inject={inject}
         />
         <p className="mt-2 text-center text-[11px] text-zinc-600">
           {current?.local && !localBlocked

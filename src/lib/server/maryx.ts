@@ -96,6 +96,56 @@ export function wantsImageEdit(text: string): boolean {
   return EDIT_STRONG.test(t) || (EDIT_WEAK.test(t) && EDIT_TARGET.test(t));
 }
 
+const LEAD = "^((а|и|ну|теперь|ещё|еще|давай|пожалуйста)\\s+)*";
+/** A change that is about looks by itself ("а теперь в стиле аниме", "перекрась в красный"). */
+const STYLE_CHANGE = new RegExp(
+  `${LEAD}(в\\s+стиле|в\\s+виде|как\\s+в|перекрась|раскрась|преврати|стилизуй|переодень|надень|отзеркаль|кадрируй)(?![а-яё])`,
+);
+/** How a follow-up change starts ("сделай…", "добавь…", "пусть…"). */
+const CHANGE = new RegExp(
+  `${LEAD}(теперь|пусть|сделай|добавь|убери|удали|замени|поменяй|измени|верни|поверни|разверни|увеличь|уменьши|оставь|улучши|исправь|без|больше|меньше|ярче|светлее|темнее|ч[её]тче|резче)(?![а-яё])`,
+);
+/** …and what in the picture it is about ("очки", "фон", "синим", "ярче"). */
+const VISUAL =
+  /(фон|фото|снимк|картинк|изображени|лиц|кож|волос|глаз|улыбк|очк|шляп|кепк|бород|ус(ы|ов)?(?![а-яё])|одежд|плать|костюм|рубашк|куртк|небо|облак|снег|дожд|закат|рассвет|ноч|солнц|свет|тен[ьи]|цвет|красн|син|зел[её]н|ж[её]лт|бел|ч[её]рн|розов|фиолет|оранж|золот|ярк|ярче|темн|контраст|насыщ|стил|аниме|мульт|акварел|маслом|пиксел|неон|ретро|винтаж|фотореал|резк|ч[её]тк|размыт|кадр|ракурс|море|пляж|город|лес(?![а-яё])|горы|космос|кот(ик|а|у|ом|е)?(?![а-яё])|кошк|собак)/;
+
+/**
+ * A follow-up change to the picture the chat just made or edited ("сделай фон
+ * синим", "а теперь в стиле аниме"), Nano Banana style: the picture is
+ * edited again, with no need to attach it. A new drawing ("нарисуй кота"),
+ * a question, a text request ("сделай план…") or a video request is not one.
+ */
+export function wantsFollowUpEdit(text: string): boolean {
+  const t = text.trim().toLowerCase();
+  if (!t || t.length > 400 || t.endsWith("?")) return false;
+  if (/^(нарисуй|изобрази|сгенерируй|создай)/.test(t) || /(нов|друг)(ую|ой|ое|ый)\s+(картинк|изображени|рисун|фото)/.test(t)) return false;
+  if (/(видео|ролик|анимац|анимируй|оживи)/.test(t) || WANTS_TEXT.test(t)) return false;
+  return wantsImageEdit(t) || STYLE_CHANGE.test(t) || (CHANGE.test(t) && VISUAL.test(t));
+}
+
+const VIDEO_REQUEST =
+  /^((а|и|теперь|давай|пожалуйста)\s+)*(сними|снимите|сделай|сделайте|создай|создайте|сгенерируй|сгенерируйте|смонтируй)\s+((мне|нам|пожалуйста|[а-яё-]+(ое|ый|ий|ой|ую|ая|ее|ие))\s+){0,4}(видео|видеоролик|ролик|клип|анимаци)/;
+/** About a video, not one: its script, plan, description or text. */
+const VIDEO_TEXT = /(сценари|план(?![а-яё]*ет)|текст|иде[июяй]|описани|субтитр|раскадровк)/;
+
+/** A request for a video: "сними видео…", "сделай вертикальное видео…" (not "как снять видео?", "сделай сценарий видео"). */
+export function wantsVideo(text: string): boolean {
+  const t = text.trim().toLowerCase();
+  if (!t || t.length > 2000 || t.endsWith("?")) return false;
+  if (VIDEO_TEXT.test(t.slice(0, 80)) || WANTS_TEXT.test(t.slice(0, 80))) return false;
+  return VIDEO_REQUEST.test(t) || /^(make|generate|create) (a |an )?(short )?(video|clip)\b/.test(t);
+}
+
+/** "Оживи фото", "анимируй это", "сделай из фото видео": bring a picture to life as a video. */
+export function wantsAnimate(text: string): boolean {
+  const t = text.trim().toLowerCase();
+  if (!t || t.length > 2000 || t.endsWith("?")) return false;
+  return (
+    /^((а|и|теперь|давай|пожалуйста)\s+)*(оживи|оживите|анимируй|анимируйте)(?![а-яё])/.test(t) ||
+    /(сделай|преврати)(те)?\s+(из\s+)?(это(го)?|е[её]|его|фото|картинк\S*|снимк\S*)\s+(в\s+)?(видео|ролик|анимаци)/.test(t)
+  );
+}
+
 /** Questions about the world right now, which a model can't know without searching. */
 function wantsSearch(text: string): boolean {
   return /(новост|что нового|что (произошло|случилось)|курс (доллар|евро|рубл|юан|валют|биткоин|акци)|погод[аеуы]|кто выиграл|результат(ы)? (матча|игры|выборов)|latest news|current price|weather)/i.test(
@@ -291,9 +341,10 @@ export function maryxSystem(
       : [
           "Ты — MARYX, собственный искусственный интеллект платформы MARYX Ai: дружелюбный, честный и полезный собеседник.",
           ANSWER_STYLE,
-          // The chat draws and edits photos itself (see chat/route.ts); a text answer can't.
-          "Ты умеешь рисовать картинки и обрабатывать фото. Если просят обработать или изменить фото, а фото не приложено, " +
-            "попроси прикрепить его (скрепка) и написать, что изменить. Не делай вид, что обработал фото, текстом.",
+          // The chat draws, edits photos and makes videos itself (see chat/route.ts); a text answer can't.
+          "Ты умеешь рисовать картинки, обрабатывать фото, снимать видео и оживлять фото. Если просят обработать, изменить " +
+            "или оживить фото, а фото не приложено, попроси прикрепить его (скрепка) и написать, что сделать. " +
+            "Видео снимается по просьбе «сними видео…» или в режиме «Видео». Не делай вид, что обработал фото или снял видео, текстом.",
         ]),
     maryxOnly()
       ? // Our own AI to its users: what it runs on stays behind the scenes (it can't be fully guaranteed).

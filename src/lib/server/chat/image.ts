@@ -27,6 +27,11 @@ export async function canDrawInChat(ownKey = false, photos = false): Promise<boo
   return (await mediaModels("image", ownKey, photos)).length > 0;
 }
 
+/** Whether any video model is set up, so the chat can make a clip (with `photos`, from a photo). */
+export async function canFilmInChat(ownKey = false, photos = false): Promise<boolean> {
+  return (await mediaModels("video", ownKey, photos)).length > 0;
+}
+
 /**
  * The models MARYX makes a picture or a clip with (in the chat, and in the
  * studio when it's MARYX's choice), best first: the featured ones among
@@ -44,7 +49,9 @@ export async function maryxMediaModel(kind: MediaKind, ownKey = false, photos = 
   if (!pick) {
     throw new NotConfiguredError(
       photos
-        ? "Обработка фото не подключена: нужна модель OpenRouter, которая принимает фото."
+        ? kind === "image"
+          ? "Обработка фото не подключена: нужна модель OpenRouter, которая принимает фото."
+          : "Оживление фото не подключено: нужна видеомодель OpenRouter, которая начинает ролик с фото."
         : kind === "image"
           ? "Генерация картинок не подключена: добавьте ключ OpenRouter, OpenAI, Google или Replicate."
           : "Генерация видео не подключена: добавьте ключ OpenRouter, Google или Replicate.",
@@ -59,16 +66,35 @@ export function chatImageModel(ownKey = false, photos = false): Promise<ModelInf
 }
 
 /**
- * What the image model is told when it edits the user's photo: their words,
- * plus keeping the photo real (the usual ask is a natural retouch, not a new picture).
+ * What the image model is told when it edits the user's photo (or a picture
+ * made earlier): their words, keeping everything else as it was, and a real
+ * photo real unless they ask for a style (the usual ask is a natural retouch).
  */
 export function editPrompt(text: string): string {
   return (
-    "Edit the attached photo as the user asks. Keep the person's face, identity, age, body shape, pose, " +
-    "clothing, background and framing unchanged unless the user asks otherwise. The result must look like " +
-    "a real, natural photograph: no plastic skin, no filter look, no added objects. If there are several " +
-    `photos, the first one is the one to edit. User's request: ${text.trim() || "Natural retouch."}`
+    "Edit the attached image as the user asks. Keep the person's face and identity recognizable, and keep " +
+    "everything the user didn't ask to change (age, body shape, pose, clothing, background, framing) as it is. " +
+    "Unless the user asks for a style (anime, painting, 3D cartoon and so on), the result must look like a real, " +
+    "natural photograph: no plastic skin, no filter look, no objects nobody asked for. If there are several " +
+    `images, edit the first one; the others are references. User's request: ${text.trim() || "Natural retouch."}`
   );
+}
+
+/**
+ * What the video model is told when it animates the user's photo (its first
+ * frame): their words, keeping the person and the scene as in the photo.
+ */
+export function animatePrompt(text: string): string {
+  return (
+    "Animate this photo into a short, realistic video that starts exactly from it. Keep the person's face, " +
+    "identity and the scene as in the photo; natural, physically plausible motion. " +
+    (text.trim() || "Subtle natural motion: blinking, breathing, hair and clothes moving in a light breeze, a gentle camera move.")
+  );
+}
+
+/** The prompt for a picture or a clip made from the user's photo. */
+export function photoPrompt(kind: MediaKind, text: string): string {
+  return kind === "image" ? editPrompt(text) : animatePrompt(text);
 }
 
 /** Errors after which another model may well do it: this one can't take the request, or is down. */

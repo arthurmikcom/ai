@@ -7,7 +7,7 @@
 import type { GenerateRequest, GenerateResult, MediaOutput } from "@/lib/types";
 import { openRouterBase, openRouterKey } from "../config";
 import { HttpError } from "../errors";
-import { openRouterImageParams } from "../models";
+import { openRouterImageParams, openRouterVideoCaps } from "../models";
 
 /** Options of one call: the user's own key (BYOK) and their pseudonym for OpenRouter. */
 export interface OpenRouterCall {
@@ -129,17 +129,35 @@ function toResult(job: VideoJob): GenerateResult {
   return { status: "pending", jobId: job.id };
 }
 
+/**
+ * The request body for one clip. Only what the model takes goes along
+ * (OpenRouter answers 400 otherwise); before the model list has loaded, the
+ * usual parameters are sent. With the user's photo, it is the first frame.
+ */
+export function openRouterVideoBody(req: GenerateRequest, endUser?: string): Record<string, unknown> {
+  const caps = openRouterVideoCaps(req.model);
+  const body: Record<string, unknown> = { model: req.model, prompt: req.prompt };
+  const photo = req.images?.[0];
+  if (photo) {
+    // The clip keeps the photo's proportions; a ratio would crop or pad it.
+    body.frame_images = [
+      { type: "image_url", image_url: { url: `data:${photo.mime};base64,${photo.data}` }, frame_type: "first_frame" },
+    ];
+  } else if (!caps?.aspectRatios || caps.aspectRatios.includes(req.aspectRatio)) {
+    body.aspect_ratio = req.aspectRatio;
+  }
+  const asked = req.duration;
+  if (asked) {
+    // The supported length closest to the one asked for.
+    const allowed = caps?.durations?.length ? caps.durations : [asked];
+    body.duration = allowed.reduce((best, d) => (Math.abs(d - asked) < Math.abs(best - asked) ? d : best));
+  }
+  if (endUser) body.user = endUser;
+  return body;
+}
+
 export async function startOpenRouterVideo(req: GenerateRequest, call: OpenRouterCall = {}): Promise<GenerateResult> {
-  const job = await openRouter<VideoJob>("/videos", call, {
-    method: "POST",
-    body: {
-      model: req.model,
-      prompt: req.prompt,
-      aspect_ratio: req.aspectRatio,
-      ...(req.duration ? { duration: req.duration } : {}),
-      ...(call.endUser ? { user: call.endUser } : {}),
-    },
-  });
+  const job = await openRouter<VideoJob>("/videos", call, { method: "POST", body: openRouterVideoBody(req, call.endUser) });
   return toResult(job);
 }
 

@@ -4,6 +4,7 @@ import {
   ArrowUp,
   AudioLines,
   Brain,
+  Clapperboard,
   FileText,
   Globe,
   LoaderCircle,
@@ -31,6 +32,7 @@ import {
   transcribe,
   type Recording,
 } from "@/lib/client/voice";
+import { CAMERA_MOTIONS, PHOTO_EFFECTS } from "@/lib/effects";
 import type { Attachment, ModelInfo } from "@/lib/types";
 
 interface Props {
@@ -53,6 +55,16 @@ interface Props {
   /** The next message is a picture description, not a question. */
   imageMode: boolean;
   onImageModeChange: (value: boolean) => void;
+  /** A video model is available, so the "video" toggle can be offered. */
+  canFilm?: boolean;
+  /** A video model starts from a photo: in "video" mode, an attached photo is brought to life. */
+  canAnimate?: boolean;
+  /** The next message describes a video (or how to animate the attached photo). */
+  videoMode?: boolean;
+  onVideoModeChange?: (value: boolean) => void;
+  /** Video mode: how the camera moves (an id of CAMERA_MOTIONS), or null. */
+  camera?: string | null;
+  onCameraChange?: (value: string | null) => void;
   /** How dictation is recognized: on our server, by the browser, or not at all. */
   voiceInput: "server" | "browser" | null;
   /** Talk mode: dictated messages are sent right away and answers are read aloud. */
@@ -60,6 +72,15 @@ interface Props {
   onVoiceModeChange: ((value: boolean) => void) | null;
   onSend: (text: string, attachments: Attachment[], viaVoice?: boolean) => void;
   onStop: () => void;
+  /** Pictures put in from the chat ("Изменить" under a picture); taken once per `id`. */
+  inject?: ComposerInject | null;
+}
+
+export interface ComposerInject {
+  id: string;
+  attachments: Attachment[];
+  /** Why the picture couldn't be put in. */
+  error?: string;
 }
 
 const MAX_ATTACHMENTS = 4;
@@ -78,11 +99,18 @@ export function Composer({
   canEditPhotos = false,
   imageMode,
   onImageModeChange,
+  canFilm = false,
+  canAnimate = false,
+  videoMode = false,
+  onVideoModeChange,
+  camera = null,
+  onCameraChange,
   voiceInput,
   voiceMode,
   onVoiceModeChange,
   onSend,
   onStop,
+  inject = null,
 }: Props) {
   const [text, setText] = useState("");
   const [listening, setListening] = useState<"idle" | "recording" | "transcribing">("idle");
@@ -97,14 +125,29 @@ export function Composer({
   const fileInput = useRef<HTMLInputElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
 
-  // Documents work with any model; pictures need one that can see. In "draw" mode only photos (to edit) go along.
+  // A picture to change goes first: the first photo is the one that is edited.
+  const [injected, setInjected] = useState(inject?.id);
+  if (inject && inject.id !== injected) {
+    setInjected(inject.id);
+    setAttachments((list) => [...inject.attachments, ...list].slice(0, MAX_ATTACHMENTS));
+    setError(inject.error ?? null);
+  }
+  useEffect(() => {
+    if (inject) textarea.current?.focus();
+  }, [inject]);
+
+  // Documents work with any model; pictures need one that can see. In "draw" mode only photos (to edit) go
+  // along, in "video" mode one photo (the clip's first frame).
   const editPhotos = imageMode && canEditPhotos;
-  const canAttach = allowFiles && (!imageMode || editPhotos);
-  /** Whether a file goes with this message; the others stay in the composer (drawing, or a text-only model). */
-  const goes = (a: Attachment) => allowFiles && (!imageMode || (editPhotos && !isDocumentAttachment(a)));
-  const sending = attachments.filter(goes);
-  const keeping = attachments.filter((a) => !goes(a));
-  const canSeeImages = model?.vision !== false || editPhotos;
+  const takesPhotos = editPhotos || (videoMode && canAnimate);
+  const mediaMode = imageMode || videoMode;
+  const canAttach = allowFiles && (!mediaMode || takesPhotos);
+  /** Whether a file can go with this message; the others stay in the composer (drawing, or a text-only model). */
+  const goes = (a: Attachment) => allowFiles && (!mediaMode || (takesPhotos && !isDocumentAttachment(a)));
+  const going = attachments.filter(goes);
+  const sending = videoMode ? going.slice(0, 1) : going;
+  const keeping = attachments.filter((a) => !sending.includes(a));
+  const canSeeImages = model?.vision !== false || takesPhotos;
   const canSend = !disabled && !streaming && (text.trim() !== "" || sending.length > 0);
 
   const addFiles = async (files: File[]) => {
@@ -265,15 +308,19 @@ export function Composer({
           <p className="px-2 pt-1 text-xs text-zinc-500">
             {!allowFiles
               ? "ИИ на вашем устройстве читает только текст — файлы не отправятся и останутся для следующего сообщения."
-              : editPhotos
-                ? "В режиме «Картинка» документы не отправляются — только фото. Они останутся для следующего сообщения."
-                : "В режиме «Картинка» файлы не отправляются — они останутся для следующего сообщения."}
+              : videoMode
+                ? takesPhotos
+                  ? "В режиме «Видео» отправляется одно фото — первое. Остальные файлы останутся для следующего сообщения."
+                  : "В режиме «Видео» файлы не отправляются — они останутся для следующего сообщения."
+                : editPhotos
+                  ? "В режиме «Картинка» документы не отправляются — только фото. Они останутся для следующего сообщения."
+                  : "В режиме «Картинка» файлы не отправляются — они останутся для следующего сообщения."}
           </p>
         )}
         {attachments.length > 0 && (
           <div className="flex flex-wrap gap-2 p-2">
             {attachments.map((a, i) => (
-              <div key={i} className={`relative ${goes(a) ? "" : "opacity-40"}`}>
+              <div key={i} className={`relative ${sending.includes(a) ? "" : "opacity-40"}`}>
                 {isDocumentAttachment(a) ? (
                   <div className="flex h-16 max-w-52 items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 text-xs text-zinc-300">
                     <FileText className="size-5 shrink-0 text-violet-300" />
@@ -299,6 +346,47 @@ export function Composer({
           </div>
         )}
 
+        {editPhotos && sending.length > 0 && !text.trim() && (
+          <div role="group" aria-label="Эффекты" className="flex flex-wrap gap-1.5 px-2 pb-1">
+            {PHOTO_EFFECTS.map((e) => (
+              <button
+                key={e.id}
+                type="button"
+                title={e.prompt}
+                onClick={() => {
+                  setText(e.prompt);
+                  textarea.current?.focus();
+                }}
+                className="rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1 text-xs text-zinc-300 transition hover:border-violet-300/40 hover:text-zinc-50"
+              >
+                <span aria-hidden="true">{e.emoji}</span> {e.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {videoMode && onCameraChange && (
+          // One scrolling line on phones, so the text field keeps its room.
+          <div role="group" aria-label="Движение камеры" className="flex items-center gap-1.5 overflow-x-auto px-2 pb-1 sm:flex-wrap">
+            <span className="mr-0.5 shrink-0 text-xs text-zinc-500">Камера:</span>
+            {CAMERA_MOTIONS.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                aria-pressed={camera === m.id}
+                onClick={() => onCameraChange(camera === m.id ? null : m.id)}
+                className={`shrink-0 whitespace-nowrap rounded-lg border px-2 py-0.5 text-xs transition ${
+                  camera === m.id
+                    ? "border-violet-300/50 bg-violet-500/20 text-violet-100"
+                    : "border-white/10 bg-white/[0.03] text-zinc-400 hover:border-violet-300/40 hover:text-zinc-100"
+                }`}
+              >
+                <span aria-hidden="true">{m.emoji}</span> {m.label}
+              </button>
+            ))}
+          </div>
+        )}
+
         <textarea
           ref={textarea}
           value={text}
@@ -313,13 +401,19 @@ export function Composer({
           placeholder={
             disabled
               ? (disabledText ?? "Загрузка…")
-              : imageMode
+              : videoMode
                 ? sending.length
-                  ? "Что сделать с фото? Например: естественная ретушь, другой фон…"
-                  : canEditPhotos
-                    ? "Опишите картинку — или прикрепите фото, чтобы MARYX его обработал"
-                    : "Опишите картинку: что на ней, стиль, настроение…"
-                : "Спросите что угодно…"
+                  ? "Как оживить фото? Например: улыбается и машет рукой. Можно оставить пустым"
+                  : canAnimate
+                    ? "Опишите видео — или прикрепите фото, чтобы оживить"
+                    : "Опишите видео: что происходит, атмосфера, звук…"
+                : imageMode
+                  ? sending.length
+                    ? "Что сделать с фото? Например: естественная ретушь, другой фон…"
+                    : canEditPhotos
+                      ? "Опишите картинку — или прикрепите фото, чтобы MARYX его обработал"
+                      : "Опишите картинку: что на ней, стиль, настроение…"
+                  : "Спросите что угодно…"
           }
           aria-label="Сообщение"
           disabled={disabled}
@@ -330,7 +424,7 @@ export function Composer({
           <input
             ref={fileInput}
             type="file"
-            accept={editPhotos ? "image/*" : ATTACH_ACCEPT}
+            accept={takesPhotos ? "image/*" : ATTACH_ACCEPT}
             multiple
             hidden
             onChange={(e) => {
@@ -341,11 +435,15 @@ export function Composer({
           <button
             type="button"
             title={
-              imageMode
-                ? editPhotos
-                  ? "Прикрепить фото, чтобы MARYX его обработал"
-                  : "В режиме рисования вложения не нужны"
-                : !allowFiles
+              videoMode
+                ? takesPhotos
+                  ? "Прикрепить фото, чтобы MARYX его оживил"
+                  : "В режиме видео вложения не нужны"
+                : imageMode
+                  ? editPhotos
+                    ? "Прикрепить фото, чтобы MARYX его обработал"
+                    : "В режиме рисования вложения не нужны"
+                  : !allowFiles
                   ? "ИИ на вашем устройстве читает только текст"
                   : canSeeImages
                   ? "Прикрепить файл: PDF, Word, Excel, CSV, TXT или изображение"
@@ -396,7 +494,7 @@ export function Composer({
               aria-pressed={voiceMode}
               title="Голосовой режим: сказанное отправляется сразу, а ответ читается вслух"
               aria-label="Голосовой режим"
-              className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition ${
+              className={`flex items-center gap-1.5 rounded-full px-2 py-1.5 text-sm transition sm:px-3 ${
                 voiceMode
                   ? "bg-violet-500/20 text-violet-200"
                   : "text-zinc-400 hover:bg-white/5 hover:text-zinc-100"
@@ -414,7 +512,7 @@ export function Composer({
               aria-pressed={imageMode}
               title={canEditPhotos ? "Нарисовать картинку по описанию или обработать фото" : "Нарисовать картинку по описанию"}
               aria-label="Картинка"
-              className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition ${
+              className={`flex items-center gap-1.5 rounded-full px-2 py-1.5 text-sm transition sm:px-3 ${
                 imageMode
                   ? "bg-violet-500/20 text-violet-200"
                   : "text-zinc-400 hover:bg-white/5 hover:text-zinc-100"
@@ -425,14 +523,32 @@ export function Composer({
             </button>
           )}
 
-          {model?.search && !imageMode && (
+          {canFilm && onVideoModeChange && (
+            <button
+              type="button"
+              onClick={() => onVideoModeChange(!videoMode)}
+              aria-pressed={videoMode}
+              title={canAnimate ? "Снять видео по описанию или оживить фото" : "Снять видео по описанию"}
+              aria-label="Видео"
+              className={`flex items-center gap-1.5 rounded-full px-2 py-1.5 text-sm transition sm:px-3 ${
+                videoMode
+                  ? "bg-violet-500/20 text-violet-200"
+                  : "text-zinc-400 hover:bg-white/5 hover:text-zinc-100"
+              }`}
+            >
+              <Clapperboard className="size-4" />
+              <span className="hidden sm:inline">Видео</span>
+            </button>
+          )}
+
+          {model?.search && !mediaMode && (
             <button
               type="button"
               onClick={() => onWebSearchChange(!webSearch)}
               aria-pressed={webSearch}
               title="Искать свежую информацию в интернете и показывать источники"
               aria-label="Поиск в интернете"
-              className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition ${
+              className={`flex items-center gap-1.5 rounded-full px-2 py-1.5 text-sm transition sm:px-3 ${
                 webSearch
                   ? "bg-violet-500/20 text-violet-200"
                   : "text-zinc-400 hover:bg-white/5 hover:text-zinc-100"
@@ -443,14 +559,14 @@ export function Composer({
             </button>
           )}
 
-          {model?.reasoning && !imageMode && (
+          {model?.reasoning && !mediaMode && (
             <button
               type="button"
               onClick={() => onDeepThinkingChange(!deepThinking)}
               aria-pressed={deepThinking}
               title="Модель дольше размышляет над ответом"
               aria-label="Думать глубже"
-              className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition ${
+              className={`flex items-center gap-1.5 rounded-full px-2 py-1.5 text-sm transition sm:px-3 ${
                 deepThinking
                   ? "bg-violet-500/20 text-violet-200"
                   : "text-zinc-400 hover:bg-white/5 hover:text-zinc-100"

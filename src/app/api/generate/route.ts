@@ -1,14 +1,12 @@
 import { isAdmin } from "@/lib/server/auth";
 import { describeAiError, maryxOnly } from "@/lib/server/brand";
-import { editPrompt, failureDetail, maryxMediaModel, maryxMediaModels, startWithFallback } from "@/lib/server/chat/image";
-import type { StoredFile } from "@/lib/server/db/schema";
+import { maryxMediaModel, maryxMediaModels } from "@/lib/server/chat/image";
 import { StorageUnavailableError } from "@/lib/server/errors";
-import { applyResult, createMedia, recordModel } from "@/lib/server/gallery";
 import { jsonError, requireUser, storageUnavailable } from "@/lib/server/http";
+import { startMediaJob } from "@/lib/server/media-job";
 import { listModels } from "@/lib/server/models";
-import { endUserId, ownKey, ownKeyInfo } from "@/lib/server/own-key";
+import { ownKey, ownKeyInfo } from "@/lib/server/own-key";
 import { mediaCost } from "@/lib/server/pricing";
-import { deleteFiles, newKey, putFile } from "@/lib/server/storage";
 import { charge, deniedResponse, refundCharge, reserve } from "@/lib/server/usage";
 import { parseGenerateRequest } from "@/lib/server/validate";
 import type { ModelInfo } from "@/lib/types";
@@ -46,15 +44,17 @@ export async function POST(request: Request) {
       req = { ...req, provider: first.provider, model: first.id };
     } catch (err) {
       return jsonError(
-        photos.length && maryxOnly() ? "MARYX пока не умеет обрабатывать фото — попробуйте позже." : describeAiError(err),
+        photos.length && maryxOnly()
+          ? `MARYX пока не умеет ${req.kind === "image" ? "обрабатывать" : "оживлять"} фото — попробуйте позже.`
+          : describeAiError(err),
         503,
       );
     }
   } else {
     if (photos.length) {
-      const { models: offered } = await listModels("image", { ownKey: key !== undefined });
+      const { models: offered } = await listModels(req.kind, { ownKey: key !== undefined });
       if (!offered.some((m) => m.provider === req.provider && m.id === req.model && m.photoEdit)) {
-        return jsonError("Эта модель не умеет обрабатывать фото — выберите другую.", 400);
+        return jsonError(`Эта модель не умеет ${req.kind === "image" ? "обрабатывать" : "оживлять"} фото — выберите другую.`, 400);
       }
     }
     models = [{ provider: req.provider, id: req.model, label: req.model, capability: req.kind, featured: false }];
@@ -76,37 +76,12 @@ export async function POST(request: Request) {
     return deniedResponse(user, req.kind, refused, { ownKey: await hasKey(), charge: paid });
   }
 
-  // The photos are kept with the item (shown as its source, deleted with it).
-  const inputs: StoredFile[] = [];
-  let row;
   try {
-    for (const photo of photos) {
-      const fileKey = newKey(user.id, "attachments", photo.mime);
-      await putFile(fileKey, Buffer.from(photo.data, "base64"), photo.mime);
-      inputs.push({ key: fileKey, mime: photo.mime });
-    }
-    row = await createMedia(user, req, paid, inputs);
+    return Response.json(
+      await startMediaJob(user, req, paid, models, { until: started + FALLBACK_WINDOW_MS, admin: isAdmin(user) }),
+    );
   } catch (err) {
-    await deleteFiles(inputs.map((f) => f.key)).catch(() => {});
-    await refundCharge(paid);
     if (err instanceof StorageUnavailableError) return storageUnavailable(user, err.message);
     throw err;
-  }
-
-  const call = { key: paid.key, endUser: endUserId(user.id) };
-  const admin = isAdmin(user);
-  const ask = photos.length ? { ...req, prompt: editPrompt(req.prompt) } : req;
-  try {
-    const attempt = await startWithFallback(ask, models, call, started + FALLBACK_WINDOW_MS);
-    row = await recordModel(row, attempt.model.provider, attempt.model.id);
-    if (attempt.error === undefined) return Response.json(await applyResult(row, attempt.result!, call, { admin }));
-    const detail = failureDetail(attempt);
-    console.error("[generate]", detail);
-    const error = describeAiError(attempt.error, attempt.model.provider, Boolean(paid.key));
-    return Response.json(await applyResult(row, { status: "failed", error }, call, { detail, admin }));
-  } catch (err) {
-    console.error("[generate]", req.provider, req.model, err);
-    const error = describeAiError(err, req.provider, Boolean(paid.key));
-    return Response.json(await applyResult(row, { status: "failed", error }, call, { admin }));
   }
 }

@@ -39,6 +39,10 @@ function onlyMaryx(all: ModelsResponse, capability: Capability | null): ModelsRe
     const photoEdit = all.models.some((m) => m.capability === "image" && m.photoEdit);
     models.push(photoEdit ? { ...MARYX_IMAGE_MODEL, photoEdit } : MARYX_IMAGE_MODEL);
   }
-  if ((!capability || capability === "video") && has("video")) models.push(MARYX_VIDEO_MODEL);
+  if ((!capability || capability === "video") && has("video")) {
+    // …and "animate a photo" when one of its video models starts from a photo.
+    const photoEdit = all.models.some((m) => m.capability === "video" && m.photoEdit);
+    models.push(photoEdit ? { ...MARYX_VIDEO_MODEL, photoEdit } : MARYX_VIDEO_MODEL);
+  }
   return { providers: [], models };
 }

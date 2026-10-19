@@ -1,4 +1,5 @@
 import { PROVIDERS } from "@/lib/catalog";
+import { CAMERA_MOTIONS } from "@/lib/effects";
 import type { AspectRatio, ChatSendRequest, GenerateRequest, InlineFile, InlineImage, ProviderId } from "@/lib/types";
 import { maryxOnly } from "./config";
 import { isDocumentMime } from "./documents";
@@ -32,7 +33,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 /** Returns the parsed request, or an error message for the client. */
 export function parseChatSendRequest(body: unknown): ChatSendRequest | string {
   if (!isObject(body)) return "Пустой запрос";
-  const { chatId, create, deepThinking, image, webSearch, message, answerId, replyTo } = body;
+  const { chatId, create, deepThinking, image, video, camera, webSearch, message, answerId, replyTo } = body;
   // Tabs opened before the rename to MARYX still say "nexus".
   const provider = body.provider === "nexus" ? "maryx" : body.provider;
   const model = body.model === "nexus" ? "maryx" : body.model;
@@ -43,6 +44,9 @@ export function parseChatSendRequest(body: unknown): ChatSendRequest | string {
   if (provider === "browser") return "Эта модель работает в браузере — обновите страницу";
   if (typeof model !== "string" || !model || model.length > 200) return "Не выбрана модель";
   if (maryxOnly() && (provider !== "maryx" || model !== "maryx")) return ONLY_MARYX;
+
+  if (image === true && video === true) return "Выберите что-то одно: картинку или видео";
+  if (camera !== undefined && (video !== true || !CAMERA_MOTIONS.some((m) => m.id === camera))) return "Неизвестное движение камеры";
 
   let assistantId: string | undefined;
   if (create !== undefined) {
@@ -89,6 +93,8 @@ export function parseChatSendRequest(body: unknown): ChatSendRequest | string {
     model,
     deepThinking: deepThinking === true,
     image: image === true,
+    video: video === true,
+    ...(typeof camera === "string" ? { camera } : {}),
     webSearch: webSearch === true,
     replyTo: replyTo as string | undefined,
     message: parsedMessage,
@@ -127,18 +133,19 @@ function parsePhotos(value: unknown): InlineImage[] | string {
 
 export function parseGenerateRequest(body: unknown): GenerateRequest | string {
   if (!isObject(body)) return "Пустой запрос";
-  const { kind, provider, model, prompt, aspectRatio, images } = body;
+  const { kind, provider, model, prompt, aspectRatio, images, camera } = body;
   if (kind !== "image" && kind !== "video") return "Неизвестный тип генерации";
   if (!isProvider(provider) || provider === "browser") return "Неизвестный провайдер";
   if (maryxOnly() && provider !== "maryx") return ONLY_MARYX;
   if (typeof model !== "string" || !model || model.length > 200) return "Не выбрана модель";
   const photos = images === undefined ? undefined : parsePhotos(images);
   if (typeof photos === "string") return photos;
-  if (photos && kind !== "image") return "Видео по фото пока недоступно";
+  if (photos && kind === "video" && photos.length > 1) return "Для видео нужно одно фото — с него начнётся ролик";
   // A photo can be edited without words (a natural retouch); a new picture needs a description.
   if (typeof prompt !== "string" || (!prompt.trim() && !photos)) return "Опишите, что нужно сгенерировать";
   if (prompt.length > 4000) return "Описание слишком длинное: до 4000 символов";
   if (typeof aspectRatio !== "string" || !ASPECT_RATIOS.has(aspectRatio)) return "Неверное соотношение сторон";
+  if (camera !== undefined && (kind !== "video" || !CAMERA_MOTIONS.some((m) => m.id === camera))) return "Неизвестное движение камеры";
   return {
     kind,
     provider,
@@ -146,5 +153,6 @@ export function parseGenerateRequest(body: unknown): GenerateRequest | string {
     prompt: prompt.trim(),
     aspectRatio: aspectRatio as AspectRatio,
     ...(photos ? { images: photos } : {}),
+    ...(typeof camera === "string" ? { camera } : {}),
   };
 }

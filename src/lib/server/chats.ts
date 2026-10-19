@@ -47,12 +47,13 @@ function toMessage(row: MessageRow): ChatMessage {
     reasoning: row.reasoning ?? undefined,
     attachments: row.attachments?.map((f) => ({ mime: f.mime, name: f.name, url: fileUrl(f.key) })),
     provider: masked ? "maryx" : (row.provider ?? undefined),
-    model: masked ? (drawn ? "maryx-image" : "maryx") : (row.model ?? undefined),
+    model: masked ? (row.mediaId ? "maryx-video" : drawn ? "maryx-image" : "maryx") : (row.model ?? undefined),
     error: row.error ? publicError(row.error) : undefined,
     notice: row.notice ? publicNotices(row.notice) : undefined,
     sources: row.sources ?? undefined,
     via: row.via ?? undefined,
     suggestions: row.suggestions ?? undefined,
+    mediaId: row.mediaId ?? undefined,
     createdAt: row.createdAt.getTime(),
   };
 }

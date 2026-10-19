@@ -38,7 +38,7 @@ export interface ModelInfo {
   local?: boolean;
   /** One-time download for a browser model, in MB. */
   downloadMB?: number;
-  /** Image models: can edit the user's own photo (takes it as a reference). */
+  /** Image models: can edit the user's own photo; video models: can animate it (as the first frame). */
   photoEdit?: boolean;
 }
 
@@ -109,10 +109,12 @@ export interface ChatMessage {
   via?: "maryx";
   /** Follow-up questions MARYX suggests after this answer. */
   suggestions?: string[];
+  /** A video answer: its gallery item, made in the background. */
+  mediaId?: string;
   /** Browser only: the server refused this message, so it was never saved. */
   unsent?: boolean;
-  /** Browser only: what the pending answer is busy with (drawing, searching). */
-  generating?: "image" | "search";
+  /** Browser only: what the pending answer is busy with (drawing, filming, searching). */
+  generating?: "image" | "video" | "search";
   /** Browser only: progress of a model running on this device (download, start). */
   status?: string;
   createdAt: number;
@@ -148,6 +150,10 @@ export interface SendOptions {
   deepThinking: boolean;
   /** Draw a picture instead of answering with text. */
   image?: boolean;
+  /** Make a video (from the words, or the attached photo) instead of answering with text. */
+  video?: boolean;
+  /** Video: how the camera moves (an id of CAMERA_MOTIONS). */
+  camera?: string;
   /** Let the model search the web. */
   webSearch?: boolean;
   /** Answer with this model in the browser (see client/local-ai.ts) instead of the server. */
@@ -164,6 +170,10 @@ export interface ChatSendRequest {
   deepThinking?: boolean;
   /** Draw a picture from the message instead of answering with text. */
   image?: boolean;
+  /** Make a video from the message (and its photo) instead of answering with text. */
+  video?: boolean;
+  /** Video: how the camera moves (an id of CAMERA_MOTIONS). */
+  camera?: string;
   /** Let the model search the web (models with `search`). */
   webSearch?: boolean;
   /** The new user message; omitted when regenerating the last answer. */
@@ -209,13 +219,17 @@ export type ChatStreamEvent =
    * MARYX picked a model (and maybe search or drawing) for this answer. With
    * `retry`, the previous model failed before answering and this one starts over.
    */
-  | { type: "route"; provider: ProviderId; model: string; search?: boolean; image?: boolean; retry?: boolean }
+  | { type: "route"; provider: ProviderId; model: string; search?: boolean; image?: boolean; video?: boolean; retry?: boolean }
   /** A better name for a new chat (may arrive after "done"). */
   | { type: "title"; title: string }
   /** Follow-up questions for the answer (may arrive after "done"). */
   | { type: "suggestions"; items: string[] }
   /** A picture drawn in the chat, and the image model that drew it. */
   | { type: "image"; url: string; mime: string; provider: ProviderId; model: string }
+  /** The picture a follow-up edit changes, put on the user's message by the server. */
+  | { type: "attached"; messageId: string; url: string; mime: string }
+  /** A video answer started: its gallery item, which the browser follows until it's ready. */
+  | { type: "media"; item: MediaItem }
   | { type: "error"; message: string }
   | { type: "done" }
   /** Tokens and cost of the call (server-side only, never sent to the browser). */
@@ -235,8 +249,10 @@ export interface GenerateRequest {
   aspectRatio: AspectRatio;
   /** Video length in seconds (providers round to what they support). */
   duration?: number;
-  /** Images only: the user's photos to edit, as the server received them. */
+  /** The user's photos, as the server received them: to edit (images), or the first frame (video, one). */
   images?: InlineImage[];
+  /** Video: how the camera moves (an id of CAMERA_MOTIONS). */
+  camera?: string;
 }
 
 export type MediaOutput =

@@ -92,8 +92,43 @@ export async function generate(req: GenerateRequest): Promise<void> {
   put(result);
 }
 
+/** A gallery item made outside the studio (a video answer in the chat): followed until it's ready. */
+export function track(item: MediaItem) {
+  put(item);
+}
+
+/** Items being loaded by id, and ones that are gone (deleted from the gallery). */
+const fetching = new Set<string>();
+const gone = new Set<string>();
+
+/**
+ * One gallery item by id (a chat's video answer), loaded once and followed
+ * until it's ready: undefined while loading, null once it was deleted.
+ */
+export function useMediaItem(id: string | undefined): MediaItem | null | undefined {
+  useEffect(() => {
+    if (!id || items.has(id) || gone.has(id) || fetching.has(id)) return;
+    fetching.add(id);
+    api<MediaItem>(`/api/media/${id}`)
+      .then(put, (e) => {
+        if (e instanceof ApiError && e.status === 404) {
+          gone.add(id);
+          emit();
+        }
+      })
+      .finally(() => fetching.delete(id));
+  }, [id]);
+  return useSyncExternalStore(
+    subscribe,
+    () => (id ? (items.get(id) ?? (gone.has(id) ? null : undefined)) : undefined),
+    () => undefined,
+  );
+}
+
 export async function removeMedia(id: string) {
   items.delete(id);
+  // A chat that shows it says it's gone.
+  gone.add(id);
   emit();
   if (!id.startsWith("tmp-")) await api(`/api/media/${id}`, { method: "DELETE" }).catch(console.error);
 }

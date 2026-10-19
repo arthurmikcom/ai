@@ -78,6 +78,13 @@
       "when": 1792359188279,
       "tag": "0010_media_photo_edit",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1792366998681,
+      "tag": "0011_chat_video",
+      "breakpoints": true
     }
   ]
 }

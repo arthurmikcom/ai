@@ -9,9 +9,12 @@ export type { OpenRouterCall };
 
 /** `call` applies to OpenRouter: the user's own key (BYOK) and their pseudonym. */
 export async function startGeneration(req: GenerateRequest, call: OpenRouterCall = {}): Promise<GenerateResult> {
-  // Only OpenRouter's image API takes the user's photo; the others would draw something new.
-  if (req.images?.length && !(req.provider === "openrouter" && req.kind === "image")) {
-    return { status: "failed", error: "Эта модель не умеет обрабатывать фото — выберите другую." };
+  // Only OpenRouter's media APIs take the user's photo; the others would make something new.
+  if (req.images?.length && req.provider !== "openrouter") {
+    return {
+      status: "failed",
+      error: req.kind === "image" ? "Эта модель не умеет обрабатывать фото — выберите другую." : "Эта модель не умеет оживлять фото — выберите другую.",
+    };
   }
   if (req.provider === "replicate") return startReplicate(req);
   if (req.provider === "google") {

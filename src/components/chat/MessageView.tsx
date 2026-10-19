@@ -3,6 +3,7 @@
 import {
   Brain,
   Check,
+  Clapperboard,
   ChevronDown,
   Copy,
   CornerDownRight,
@@ -11,15 +12,19 @@ import {
   Globe,
   Info,
   LoaderCircle,
+  Pencil,
   RefreshCw,
   Square,
   TriangleAlert,
   Volume2,
+  WandSparkles,
 } from "lucide-react";
+import { useMediaItem } from "@/lib/client/media";
 import { speak, stopSpeaking, useSpeaking, useVoiceSupport } from "@/lib/client/voice";
 import { isDocumentAttachment } from "@/lib/client/util";
 import Link from "next/link";
 import { useState } from "react";
+import { PHOTO_EFFECTS } from "@/lib/effects";
 import type { ChatMessage, ModelInfo } from "@/lib/types";
 import { Markdown } from "./Markdown";
 import { BrandMark } from "../Design";
@@ -34,6 +39,75 @@ interface Props {
   onSuggest?: (text: string) => void;
   /** Only MARYX is offered: answers don't name the model behind it. */
   maryxOnly?: boolean;
+  /** Change a picture of this answer: with `prompt` right away (an effect), else in the composer. */
+  onEditPicture?: (src: string, prompt?: string) => void;
+  /** Bring a picture of this answer to life: a video that starts from it. */
+  onAnimatePicture?: (src: string) => void;
+}
+
+const CHIP =
+  "flex items-center gap-1.5 rounded-xl border border-violet-300/15 bg-violet-300/[0.04] px-3 py-1.5 text-sm text-zinc-300 transition hover:border-violet-300/40 hover:text-zinc-50";
+
+/**
+ * Under a picture in the chat: change it in words, with a one-click effect
+ * (Nano Banana style), or bring it to life as a video.
+ */
+function PictureActions({
+  src,
+  onEdit,
+  onAnimate,
+}: {
+  src: string;
+  onEdit?: (src: string, prompt?: string) => void;
+  onAnimate?: (src: string) => void;
+}) {
+  const [effects, setEffects] = useState(false);
+  return (
+    <div className="mb-3">
+      <div className="flex flex-wrap gap-2">
+        {onEdit && (
+          <button type="button" onClick={() => onEdit(src)} title="Написать, что изменить на картинке" className={CHIP}>
+            <Pencil className="size-3.5 text-violet-300" /> Изменить
+          </button>
+        )}
+        {onAnimate && (
+          <button type="button" onClick={() => onAnimate(src)} title="Сделать из картинки видео" className={CHIP}>
+            <Clapperboard className="size-3.5 text-violet-300" /> Оживить
+          </button>
+        )}
+        {onEdit && (
+          <button
+            type="button"
+            onClick={() => setEffects((open) => !open)}
+            aria-expanded={effects}
+            title="Готовые эффекты в один клик"
+            className={CHIP}
+          >
+            <WandSparkles className="size-3.5 text-violet-300" /> Эффекты
+            <ChevronDown className={`size-3.5 transition ${effects ? "rotate-180" : ""}`} />
+          </button>
+        )}
+      </div>
+      {effects && onEdit && (
+        <div role="group" aria-label="Эффекты" className="mt-2 flex flex-wrap gap-1.5">
+          {PHOTO_EFFECTS.map((e) => (
+            <button
+              key={e.id}
+              type="button"
+              title={e.prompt}
+              onClick={() => {
+                setEffects(false);
+                onEdit(src, e.prompt);
+              }}
+              className="rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1 text-xs text-zinc-300 transition hover:border-violet-300/40 hover:text-zinc-50"
+            >
+              <span aria-hidden="true">{e.emoji}</span> {e.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function Reasoning({ text, active }: { text: string; active: boolean }) {
@@ -58,7 +132,82 @@ function Reasoning({ text, active }: { text: string; active: boolean }) {
   );
 }
 
-export function MessageView({ message, models, streaming, isLast, onRegenerate, onSuggest, maryxOnly }: Props) {
+/**
+ * A video answer: its progress while the clip is made in the background,
+ * then the clip (also in the video studio). `failed`: the answer already says why.
+ */
+function ChatVideo({ id, text, failed }: { id: string; text: string; failed: boolean }) {
+  const item = useMediaItem(id);
+  if (item === null) return <p className="text-sm text-zinc-500">Видео удалено из галереи.</p>;
+  if (item?.status === "failed") {
+    return failed ? null : (
+      <div className="mt-2 flex items-start gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+        <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+        <span>{item.error ?? "Не удалось снять видео. Попробуйте ещё раз."}</span>
+      </div>
+    );
+  }
+  const file = item?.status === "succeeded" ? item.files[0] : undefined;
+  if (file) {
+    return (
+      <div className="mb-3">
+        <p className="mb-3 text-[15px] text-zinc-100">Готово! Вот ваше видео.</p>
+        <div className="group/video relative inline-block max-w-full">
+          <video
+            src={file.url}
+            controls
+            playsInline
+            preload="metadata"
+            className="max-h-[28rem] max-w-full rounded-2xl border border-white/10 bg-black"
+          />
+          <a
+            href={file.url}
+            download
+            title="Скачать"
+            className="absolute right-2 top-2 rounded-lg bg-black/60 p-1.5 text-zinc-200 opacity-100 backdrop-blur hover:text-white md:opacity-0 md:group-hover/video:opacity-100"
+          >
+            <Download className="size-4" />
+          </a>
+        </div>
+      </div>
+    );
+  }
+  const source = item?.inputs?.[0]?.url;
+  return (
+    <div className="mb-3">
+      {text && <p className="mb-3 text-[15px] text-zinc-300">{text}</p>}
+      <div
+        role="status"
+        className={`relative flex w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl border border-violet-300/15 bg-violet-300/[0.04] text-sm text-zinc-300 ${
+          item?.aspectRatio === "9:16" ? "aspect-[9/16] max-w-60" : "aspect-video max-w-md"
+        }`}
+      >
+        {source && (
+          // eslint-disable-next-line @next/next/no-img-element -- our own stored file
+          <img src={source} alt="" className="absolute inset-0 size-full object-cover opacity-25 blur-[1px]" />
+        )}
+        <LoaderCircle className="relative size-6 animate-spin text-violet-300" />
+        <span className="relative">
+          {source ? "Оживляю фото…" : "Снимаю видео…"}
+          {item?.progress ? ` ${item.progress}%` : ""}
+        </span>
+        <span className="relative text-xs text-zinc-500">Обычно 1–5 минут</span>
+      </div>
+    </div>
+  );
+}
+
+export function MessageView({
+  message,
+  models,
+  streaming,
+  isLast,
+  onRegenerate,
+  onSuggest,
+  maryxOnly,
+  onEditPicture,
+  onAnimatePicture,
+}: Props) {
   const [copied, setCopied] = useState(false);
   const speaking = useSpeaking() === message.id;
   const canSpeak = useVoiceSupport()?.speak ?? false;
@@ -126,7 +275,11 @@ export function MessageView({ message, models, streaming, isLast, onRegenerate, 
     ? undefined
     : (models.find((m) => m.provider === message.provider && m.id === message.model)?.label ?? message.model);
   const drawing = streaming && message.generating === "image" && !message.attachments?.length;
-  const waiting = streaming && !drawing && !message.content && !message.reasoning;
+  // The picture this answer drew (or edited), which can be changed further.
+  const picture = message.attachments?.find((a) => a.mime.startsWith("image/") && a.url)?.url;
+  // A video answer starting (the clip itself is made in the background).
+  const filming = streaming && message.generating === "video" && !message.mediaId;
+  const waiting = streaming && !drawing && !filming && !message.content && !message.reasoning;
 
   const copy = async () => {
     await navigator.clipboard.writeText(message.content);
@@ -174,6 +327,15 @@ export function MessageView({ message, models, streaming, isLast, onRegenerate, 
         </div>
       )}
 
+      {filming && (
+        <div className="flex aspect-video w-full max-w-md flex-col items-center justify-center gap-3 rounded-2xl border border-violet-300/15 bg-violet-300/[0.04] text-sm text-zinc-400">
+          <LoaderCircle className="size-6 animate-spin text-violet-300" />
+          Запускаю съёмку…
+        </div>
+      )}
+
+      {message.mediaId && <ChatVideo id={message.mediaId} text={message.content} failed={Boolean(message.error)} />}
+
       {drawing && (
         <div className="flex aspect-square w-full max-w-sm flex-col items-center justify-center gap-3 rounded-2xl border border-violet-300/15 bg-violet-300/[0.04] text-sm text-zinc-400">
           <LoaderCircle className="size-6 animate-spin text-violet-300" />
@@ -209,7 +371,11 @@ export function MessageView({ message, models, streaming, isLast, onRegenerate, 
         </div>
       )}
 
-      {message.content && <Markdown text={message.content} />}
+      {!streaming && (onEditPicture || onAnimatePicture) && picture && (
+        <PictureActions src={picture} onEdit={onEditPicture} onAnimate={onAnimatePicture} />
+      )}
+
+      {message.content && !message.mediaId && <Markdown text={message.content} />}
 
       {message.sources && message.sources.length > 0 && (
         <div className="mt-4">

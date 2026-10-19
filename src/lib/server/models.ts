@@ -24,7 +24,7 @@ interface LiveModel {
   capability?: Capability;
   vision?: boolean;
   reasoning?: boolean;
-  /** Image models: takes a reference photo to edit. */
+  /** Image models: takes a reference photo to edit; video models: starts from the user's photo. */
   photoEdit?: boolean;
 }
 
@@ -37,6 +37,10 @@ interface OpenRouterModel {
   /** USD per token, as strings. */
   pricing?: { prompt?: string; completion?: string };
   top_provider?: { max_completion_tokens?: number | null };
+  /** Video models: what the model takes (/videos/models). */
+  supported_aspect_ratios?: unknown;
+  supported_durations?: unknown;
+  supported_frame_images?: unknown;
   reasoning?: {
     mandatory?: boolean;
     default_enabled?: boolean;
@@ -54,6 +58,23 @@ const RETRY_FAILED_MS = 30_000;
 const cache = new Map<string, { at: number; models: Promise<LiveModel[] | null>; last?: LiveModel[] }>();
 /** What each OpenRouter image model accepts (its supported_parameters), from the last image list. */
 const imageParams = new Map<string, Record<string, unknown>>();
+
+/** What an OpenRouter video model takes, from the last video list; a list left out is unknown. */
+export interface VideoCaps {
+  aspectRatios?: string[];
+  durations?: number[];
+  /** "first_frame", "last_frame": which frames it can start (or end) from. */
+  frameImages?: string[];
+}
+const videoCaps = new Map<string, VideoCaps>();
+
+/** What an OpenRouter video model takes, or undefined before the list has loaded. */
+export function openRouterVideoCaps(id: string): VideoCaps | undefined {
+  return videoCaps.get(id);
+}
+
+const listOf = <T>(value: unknown, type: "string" | "number"): T[] | undefined =>
+  Array.isArray(value) ? (value.filter((v) => typeof v === type) as T[]) : undefined;
 
 /**
  * The parameters an OpenRouter image model accepts, e.g. { aspect_ratio:
@@ -116,6 +137,18 @@ async function openRouterList(capability: Capability): Promise<LiveModel[]> {
       if (typeof m.id === "string" && params) imageParams.set(m.id, params);
     }
   }
+  // The video list names what each model takes: { supported_aspect_ratios: ["16:9", …], … }.
+  const frames = (m: OpenRouterModel) => listOf<string>(m.supported_frame_images, "string");
+  if (capability === "video") {
+    for (const m of data ?? []) {
+      if (typeof m.id !== "string") continue;
+      videoCaps.set(m.id, {
+        aspectRatios: listOf<string>(m.supported_aspect_ratios, "string"),
+        durations: listOf<number>(m.supported_durations, "number"),
+        frameImages: frames(m),
+      });
+    }
+  }
   return (data ?? [])
     // "~…-latest" aliases duplicate real models; ":batch" ids are for the Batch API.
     .filter((m) => typeof m.id === "string" && !m.id.startsWith("~") && !m.id.endsWith(":batch"))
@@ -128,6 +161,9 @@ async function openRouterList(capability: Capability): Promise<LiveModel[]> {
       // Unknown when the list doesn't describe the model's inputs.
       ...(capability === "image" && (m.architecture?.input_modalities || described(m))
         ? { photoEdit: Boolean(m.architecture?.input_modalities?.includes("image") || "input_references" in (described(m) ?? {})) }
+        : {}),
+      ...(capability === "video" && Array.isArray(m.supported_frame_images)
+        ? { photoEdit: m.supported_frame_images.includes("first_frame") }
         : {}),
     }));
 }
@@ -260,8 +296,8 @@ function liveModelInfo(provider: ProviderId, capability: Capability, m: LiveMode
     capability,
     featured: false,
     vision: provider === "anthropic" || provider === "google" || selfHostedVision ? true : m.vision,
-    // Only OpenRouter's image API takes the user's photo (our other image adapters can't yet).
-    ...(provider === "openrouter" && capability === "image" && m.photoEdit ? { photoEdit: true } : {}),
+    // Only OpenRouter's media APIs take the user's photo (our other media adapters can't yet).
+    ...(provider === "openrouter" && capability !== "chat" && m.photoEdit ? { photoEdit: true } : {}),
     reasoning:
       m.reasoning ||
       (provider === "anthropic" && ADAPTIVE_THINKING.test(id)) ||
@@ -287,7 +323,7 @@ async function modelsFor(provider: ProviderId, capability: Capability, ownKey: b
   if (live === null) return featured;
 
   const byId = new Map(live.map((m) => [m.id, m]));
-  // A featured image model takes photos when OpenRouter's list says so (the catalog is the guess).
+  // A featured media model takes photos when OpenRouter's list says so (the catalog is the guess).
   const result = featured
     .filter((m) => byId.has(m.id))
     .map((m) => {

@@ -13,6 +13,7 @@ import {
 } from "react";
 import { api, ApiError, errorOf } from "@/lib/client/api";
 import { authClient } from "@/lib/client/auth";
+import { track } from "@/lib/client/media";
 import { useStoredJson } from "@/lib/client/useStored";
 import { buildMessages, generateLocal, localSupport, localSystemPrompt, personalInstructions } from "@/lib/client/local-ai";
 import { readNdjson, uid } from "@/lib/client/util";
@@ -378,6 +379,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           model: chat.model,
           deepThinking: options.deepThinking,
           image: options.image,
+          video: options.video,
+          camera: options.video ? options.camera : undefined,
           webSearch: options.webSearch,
           message: message && {
             id: message.id,
@@ -415,6 +418,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
             patchMessage(chatId, answerId, { suggestions: event.items });
             continue;
           }
+          if (event.type === "attached") {
+            patchMessage(chatId, event.messageId, { attachments: [{ url: event.url, mime: event.mime }] });
+            continue;
+          }
           if (finished) continue;
           if (event.type === "done") {
             flush(true);
@@ -440,12 +447,17 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
             patchMessage(chatId, answerId, {
               via: "maryx",
               ...drawnBy,
-              generating: event.image ? "image" : event.search ? "search" : undefined,
+              generating: event.image ? "image" : event.video ? "video" : event.search ? "search" : undefined,
             });
           }
           else if (event.type === "image") {
             images.push({ url: event.url, mime: event.mime });
             drawnBy = { provider: event.provider, model: event.model };
+          }
+          else if (event.type === "media") {
+            // A video answer: the gallery item is followed until the clip is ready (here and in the studio).
+            track(event.item);
+            patchMessage(chatId, answerId, { mediaId: event.item.id });
           }
           else if (event.type === "error") {
             // The answer failed, but a chat title may still follow.

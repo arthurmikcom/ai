@@ -1,7 +1,15 @@
 import { and, eq } from "drizzle-orm";
 import { after } from "next/server";
 import { streamChat } from "@/lib/server/chat";
-import { canDrawInChat, chatImageModel, generateChatImage, maryxMediaModels } from "@/lib/server/chat/image";
+import { isAdmin, type SessionUser } from "@/lib/server/auth";
+import {
+  canDrawInChat,
+  canFilmInChat,
+  chatImageModel,
+  generateChatImage,
+  maryxMediaModel,
+  maryxMediaModels,
+} from "@/lib/server/chat/image";
 import { chatMessages, findAssistant, findChat, storedKeys, titleFrom } from "@/lib/server/chats";
 import { getDb, schema } from "@/lib/server/db";
 import type { StoredFile } from "@/lib/server/db/schema";
@@ -9,6 +17,7 @@ import { describeAiError, maryxOnly, publicNotice } from "@/lib/server/brand";
 import { StorageUnavailableError, statusOf } from "@/lib/server/errors";
 import { loadOpenRouterChatModels } from "@/lib/server/models";
 import { jsonError, requireUser, storageUnavailable } from "@/lib/server/http";
+import { startMediaJob } from "@/lib/server/media-job";
 import {
   DocumentError,
   DocumentLimitError,
@@ -30,7 +39,10 @@ import {
   suggestTitle,
   userPrefs,
   wantsImage,
+  wantsAnimate,
+  wantsFollowUpEdit,
   wantsImageEdit,
+  wantsVideo,
   type MaryxPlan,
 } from "@/lib/server/maryx";
 import { endUserId, ownKey, ownKeyInfo } from "@/lib/server/own-key";
@@ -46,7 +58,20 @@ import {
   type Denial,
 } from "@/lib/server/usage";
 import { parseChatSendRequest } from "@/lib/server/validate";
-import type { ChatRequest, ChatStreamEvent, ChatUsage, InlineImage, ModelInfo, ProviderId, Source, UsageKind } from "@/lib/types";
+import type {
+  AspectRatio,
+  ChatRequest,
+  ChatStreamEvent,
+  ChatUsage,
+  InlineFile,
+  InlineImage,
+  MediaItem,
+  MediaKind,
+  ModelInfo,
+  ProviderId,
+  Source,
+  UsageKind,
+} from "@/lib/types";
 
 // Long answers from reasoning models can take several minutes.
 export const maxDuration = 300;
@@ -65,6 +90,9 @@ const HISTORY_BUDGET = 60_000;
 
 /** Pictures sent again from earlier turns; older ones are mentioned in words. */
 const HISTORY_IMAGES = 4;
+
+/** A video answer tries MARYX's next model only this soon (starting a clip is quick; making it is in the background). */
+const VIDEO_FALLBACK_WINDOW_MS = 60_000;
 
 /** MARYX tries a fallback model only this soon after starting (maxDuration is 300 s). */
 const FALLBACK_WINDOW_MS = 90_000;
@@ -111,42 +139,70 @@ export async function POST(request: Request) {
 
   const maryx = req.provider === "maryx";
   // With their own OpenRouter key, the user's OpenRouter requests (MARYX picks only those) go out with it.
-  const key = req.provider === "openrouter" || maryx || req.image ? await ownKey(user.id) : undefined;
+  const key = req.provider === "openrouter" || maryx || req.image || req.video ? await ownKey(user.id) : undefined;
+  const text = req.message?.content ?? "";
+  // "Оживи фото": a video that starts from the picture (attached, or the one just made).
+  const animate = req.message !== undefined && wantsAnimate(text);
+  const videoWords = (maryx || req.video) && !req.image && (animate || wantsVideo(text));
+  // Nano Banana style: right after a picture, "сделай фон синим" edits that picture and "оживи" brings it to
+  // life. It goes along as the message's own photo (and is stored with it), so making the answer again uses it.
+  const focus =
+    chat && req.message && !req.message.attachments?.length &&
+    (videoWords ? animate : (maryx || req.image) && !req.video && wantsFollowUpEdit(text))
+      ? await pictureInFocus(chat.id)
+      : null;
+  const followUp =
+    focus !== null && (videoWords ? await canFilmInChat(Boolean(key), true) : await canDrawInChat(Boolean(key), true));
+  if (followUp && focus && req.message) req.message.attachments = [focus];
+  // Photos of the new message: what gets edited (or, for a video, its first frame).
+  const newPhotos = (req.message?.attachments ?? []).filter((a) => a.mime.startsWith("image/"));
+  // MARYX makes a video by itself when asked to ("сними видео…", or "оживи" with a picture to animate).
+  const autoFilm =
+    maryx &&
+    !req.image &&
+    !req.video &&
+    videoWords &&
+    (!animate || newPhotos.length > 0) &&
+    (await canFilmInChat(Boolean(key), newPhotos.length > 0));
+  const film = req.video || autoFilm;
   // MARYX draws by itself when asked to ("нарисуй…", no files attached) and an image model is set up.
   const autoDraw =
     maryx &&
+    !film &&
     !req.image &&
     req.message !== undefined &&
     !req.message.attachments?.length &&
-    wantsImage(req.message.content) &&
+    wantsImage(text) &&
     (await canDrawInChat(Boolean(key)));
-  // Photos of the new message: in "Картинка" mode (or when asked to edit them) they are what gets edited.
-  const newPhotos = (req.message?.attachments ?? []).filter((a) => a.mime.startsWith("image/"));
   // MARYX edits the attached photo by itself when asked to ("обработай фото", "убери фон"), with no documents along.
   const autoEdit =
     maryx &&
+    !film &&
     !req.image &&
     req.message !== undefined &&
     newPhotos.length > 0 &&
     newPhotos.length === req.message.attachments?.length &&
-    wantsImageEdit(req.message.content) &&
-    (await canDrawInChat(Boolean(key), true));
-  // Drawn again (no new message): an edit when the asked message carries photos, so the right model's price is held.
-  const editing =
-    autoEdit || (req.image && (req.message ? newPhotos.length > 0 : chat ? await askedHasPhotos(chat.id) : false));
+    (followUp || (wantsImageEdit(text) && (await canDrawInChat(Boolean(key), true))));
+  // Made again (no new message): from the asked message's photos when it carries some, so the right model's price is held.
+  const withPhotos = req.message
+    ? newPhotos.length > 0
+    : (req.image || film) && chat
+      ? await askedHasPhotos(chat.id)
+      : false;
+  const editing = autoEdit || (Boolean(req.image) && withPhotos);
   const refuse = async (k: UsageKind, denied: Denial, c?: Charge) =>
     deniedResponse(user, k, denied, { ownKey: key !== undefined || Boolean(await ownKeyInfo(user.id)), charge: c });
-  // A picture's price is known up front, so it is held against budgets and credits right away.
-  const chargeDrawing = async (): Promise<Charge | { denied: Denial; charge?: Charge }> => {
-    const c = await charge(user, "image", key);
+  // A picture's (or clip's) price is known up front, so it is held against budgets and credits right away.
+  const chargeMedia = async (k: MediaKind, photos: boolean): Promise<Charge | { denied: Denial; charge?: Charge }> => {
+    const c = await charge(user, k, key);
     if ("denied" in c) return c;
     let refused: Denial | null;
     try {
-      // With no image model set up, drawInChat says so (and refunds); hold a typical picture meanwhile.
-      const picked = await chatImageModel(Boolean(c.key), editing).catch(() => null);
-      refused = await reserve(c, mediaCost("image", picked?.id ?? ""), {
+      // With no model set up, the answer says so (and refunds); hold a typical price meanwhile.
+      const picked = await maryxMediaModel(k, Boolean(c.key), photos).catch(() => null);
+      refused = await reserve(c, mediaCost(k, picked?.id ?? ""), {
         provider: picked?.provider ?? "openrouter",
-        model: picked?.id ?? "image",
+        model: picked?.id ?? k,
       });
     } catch (err) {
       await refundCharge(c);
@@ -156,13 +212,18 @@ export async function POST(request: Request) {
     await refundCharge(c);
     return { denied: refused, charge: c };
   };
-  let draw = req.image || autoDraw || autoEdit;
-  // A picture drawn in the chat counts toward the image limit, not messages.
-  let kind: UsageKind = draw ? "image" : "chat";
-  let paid = draw ? await chargeDrawing() : await charge(user, "chat", key);
+  let draw = !film && (req.image || autoDraw || autoEdit);
+  // A picture (or clip) made in the chat counts toward the image (video) limit, not messages.
+  let kind: UsageKind = film ? "video" : draw ? "image" : "chat";
+  let paid = film
+    ? await chargeMedia("video", withPhotos)
+    : draw
+      ? await chargeMedia("image", editing)
+      : await charge(user, "chat", key);
   if ("denied" in paid) {
     // MARYX chose to draw (or edit) on its own: with no pictures left today, answer in words.
-    if (!autoDraw && !autoEdit) return refuse(kind, paid.denied, (paid as { charge?: Charge }).charge);
+    // A video isn't something words can stand in for: the user is told why (and about plans).
+    if (film || (!autoDraw && !autoEdit)) return refuse(kind, paid.denied, (paid as { charge?: Charge }).charge);
     paid = await charge(user, "chat", key);
     if ("denied" in paid) return refuse("chat", paid.denied);
     draw = false;
@@ -288,14 +349,28 @@ export async function POST(request: Request) {
       return jsonError("Нечего отправлять: последнее сообщение не от пользователя", 400);
     }
 
-    if (draw) {
+    if (draw || film) {
       await commitReplace();
       const asked = rows[rows.length - 1];
-      // The photos to edit: the new message's, or (when an edit is drawn again) the stored ones.
+      // The photos to edit (or animate): the new message's, or (when made again) the stored ones.
       const photos = req.message
         ? newPhotos.map(({ mime, data }) => ({ mime, data }))
         : await storedPhotos(asked.attachments);
-      return drawInChat(request, bill, chatId, req.answerId, asked.content, maryx ? "maryx" : undefined, photos);
+      // A follow-up: the browser shows the picture being changed (or animated) on the user's message.
+      const attached =
+        followUp && req.message && stored[0]
+          ? { type: "attached" as const, messageId: req.message.id, url: fileUrl(stored[0].key), mime: stored[0].mime }
+          : undefined;
+      const via = maryx ? ("maryx" as const) : undefined;
+      if (film) {
+        return filmInChat(request, user, bill, chatId, req.answerId, asked.content, photos.slice(0, 1), {
+          via,
+          camera: req.camera,
+          attached,
+          until: requestStarted + VIDEO_FALLBACK_WINDOW_MS,
+        });
+      }
+      return drawInChat(request, bill, chatId, req.answerId, asked.content, via, photos, attached);
     }
 
     // Images of the new message are already in memory; older ones are re-read.
@@ -761,8 +836,8 @@ export async function POST(request: Request) {
  * The model the browser is told answered: the real one, or in MARYX-only mode
  * MARYX itself (the real one is still stored, for routing and costs).
  */
-function shown(provider: ProviderId, model: string, drawing = false): { provider: ProviderId; model: string } {
-  return maryxOnly() ? { provider: "maryx", model: drawing ? "maryx-image" : "maryx" } : { provider, model };
+function shown(provider: ProviderId, model: string, media?: MediaKind): { provider: ProviderId; model: string } {
+  return maryxOnly() ? { provider: "maryx", model: media ? `maryx-${media}` : "maryx" } : { provider, model };
 }
 
 /**
@@ -808,6 +883,24 @@ function ndjson(body: ReadableStream<Uint8Array>): Response {
   });
 }
 
+/** Images that can be edited (what the image models take). */
+const EDITABLE = /^image\/(jpeg|png|webp)$/;
+
+/**
+ * The picture a follow-up edit is about: the one the last answer drew (or
+ * edited), else the photo the last question was about. Null when the chat
+ * has moved on (the last answer has no picture and its question no photo).
+ */
+async function pictureInFocus(chatId: string): Promise<InlineFile | null> {
+  const rows = await chatMessages(chatId);
+  const answer = rows[rows.length - 1];
+  if (answer?.role !== "assistant") return null;
+  const asked = rows[rows.length - 2];
+  const file = [answer, asked].flatMap((m) => (m?.attachments ?? []).filter((f) => EDITABLE.test(f.mime)))[0];
+  const data = file ? await readFileBase64(file.key) : null;
+  return file && data ? { mime: file.mime, data, name: "Картинка для правки" } : null;
+}
+
 /** Whether the user's last message carries photos (drawing its answer again edits them). */
 async function askedHasPhotos(chatId: string): Promise<boolean> {
   const asked = (await chatMessages(chatId)).findLast((m) => m.role === "user");
@@ -824,6 +917,137 @@ async function storedPhotos(files: StoredFile[] | null | undefined): Promise<Inl
   return photos;
 }
 
+/** Video answers for vertical formats ("для сторис", "вертикальное") come out 9:16. */
+const VERTICAL = /(вертикальн|сторис|stories|reels|рилс|тикток|tiktok|shorts|шортс)/i;
+
+/**
+ * Video mode: starts a clip from the last user message (with its photo as the
+ * first frame) as a gallery item, and stores the answer pointing at it. The
+ * clip is made in the background (also when the user leaves); the browser
+ * follows the item until it's ready, here and in the video studio.
+ */
+function filmInChat(
+  request: Request,
+  user: SessionUser,
+  bill: Charge,
+  chatId: string,
+  answerId: string,
+  prompt: string,
+  photos: InlineImage[],
+  opts: { via?: "maryx"; camera?: string; attached?: Extract<ChatStreamEvent, { type: "attached" }>; until: number },
+): Response {
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (event: ChatStreamEvent) => {
+        try {
+          controller.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
+        } catch {
+          // The client went away; the answer is still saved below.
+        }
+      };
+      const db = await getDb();
+      let model: ModelInfo | undefined;
+      let item: MediaItem | undefined;
+      let text = "";
+      let error: string | undefined;
+      // Once the job is handed the charge, the gallery item settles (or refunds) it.
+      let handed = false;
+      if (opts.attached) send(opts.attached);
+      try {
+        const withPhoto = photos.length > 0;
+        if (!withPhoto && !prompt.trim()) throw new Error("Опишите видео словами — или прикрепите фото, чтобы его оживить.");
+        // Says what to set up when no model can make it.
+        const first = await maryxMediaModel("video", Boolean(bill.key), withPhoto);
+        const models = await maryxMediaModels("video", Boolean(bill.key), withPhoto);
+        model = first;
+        if (opts.via) send({ type: "route", ...shown(first.provider, first.id, "video"), video: true });
+        const aspectRatio = withPhoto ? photoRatio(photos[0]) : VERTICAL.test(prompt) ? "9:16" : "16:9";
+        handed = true;
+        item = await startMediaJob(
+          user,
+          {
+            kind: "video",
+            provider: first.provider,
+            model: first.id,
+            prompt,
+            aspectRatio,
+            ...(withPhoto ? { images: photos } : {}),
+            ...(opts.camera ? { camera: opts.camera } : {}),
+          },
+          bill,
+          models.length ? models : [first],
+          { until: opts.until, admin: isAdmin(user) },
+        );
+        send({ type: "media", item });
+        if (item.status === "failed") error = item.error ?? "Не удалось снять видео. Попробуйте ещё раз.";
+        else {
+          text = withPhoto
+            ? "Оживляю фото — это займёт 1–5 минут. Можно уйти со страницы: видео появится здесь и в разделе «Видео»."
+            : "Снимаю видео — это займёт 1–5 минут. Можно уйти со страницы: видео появится здесь и в разделе «Видео».";
+          send({ type: "text", text });
+        }
+      } catch (err) {
+        // Nothing started: the charge goes back (the job refunds itself when it couldn't store the photo).
+        if (!handed) await refundCharge(bill);
+        console.error("[chat:video]", model?.provider, model?.id, err);
+        error = describeAiError(err, model?.provider, Boolean(bill.key));
+      } finally {
+        try {
+          await db.insert(schema.message).values({
+            id: answerId,
+            chatId,
+            role: "assistant",
+            content: text,
+            error: error ?? null,
+            mediaId: item?.id ?? null,
+            provider: model?.provider ?? null,
+            model: model?.id ?? null,
+            via: opts.via ?? null,
+          });
+          await db.update(schema.chat).set({ updatedAt: new Date() }).where(eq(schema.chat.id, chatId));
+        } catch (err) {
+          console.error("[chat:video] failed to save the answer", err);
+        }
+        if (error) send({ type: "error", message: error });
+        else if (!request.signal.aborted) send({ type: "done" });
+        try {
+          controller.close();
+        } catch {
+          // already closed
+        }
+      }
+    },
+  });
+  return ndjson(body);
+}
+
+/** The video shape closest to a photo's own (read from its JPEG, PNG or WebP header). */
+function photoRatio(photo: InlineImage): AspectRatio {
+  const size = imageSize(Buffer.from(photo.data.slice(0, 200_000), "base64"));
+  return size && size.height > size.width ? "9:16" : "16:9";
+}
+
+function imageSize(b: Buffer): { width: number; height: number } | null {
+  // PNG: the IHDR chunk comes first.
+  if (b.length >= 24 && b.readUInt32BE(0) === 0x89504e47) return { width: b.readUInt32BE(16), height: b.readUInt32BE(20) };
+  // WebP (lossy "VP8 "): the frame size follows its start code.
+  if (b.length >= 30 && b.toString("latin1", 0, 4) === "RIFF" && b.toString("latin1", 12, 16) === "VP8 ") {
+    return { width: b.readUInt16LE(26) & 0x3fff, height: b.readUInt16LE(28) & 0x3fff };
+  }
+  // JPEG: the first start-of-frame marker holds it.
+  if (b.length < 4 || b[0] !== 0xff || b[1] !== 0xd8) return null;
+  for (let i = 2; i + 9 < b.length; ) {
+    if (b[i] !== 0xff) return null;
+    const marker = b[i + 1];
+    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+      return { height: b.readUInt16BE(i + 5), width: b.readUInt16BE(i + 7) };
+    }
+    i += 2 + b.readUInt16BE(i + 2);
+  }
+  return null;
+}
+
 /**
  * Image mode: draws a picture from the last user message (or edits the
  * `photos` attached to it) and stores it as the answer. Streams the same
@@ -837,6 +1061,7 @@ function drawInChat(
   prompt: string,
   via?: "maryx",
   photos: InlineImage[] = [],
+  attached?: Extract<ChatStreamEvent, { type: "attached" }>,
 ): Response {
   const userId = bill.userId;
   const encoder = new TextEncoder();
@@ -860,6 +1085,7 @@ function drawInChat(
       let notice: string | undefined;
       // Which model made (or last tried) the picture, also when it fails.
       const tried: { model?: ModelInfo } = {};
+      if (attached) send(attached);
       try {
         const editing = photos.length > 0;
         // A picture needs a description (an attached photo can be edited without one).
@@ -867,7 +1093,7 @@ function drawInChat(
         // Says what to set up when no model can draw (or edit photos).
         const picked = await chatImageModel(Boolean(bill.key), editing);
         model = picked;
-        if (via) send({ type: "route", ...shown(picked.provider, picked.id, true), image: true });
+        if (via) send({ type: "route", ...shown(picked.provider, picked.id, "image"), image: true });
         const models = await maryxMediaModels("image", Boolean(bill.key), editing);
         let made: ModelInfo;
         ({ files, cost, model: made } = await generateChatImage(
@@ -881,7 +1107,7 @@ function drawInChat(
         ));
         model = made;
         for (const f of files) {
-          send({ type: "image", url: fileUrl(f.key), mime: f.mime, ...shown(made.provider, made.id, true) });
+          send({ type: "image", url: fileUrl(f.key), mime: f.mime, ...shown(made.provider, made.id, "image") });
         }
         text = editing ? "Готово! Вот обработанное фото." : "Готово! Вот что получилось.";
         send({ type: "text", text });

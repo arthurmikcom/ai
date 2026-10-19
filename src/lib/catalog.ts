@@ -226,13 +226,14 @@ const OPENROUTER_IMAGE = viaOpenRouter("image", [
   { id: "qwen/qwen-image-3-pro", label: "Qwen Image 3 Pro", description: "Лучшее качество от Qwen", photoEdit: true },
 ]);
 
+// photoEdit: each starts a clip from the user's photo (until OpenRouter's live list says otherwise).
 const OPENROUTER_VIDEO = viaOpenRouter("video", [
-  { id: "bytedance/seedance-2.0-fast", label: "Seedance 2.0 Fast", description: "Быстро и недорого" },
-  { id: "google/veo-3.1-fast", label: "Veo 3.1 Fast", description: "Кинематографичное видео со звуком, быстрее", upstream: "google" },
-  { id: "google/veo-3.1", label: "Veo 3.1", description: "Лучшее качество от Google, со звуком", upstream: "google" },
-  { id: "kwaivgi/kling-v3.0-std", label: "Kling 3.0", description: "Реалистичное движение" },
-  { id: "minimax/hailuo-3", label: "Hailuo 3", description: "Хорошая физика движения" },
-  { id: "alibaba/wan-3.0", label: "Wan 3.0", description: "Новейшая модель Alibaba, со звуком" },
+  { id: "bytedance/seedance-2.0-fast", label: "Seedance 2.0 Fast", description: "Быстро и недорого", photoEdit: true },
+  { id: "google/veo-3.1-fast", label: "Veo 3.1 Fast", description: "Кинематографичное видео со звуком, быстрее", upstream: "google", photoEdit: true },
+  { id: "google/veo-3.1", label: "Veo 3.1", description: "Лучшее качество от Google, со звуком", upstream: "google", photoEdit: true },
+  { id: "kwaivgi/kling-v3.0-std", label: "Kling 3.0", description: "Реалистичное движение", photoEdit: true },
+  { id: "minimax/hailuo-3", label: "Hailuo 3", description: "Хорошая физика движения", photoEdit: true },
+  { id: "alibaba/wan-3.0", label: "Wan 3.0", description: "Новейшая модель Alibaba, со звуком", photoEdit: true },
 ]);
 
 export const FEATURED_MODELS: Featured[] = [

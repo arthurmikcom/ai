@@ -146,6 +146,8 @@ export const message = pgTable(
     via: text("via").$type<"maryx">(),
     /** Follow-up questions MARYX suggested after this answer. */
     suggestions: jsonb("suggestions").$type<string[]>(),
+    /** A video answer: its gallery item (made in the background, also shown in the video studio). */
+    mediaId: text("media_id"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (t) => [index("message_chat_seq_idx").on(t.chatId, t.seq)],

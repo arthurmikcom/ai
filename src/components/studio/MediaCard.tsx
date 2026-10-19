@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, ImagePlus, LoaderCircle, RotateCcw, Trash2, TriangleAlert, X } from "lucide-react";
+import { Clapperboard, Download, ImagePlus, LoaderCircle, RotateCcw, Trash2, TriangleAlert, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { providerName } from "@/lib/catalog";
@@ -30,10 +30,12 @@ interface Props {
   onReuse: () => void;
   /** Edit this picture further (it becomes the photo to edit). */
   onEdit?: () => void;
+  /** Bring this picture to life: it becomes a video's first frame. */
+  onAnimate?: () => void;
   onDelete: () => void;
 }
 
-export function MediaCard({ item, modelLabel, onReuse, onEdit, onDelete }: Props) {
+export function MediaCard({ item, modelLabel, onReuse, onEdit, onAnimate, onDelete }: Props) {
   const source = item.inputs?.[0];
   const file = item.files[0];
   const url = file?.url;
@@ -115,6 +117,16 @@ export function MediaCard({ item, modelLabel, onReuse, onEdit, onDelete }: Props
               className="rounded-lg p-1.5 text-zinc-400 hover:bg-white/5 hover:text-zinc-100"
             >
               <ImagePlus className="size-4" />
+            </button>
+          )}
+          {onAnimate && item.status === "succeeded" && url && !isVideo && (
+            <button
+              type="button"
+              onClick={onAnimate}
+              title="Оживить: сделать из картинки видео"
+              className="rounded-lg p-1.5 text-zinc-400 hover:bg-white/5 hover:text-zinc-100"
+            >
+              <Clapperboard className="size-4" />
             </button>
           )}
           <button
