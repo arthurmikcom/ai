@@ -1,11 +1,12 @@
 "use client";
 
-import { ArrowRight, ArrowUpRight, Clapperboard, Code2, Compass, Download, FileText, Gamepad2, Image as ImageIcon, KeyRound, Lightbulb, LoaderCircle, Plus, Sparkles, X } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Clapperboard, Code2, Compass, Download, FileText, Gamepad2, Image as ImageIcon, KeyRound, Lightbulb, LoaderCircle, Plus, Sparkles, X, Zap } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BROWSER_MODELS } from "@/lib/catalog";
 import { autoModel, useLocalSupport } from "@/lib/client/local-ai";
 import { useModels } from "@/lib/client/useModels";
+import { useStoredJson } from "@/lib/client/useStored";
 import { downloadFile, imageToAttachment, uid } from "@/lib/client/util";
 import type { Attachment, ChatMessage, SendOptions } from "@/lib/types";
 import { speak, stopSpeaking, useVoiceSupport } from "@/lib/client/voice";
@@ -92,10 +93,15 @@ export function ChatView() {
     data !== null &&
     (only ? Boolean(models.find((m) => m.provider === "maryx")?.local) : !models.some((m) => !m.local && m.provider !== "maryx"));
   const localSupportState = useLocalSupport();
-  const localModel = current?.local ? (current.provider === "browser" ? current.id : autoModel(localSupportState)) : undefined;
+  // MARYX Lite: MARYX answers on this device — free, no limits, and it keeps answering when the internet drops.
+  const [liteChoice, setLite] = useStoredJson<boolean>("maryx:lite");
+  const lite = only && liteChoice === true && current?.provider === "maryx" && !current.local;
+  /** The answer is written in this browser (a browser model, or MARYX Lite). */
+  const onDevice = Boolean(current?.local) || lite;
+  const localModel = onDevice ? (current?.provider === "browser" ? current.id : autoModel(localSupportState)) : undefined;
   // A browser model can't be used until this browser is checked, nor where it can't run.
-  const localBlocked = Boolean(current?.local && (!localSupportState || !localSupportState.ok));
-  const canFilm = Boolean(videos.data?.models.length) && !current?.local;
+  const localBlocked = Boolean(onDevice && (!localSupportState || !localSupportState.ok));
+  const canFilm = Boolean(videos.data?.models.length) && !onDevice;
   const canAnimate = canFilm && Boolean(videos.data?.models.some((m) => m.photoEdit));
   const localLabel = BROWSER_MODELS.find((m) => m.id === localModel);
   /** What every send uses: the toggles, and the browser model when the chosen one runs here. */
@@ -228,7 +234,7 @@ export function ChatView() {
 
   // Nano Banana style: a picture in the chat is changed further (with an effect right away, or in
   // words), or brought to life as a video.
-  const canChangePictures = canEditPhotos && !current?.local && !localBlocked && !noProviders && !streaming;
+  const canChangePictures = canEditPhotos && !onDevice && !localBlocked && !noProviders && !streaming;
   const canAnimatePictures = canAnimate && !localBlocked && !noProviders && !streaming;
   const pictureFrom = async (src: string) => {
     try {
@@ -272,7 +278,33 @@ export function ChatView() {
     <div className="flex h-full min-h-0">
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
       <header className="chat-header flex shrink-0 items-center gap-2 px-4 md:px-8">
-        {only ? <MaryxBadge /> : <ModelPicker models={models} value={choice} onChange={onPick} loading={loading} />}
+        {only ? (
+          <div className="flex items-center gap-2">
+            <MaryxBadge />
+            {/* MARYX Lite, where MARYX runs in the cloud: the same chat, answered on this device. */}
+            {current?.provider === "maryx" && !current.local && (
+              <button
+                type="button"
+                onClick={() => setLite(!lite)}
+                aria-pressed={lite}
+                title={
+                  localSupportState && !localSupportState.ok
+                    ? localSupportState.reason
+                    : "MARYX Lite: бесплатно и без лимитов, отвечает прямо на вашем устройстве — даже без интернета"
+                }
+                className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                  lite
+                    ? "border-amber-300/70 bg-amber-400/25 text-amber-100 shadow-[0_0_16px_rgba(251,191,36,.25)]"
+                    : "border-white/10 text-zinc-400 hover:border-amber-300/30 hover:text-zinc-100"
+                }`}
+              >
+                <Zap className={`size-3.5 ${lite ? "fill-amber-300 text-amber-300" : ""}`} /> Lite
+              </button>
+            )}
+          </div>
+        ) : (
+          <ModelPicker models={models} value={choice} onChange={onPick} loading={loading} />
+        )}
         <span className="ml-auto hidden items-center gap-2 text-[11px] text-zinc-500 lg:flex">Ваш личный диалог</span>
         {chat && chat.messages.length > 0 && (
           <button
@@ -321,7 +353,7 @@ export function ChatView() {
             {chat.messages.map((m, i) => (
               <MessageView
                 onEdit={
-                  m.role === "user" && i === lastQuestion && !streaming && !localBlocked && !current?.local
+                  m.role === "user" && i === lastQuestion && !streaming && !localBlocked && !onDevice
                     ? (text) => {
                         stickToBottom.current = true;
                         stopSpeaking();
@@ -441,18 +473,19 @@ export function ChatView() {
 
       <div className="shrink-0 px-4 pb-4 pt-2 md:px-8 md:pb-5">
         <Composer
-          model={current}
+          // On the device MARYX reads text only and doesn't search the web.
+          model={lite && current ? { ...current, search: false, vision: false } : current}
           disabled={!choice || !current || noProviders || !app.ready || loading || localBlocked}
           disabledText={disabledText}
-          allowFiles={!current?.local}
+          allowFiles={!onDevice}
           streaming={streaming}
           deepThinking={deepThinking}
           onDeepThinkingChange={setDeepThinking}
           webSearch={webSearch && Boolean(current?.search)}
           onWebSearchChange={setWebSearch}
-          canDraw={canDraw && !current?.local}
+          canDraw={canDraw && !onDevice}
           canEditPhotos={canEditPhotos}
-          imageMode={imageMode && canDraw && !current?.local}
+          imageMode={imageMode && canDraw && !onDevice}
           onImageModeChange={changeImageMode}
           canFilm={canFilm}
           canAnimate={canAnimate}
@@ -470,7 +503,7 @@ export function ChatView() {
             stopSpeaking();
             speakNext.current = viaVoice && voiceMode && voice?.speak ? (chat?.id ?? "new") : null;
             const filming = videoMode && canFilm;
-            const drawing = !filming && imageMode && canDraw && !current?.local;
+            const drawing = !filming && imageMode && canDraw && !onDevice;
             app.send(
               text,
               attachments,
@@ -490,7 +523,9 @@ export function ChatView() {
           inject={inject}
         />
         <p className="mt-2 text-center text-[11px] text-zinc-600">
-          {current?.local && !localBlocked
+          {lite && !localBlocked
+            ? `MARYX Lite: бесплатно и без лимитов. Отвечает прямо на вашем устройстве — даже если пропал интернет. В первый раз он скачается (≈${((localLabel?.downloadMB ?? 1000) / 1000).toFixed(1).replace(".", ",")} ГБ).`
+            : current?.local && !localBlocked
             ? only
               ? `Бесплатно: MARYX отвечает прямо на вашем устройстве; история чата хранится в вашем аккаунте. В первый раз он скачается (≈${((localLabel?.downloadMB ?? 1000) / 1000).toFixed(1).replace(".", ",")} ГБ).`
               : `Бесплатно: отвечает ${localLabel?.label ?? "Qwen"} прямо на вашем устройстве, без сторонних ИИ-сервисов; история чата хранится в вашем аккаунте. В первый раз модель скачается (≈${((localLabel?.downloadMB ?? 1000) / 1000).toFixed(1).replace(".", ",")} ГБ).`

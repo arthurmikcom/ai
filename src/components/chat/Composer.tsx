@@ -4,6 +4,9 @@ import {
   ArrowUp,
   AudioLines,
   Brain,
+  Camera,
+  Film,
+  MonitorUp,
   Clapperboard,
   FileText,
   Globe,
@@ -34,9 +37,11 @@ import {
   transcribe,
   type Recording,
 } from "@/lib/client/voice";
+import { canCaptureScreen, canUseCamera, captureScreen, clock, videoSheet } from "@/lib/client/capture";
 import { enhancePrompt } from "@/lib/client/media";
 import { CAMERA_MOTIONS, IMAGE_STYLES, PHOTO_EFFECTS } from "@/lib/effects";
 import type { Attachment, ModelInfo } from "@/lib/types";
+import { CameraDialog } from "./CameraDialog";
 
 interface Props {
   model: ModelInfo | undefined;
@@ -91,6 +96,39 @@ export interface ComposerInject {
 
 const MAX_ATTACHMENTS = 4;
 
+/** One line of the attach menu. */
+function MenuItem({
+  icon: Icon,
+  label,
+  hint,
+  onClick,
+  close,
+}: {
+  icon: typeof Paperclip;
+  label: string;
+  hint: string;
+  onClick: () => void;
+  close: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={() => {
+        close();
+        onClick();
+      }}
+      className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-white/5"
+    >
+      <Icon className="size-4 shrink-0 text-violet-300" />
+      <span className="min-w-0">
+        <span className="block text-sm text-zinc-100">{label}</span>
+        <span className="block text-xs text-zinc-500">{hint}</span>
+      </span>
+    </button>
+  );
+}
+
 export function Composer({
   model,
   disabled,
@@ -131,7 +169,12 @@ export function Composer({
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const videoInput = useRef<HTMLInputElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  // The attach menu, the camera, and work being done on this device (a screenshot, a video's frames).
+  const [menu, setMenu] = useState(false);
+  const [shooting, setShooting] = useState(false);
+  const [busy, setBusy] = useState<"screen" | "video" | null>(null);
 
   // A picture to change goes first: the first photo is the one that is edited.
   const [injected, setInjected] = useState(inject?.id);
@@ -220,9 +263,60 @@ export function Composer({
     if (problems.length) setError(problems.join(" "));
   };
 
+  /** The words to send: a video's note goes first (its sheet alone doesn't say it's a video). */
+  const withNotes = (words: string) => {
+    const notes = sending.flatMap((a) => (a.note ? [a.note] : []));
+    return [...notes, words || (notes.length ? "Расскажи подробно, что происходит на этом видео." : "")].filter(Boolean).join("\n");
+  };
+
+  /** A picture made on this device (camera, screen, a video's frames), as an attachment. */
+  const addPicture = async (blob: Blob, name: string, note?: string) => {
+    try {
+      const image = await imageToAttachment(blob);
+      const total = attachments.reduce((sum, a) => sum + (a.data?.length ?? 0), 0);
+      if (total + (image.data?.length ?? 0) > MAX_TOTAL_BASE64) {
+        setError("Вложения слишком большие: всего до 3 МБ за сообщение.");
+        return;
+      }
+      const picture: Attachment = { mime: image.mime, data: image.data, name, ...(note ? { note } : {}) };
+      setAttachments((list) => [...list, picture].slice(0, MAX_ATTACHMENTS));
+      textarea.current?.focus();
+    } catch {
+      setError("Не удалось сохранить снимок.");
+    }
+  };
+
+  const shareScreen = async () => {
+    setError(null);
+    setBusy("screen");
+    try {
+      await addPicture(await captureScreen(), "Снимок экрана");
+    } catch (e) {
+      // Cancelled in the browser's dialog: nothing to say.
+      if (!(e instanceof DOMException && e.name === "NotAllowedError")) setError("Не удалось сделать снимок экрана.");
+    }
+    setBusy(null);
+  };
+
+  const addVideo = async (file: File) => {
+    setError(null);
+    setBusy("video");
+    try {
+      const { sheet, duration, frames } = await videoSheet(file);
+      await addPicture(
+        sheet,
+        `Видео «${file.name}»`,
+        `🎞 Видео «${file.name}» (${clock(duration)}): на картинке ${frames} кадров по порядку, на каждом — время.`,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось разобрать видео.");
+    }
+    setBusy(null);
+  };
+
   const submit = () => {
     if (!canSend) return;
-    onSend(text.trim(), sending);
+    onSend(withNotes(text.trim()), sending);
     setText("");
     setBefore(null);
     // A picture prompt (or a text-only model) doesn't take the other files along; they stay for later.
@@ -254,7 +348,7 @@ export function Composer({
       return;
     }
     if (voiceMode && !disabled && !streaming) {
-      onSend(spoken, sending, true);
+      onSend(withNotes(spoken), sending, true);
       setAttachments(keeping);
       return;
     }
@@ -333,7 +427,7 @@ export function Composer({
 
   return (
     <div className="mx-auto w-full max-w-3xl">
-      <div className="composer-panel rounded-3xl border p-3 transition-colors">
+      <div className="composer-panel relative rounded-3xl border p-3 transition-colors">
         {keeping.length > 0 && (
           <p className="px-2 pt-1 text-xs text-zinc-500">
             {!allowFiles
@@ -502,12 +596,70 @@ export function Composer({
                   ? "Прикрепить файл: PDF, Word, Excel, CSV, TXT или изображение"
                   : "Прикрепить документ: PDF, Word, Excel, CSV, TXT"
             }
-            disabled={!canAttach || disabled || attachments.length >= MAX_ATTACHMENTS}
-            onClick={() => fileInput.current?.click()}
+            disabled={!canAttach || disabled || attachments.length >= MAX_ATTACHMENTS || busy !== null}
+            onClick={() => setMenu((m) => !m)}
+            aria-expanded={menu}
+            aria-label="Прикрепить"
             className="rounded-full p-2 text-zinc-400 transition hover:bg-white/5 hover:text-zinc-100 disabled:opacity-40"
           >
-            <Paperclip className="size-5" />
+            {busy ? <LoaderCircle className="size-5 animate-spin" /> : <Paperclip className="size-5" />}
           </button>
+          <input
+            ref={videoInput}
+            type="file"
+            accept="video/*"
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) void addVideo(file);
+            }}
+          />
+          {menu && (
+            <>
+              {/* A click anywhere else closes the menu. */}
+              <button type="button" aria-hidden="true" tabIndex={-1} onClick={() => setMenu(false)} className="fixed inset-0 z-10 cursor-default" />
+              <div role="menu" aria-label="Прикрепить" className="absolute bottom-14 left-2 z-20 w-64 rounded-xl border border-white/10 bg-zinc-900 p-1 shadow-2xl">
+                <MenuItem
+                  icon={Paperclip}
+                  label={takesPhotos ? "Фото" : "Файл или фото"}
+                  hint={takesPhotos ? "С устройства" : "PDF, Word, Excel, картинки"}
+                  onClick={() => fileInput.current?.click()}
+                  close={() => setMenu(false)}
+                />
+                {canSeeImages && canUseCamera() && (
+                  <MenuItem icon={Camera} label="Снять камерой" hint="Фото прямо в чат" onClick={() => setShooting(true)} close={() => setMenu(false)} />
+                )}
+                {canSeeImages && canCaptureScreen() && (
+                  <MenuItem
+                    icon={MonitorUp}
+                    label="Показать экран"
+                    hint="MARYX увидит экран или окно"
+                    onClick={() => void shareScreen()}
+                    close={() => setMenu(false)}
+                  />
+                )}
+                {canSeeImages && !mediaMode && (
+                  <MenuItem
+                    icon={Film}
+                    label="Разобрать видео"
+                    hint="Кадры достаются прямо в браузере"
+                    onClick={() => videoInput.current?.click()}
+                    close={() => setMenu(false)}
+                  />
+                )}
+              </div>
+            </>
+          )}
+          {shooting && (
+            <CameraDialog
+              onClose={() => setShooting(false)}
+              onShot={(photo) => {
+                setShooting(false);
+                void addPicture(photo, "Фото с камеры");
+              }}
+            />
+          )}
 
           {voiceInput && (
             <button

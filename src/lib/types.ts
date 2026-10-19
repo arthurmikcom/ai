@@ -72,6 +72,8 @@ export interface Attachment {
   /** Where the stored copy can be read (/api/files/…). */
   url?: string;
   name?: string;
+  /** Browser only: words sent along with it (a video's frames say what they are). */
+  note?: string;
 }
 
 /** A web page the answer is based on (web search). */
