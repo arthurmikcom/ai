@@ -94,6 +94,7 @@ export const Square = glyph("Stop", <rect x="5" y="5" width="14" height="14" rx=
 export const Check = glyph("Confirm", <path d="m4.5 12 5 5 10-11" />);
 export const X = glyph("Close", <path d="m6 6 12 12M18 6 6 18" />);
 export const Plus = glyph("Add", <path d="M12 4v16M4 12h16" />);
+export const Minus = glyph("Remove", <path d="M4 12h16" />);
 export const Menu = glyph("Menu", <path d="M3 6h18M3 12h12M3 18h18" />);
 export const Play = glyph("Play", <path d="M7 3.5v17l14-8.5L7 3.5Z" fill="currentColor" fillOpacity=".12" />);
 export const Zap = glyph("Lite", <path d="m14 2-11 12h8l-1 8 11-12h-8Z" fill="currentColor" fillOpacity=".12" />);

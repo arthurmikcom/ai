@@ -2,24 +2,27 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  ArrowRight,
   Camera,
-  ScriptVideo,
-  PhotoMotion,
-  FrameTransition,
-  VideoMagic,
-  Recast,
   Check,
+  ChevronDown,
   Clapperboard,
+  Clock,
+  FrameTransition,
   ImagePlus,
   KeyRound,
   Layers3 as Layers,
   LoaderCircle,
+  Minus,
+  PhotoMotion,
+  Plus,
+  Recast,
+  ScriptVideo,
+  Search,
   Sparkles,
-  Type,
   Undo2,
+  VideoMagic,
   WandSparkles,
   X,
 } from "@/components/MaryxIcons";
@@ -29,57 +32,41 @@ import { enhancePrompt, generate, removeMedia, useMediaItems } from "@/lib/clien
 import { useModels } from "@/lib/client/useModels";
 import { useStoredJson } from "@/lib/client/useStored";
 import { imageToAttachment, MAX_TOTAL_BASE64, nearestRatio } from "@/lib/client/util";
+import { TREND_CATEGORIES, VIDEO_TRENDS, type VideoTrend } from "@/lib/video-trends";
 import type { AspectRatio, MediaFile, MediaItem } from "@/lib/types";
 import { useApp, type ModelChoice } from "../AppState";
-import { StudioImage } from "../WorkspaceVisuals";
-import { StudioDialog } from "./StudioDialog";
-import { findModel, MaryxBadge, ModelPicker } from "../ModelPicker";
+import { findModel } from "../ModelPicker";
 import { PresetArt } from "./PresetArt";
-import { TrendStudio } from "./TrendStudio";
 import { PromptGallery } from "./PromptGallery";
+import { StudioDialog } from "./StudioDialog";
+import { TrendStudio } from "./TrendStudio";
 import { VideoGallery } from "./VideoGallery";
 
-type Mode = "text" | "photo" | "frames" | "effects" | "trend";
+type Mode = "text" | "photo" | "frames" | "effects";
+type Tab = "create" | "trends" | "effects";
+type Popover = "mode" | "camera" | "effect" | "ratio" | "duration" | null;
 
-const MODES: { id: Mode; label: string; Icon: typeof Type; hint: string }[] = [
-  { id: "text", label: "Текст в видео", Icon: ScriptVideo, hint: "Опишите сцену — MARYX снимет её" },
+const MODES: { id: Mode; label: string; Icon: typeof ScriptVideo; hint: string; badge?: string }[] = [
+  { id: "text", label: "Текст в видео", Icon: ScriptVideo, hint: "Опишите сцену — MARYX снимет её", badge: "Рекомендуем" },
   { id: "photo", label: "Оживить фото", Icon: PhotoMotion, hint: "Ваше фото станет первым кадром" },
-  { id: "frames", label: "Начало и конец", Icon: FrameTransition, hint: "Плавный переход от первого кадра ко второму" },
-  { id: "effects", label: "Эффекты", Icon: VideoMagic, hint: "Взрыв, левитация, портал — в один клик" },
-  { id: "trend", label: "Тренд", Icon: Recast, hint: "Повторите трендовое видео со своим персонажем" },
+  { id: "frames", label: "Начало и конец", Icon: FrameTransition, hint: "Плавный переход от одного кадра к другому" },
+  { id: "effects", label: "Эффекты", Icon: VideoMagic, hint: "Взрыв, левитация, портал — в один клик", badge: "Хит" },
 ];
 
 const RATIOS: AspectRatio[] = ["16:9", "9:16"];
 const DURATIONS = [5, 10];
-const COUNTS = [1, 2];
-
-const IDEAS: Record<Mode, string[]> = {
-  text: [
-    "Дрон медленно пролетает над заснеженными горами на рассвете",
-    "Кот в очках печатает на ноутбуке в стиле офисной комедии",
-    "Неоновый город будущего ночью, по улицам едут летающие машины",
-    "Волны разбиваются о скалы, замедленная съёмка, звук прибоя",
-  ],
-  photo: ["Улыбается и смотрит в камеру", "Лёгкий ветер, волосы и одежда развеваются", "Поворачивает голову и подмигивает", "Вокруг появляются волшебные искры"],
-  frames: ["Плавное превращение одного в другое", "Камера пролетает от первого кадра ко второму", "День сменяется ночью", "Время ускоряется, всё меняется вокруг"],
-  effects: [],
-  trend: [],
-};
+const MAX_COUNT = 4;
 
 const PLACEHOLDER: Record<Mode, string> = {
-  text: "Опишите сцену: что происходит, где, какое настроение и звук…",
-  photo: "Что происходит на фото? Например: улыбается и машет рукой, ветер в волосах. Можно оставить пустым",
+  text: "Опишите видео: что происходит, где, какое настроение и звук…",
+  photo: "Что происходит на фото? Например: улыбается и машет рукой. Можно оставить пустым",
   frames: "Что происходит между кадрами? Например: день сменяется ночью. Можно оставить пустым",
-  effects: "Кто или что в кадре? Например: девушка в красном платье на крыше. С фото можно оставить пустым",
-  trend: "",
+  effects: "Кто или что в кадре? С фото можно оставить пустым",
 };
-
-const BUTTON: Record<Mode, string> = { text: "Создать видео", photo: "Оживить", frames: "Создать переход", effects: "Применить эффект", trend: "" };
 
 /** The image studio hands a picture here ("Оживить" on a card): it becomes the first frame. */
 const ANIMATE_KEY = "maryx:animate";
 
-/** Loads a stored picture (an earlier first frame, a picture to animate) as a frame. */
 async function frameFrom(file: MediaFile): Promise<Frame> {
   const res = await fetch(file.url);
   if (!res.ok) throw new Error("Не удалось загрузить изображение");
@@ -88,88 +75,72 @@ async function frameFrom(file: MediaFile): Promise<Frame> {
 
 const src = (f: Frame) => `data:${f.mime};base64,${f.data}`;
 
-/** One frame slot: a drop zone, or the photo with "replace" and "remove". */
-function FrameSlot({
-  frame,
+/** A pill of the composer's bottom row and the panel it opens (upwards, above the composer). */
+function Pill({
   label,
-  alt,
-  busy,
-  onPick,
-  onDrop,
-  onClear,
-  compact = false,
+  icon,
+  open,
+  onOpen,
+  onClose,
+  title,
+  disabled,
+  children,
+  wide,
 }: {
-  frame: Frame | undefined;
-  label: string;
-  alt: string;
-  busy: boolean;
-  onPick: () => void;
-  onDrop: (files: File[]) => void;
-  onClear: () => void;
-  compact?: boolean;
+  label: ReactNode;
+  icon: ReactNode;
+  open: boolean;
+  onOpen: () => void;
+  onClose: () => void;
+  title: string;
+  disabled?: boolean;
+  children: ReactNode;
+  wide?: boolean;
 }) {
-  const [over, setOver] = useState(false);
-  const drop = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setOver(false);
-    if (e.dataTransfer.files.length) onDrop([...e.dataTransfer.files]);
-  };
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: PointerEvent) => !box.current?.contains(e.target as Node) && onClose();
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("pointerdown", away);
+    window.addEventListener("keydown", esc);
+    return () => {
+      window.removeEventListener("pointerdown", away);
+      window.removeEventListener("keydown", esc);
+    };
+  }, [open, onClose]);
   return (
-    <div
-      className={`vs-slot ${compact ? "vs-slot--compact" : ""}`}
-      data-over={over || undefined}
-      onDragOver={(e) => {
-        e.preventDefault();
-        setOver(true);
-      }}
-      onDragLeave={() => setOver(false)}
-      onDrop={drop}
-    >
-      {frame ? (
-        <>
-          {/* eslint-disable-next-line @next/next/no-img-element -- a local data URL */}
-          <img src={src(frame)} alt={alt} />
-          <span className="vs-slot-tag">{label}</span>
-          <div className="vs-slot-actions">
-            <button type="button" onClick={onPick} aria-label={`Заменить: ${label.toLowerCase()}`} title="Заменить">
-              <ImagePlus size={15} />
-            </button>
-            <button type="button" onClick={onClear} aria-label={`Убрать: ${label.toLowerCase()}`} title="Убрать">
-              <X size={15} />
-            </button>
-          </div>
-        </>
-      ) : (
-        <button type="button" className="vs-slot-empty" onClick={onPick} disabled={busy} aria-label={`Загрузить ${label.toLowerCase()}`}>
-          <span className="vs-upload-symbol">{busy ? <LoaderCircle className="size-6 animate-spin" /> : <ImagePlus size={compact ? 20 : 26} />}</span>
-          <span>{label}</span>
-          {!compact && <small>Перетащите фото сюда или нажмите</small>}
-        </button>
+    <div className="lx-pill-box" ref={box}>
+      <button
+        type="button"
+        className="lx-pill"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label={title}
+        disabled={disabled}
+        onClick={() => (open ? onClose() : onOpen())}
+      >
+        {icon}
+        <span>{label}</span>
+        <ChevronDown size={13} className="lx-pill-chevron" />
+      </button>
+      {open && (
+        <div className={`lx-pop ${wide ? "lx-pop--wide" : ""}`} role="dialog" aria-label={title}>
+          {children}
+        </div>
       )}
     </div>
   );
 }
 
-/** A preset card: its little animated scene and its name. */
-function PresetCard({
-  kind,
-  id,
-  label,
-  hint,
-  selected,
-  onClick,
-}: {
-  kind: "camera" | "effect";
-  id: string;
-  label: string;
-  hint?: string;
-  selected: boolean;
-  onClick: () => void;
-}) {
+/** A camera move or an effect, as a little animated card. */
+function PresetTile({ kind, id, label, hint, selected, onClick }: { kind: "camera" | "effect"; id: string; label: string; hint?: string; selected: boolean; onClick: () => void }) {
   return (
     <button type="button" className="preset-card" aria-pressed={selected} onClick={onClick} title={hint}>
       <PresetArt motion={kind === "camera" ? id : undefined} effect={kind === "effect" ? id : undefined} live={selected} />
-      <span className="preset-card-symbol" aria-hidden="true">{kind === "camera" ? <Camera size={14} /> : <VideoMagic size={14} />}</span>
+      <span className="preset-card-symbol" aria-hidden="true">
+        {kind === "camera" ? <Camera size={14} /> : <VideoMagic size={14} />}
+      </span>
       <span className="preset-card-label">
         {label}
         {selected && <Check size={13} />}
@@ -178,83 +149,83 @@ function PresetCard({
   );
 }
 
-/** Every camera move and effect, Higgsfield style: pick one of each and they mix. */
-function PresetDialog({
-  tab,
-  camera,
-  effect,
-  onTab,
-  onCamera,
-  onEffect,
-  onClose,
-}: {
-  tab: "camera" | "effect";
-  camera: string | null;
-  effect: string | null;
-  onTab: (tab: "camera" | "effect") => void;
-  onCamera: (id: string | null) => void;
-  onEffect: (id: string | null) => void;
-  onClose: () => void;
-}) {
-  const list = tab === "camera" ? CAMERA_MOTIONS : VIDEO_EFFECTS;
-  const chosen = tab === "camera" ? camera : effect;
+/** A ready-made trend: the user's photo in, a vertical clip out. */
+function TrendSheet({ trend, onClose, onMake }: { trend: VideoTrend; onClose: () => void; onMake: (photo: Frame, extra: string) => void }) {
+  const [photo, setPhoto] = useState<Frame | undefined>();
+  const [extra, setExtra] = useState("");
+  const [consent, setConsent] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [reading, setReading] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  const read = async (file: File | undefined) => {
+    if (!file) return;
+    setError(null);
+    setReading(true);
+    try {
+      const frame = await imageToAttachment(file);
+      if ((frame.data?.length ?? 0) > MAX_TOTAL_BASE64) setError("Фото слишком большое: до 3 МБ.");
+      else setPhoto(frame);
+    } catch {
+      setError(`Не удалось прочитать «${file.name}» — сохраните его как JPEG или PNG.`);
+    }
+    setReading(false);
+  };
   return (
-    <StudioDialog title="Движения камеры и эффекты" className="vs-dialog" onClose={onClose}>
-        <div className="vs-dialog-head">
-          <div role="tablist" aria-label="Что выбрать" className="vs-tabs">
-            <button type="button" role="tab" aria-selected={tab === "camera"} onClick={() => onTab("camera")}>
-              Движение камеры <span>{CAMERA_MOTIONS.length}</span>
-            </button>
-            <button type="button" role="tab" aria-selected={tab === "effect"} onClick={() => onTab("effect")}>
-              Эффекты <span>{VIDEO_EFFECTS.length}</span>
-            </button>
-          </div>
-          <button type="button" onClick={onClose} className="vs-icon-button" aria-label="Закрыть">
-            <X size={18} />
-          </button>
-        </div>
-        <p className="vs-dialog-note">
-          {tab === "camera"
-            ? "Как движется камера. Можно добавить и эффект — они смешаются в одном видео."
-            : "Что происходит в кадре. Лучше всего работает с вашим фото."}
-        </p>
-        <div className="vs-preset-grid">
-          <button type="button" className="preset-card preset-card--none" aria-pressed={chosen === null} onClick={() => (tab === "camera" ? onCamera(null) : onEffect(null))}>
-            <span className="preset-none-art">
-              <X size={22} />
-            </span>
-            <span className="preset-card-label">{tab === "camera" ? "Без движения" : "Без эффекта"}</span>
-          </button>
-          {list.map((p) => (
-            <PresetCard
-              key={p.id}
-              kind={tab}
-              id={p.id}
-              label={p.label}
-              hint={p.hint}
-              selected={chosen === p.id}
-              onClick={() => (tab === "camera" ? onCamera(p.id) : onEffect(p.id))}
-            />
-          ))}
-        </div>
+    <StudioDialog title={trend.title} className="lx-trend-sheet" onClose={onClose}>
+      <button type="button" className="vs-icon-button lx-sheet-close" onClick={onClose} aria-label="Закрыть">
+        <X size={18} />
+      </button>
+      <div className="lx-trend-sheet-art" data-cat={trend.category}>
+        <PresetArt motion={trend.camera} effect={trend.effect} live />
+        {trend.hit && <span className="lx-hit">ХИТ</span>}
+      </div>
+      <div className="lx-trend-sheet-body">
+        <h2>{trend.title}</h2>
+        <p>{trend.hint}. Загрузите своё фото — MARYX сделает вертикальное видео в этом тренде.</p>
+        <button type="button" className="lx-photo-drop" onClick={() => input.current?.click()} aria-label={photo ? "Заменить фото" : "Загрузить своё фото"}>
+          {photo ? (
+            // eslint-disable-next-line @next/next/no-img-element -- a local data URL
+            <img src={src(photo)} alt="Ваше фото" />
+          ) : reading ? (
+            <LoaderCircle className="size-6 animate-spin" />
+          ) : (
+            <>
+              <ImagePlus size={26} />
+              <span>Загрузить своё фото</span>
+              <small>Лицо крупно и хорошо освещено</small>
+            </>
+          )}
+        </button>
+        <input ref={input} type="file" accept="image/*,.heic,.heif" hidden onChange={(e) => { void read(e.target.files?.[0]); e.target.value = ""; }} />
+        <input className="lx-sheet-extra" value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="Добавить своё (необязательно)" aria-label="Добавить своё к тренду" maxLength={300} />
+        <label className="trend-consent">
+          <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
+          <span>На фото — я или человек (питомец), который разрешил использовать своё фото. Фото детей не загружаю.</span>
+        </label>
+        {error && <p role="alert" className="vs-error">{error}</p>}
+        <button type="button" className="maryx-button lx-sheet-go" disabled={!photo || !consent} onClick={() => photo && onMake(photo, extra.trim())}>
+          <WandSparkles size={17} /> Сделать видео · 1 из лимита
+        </button>
+      </div>
     </StudioDialog>
   );
 }
 
 /**
- * «Видео»: a film studio in the Higgsfield spirit. Text, a photo or two frames
- * become a clip; camera moves and effects mix in one click; finished clips
- * play on hover, open full size, continue from their last frame, or give a
- * still to the image studio.
+ * «Видео» (like Lexy): three tabs — make a clip from words or photos with the
+ * composer at the bottom, ready-made trends from one photo, and effects — and
+ * the finished clips above the composer.
  */
 export function VideoStudio() {
   const { me, maryxOnly } = useApp();
   const router = useRouter();
-  const { data, loading } = useModels("video");
+  const { data } = useModels("video");
   const models = useMemo(() => data?.models ?? [], [data]);
   const items = useMediaItems("video");
   const [saved, setSaved] = useStoredJson<ModelChoice>("maryx:video-model");
 
+  const [tab, setTab] = useState<Tab>("create");
+  const [remix, setRemix] = useState(false);
   const [mode, setMode] = useState<Mode>("text");
   const [start, setStart] = useState<Frame | undefined>();
   const [end, setEnd] = useState<Frame | undefined>();
@@ -266,71 +237,67 @@ export function VideoStudio() {
   const [ratio, setRatio] = useState<AspectRatio>("16:9");
   const [duration, setDuration] = useState(5);
   const [count, setCount] = useState(1);
-  const [reading, setReading] = useState<"start" | "end" | null>(null);
+  const [reading, setReading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [presets, setPresets] = useState<"camera" | "effect" | null>(null);
-  /** «Продолжить»: the first frame is the last one of this clip. */
+  const [pop, setPop] = useState<Popover>(null);
+  const [modeTab, setModeTab] = useState<"video" | "effects">("video");
+  const [search, setSearch] = useState("");
   const [continuing, setContinuing] = useState<string | null>(null);
+  const [trendFilter, setTrendFilter] = useState<(typeof TREND_CATEGORIES)[number]["id"]>("all");
+  const [trendQuery, setTrendQuery] = useState("");
+  const [trend, setTrend] = useState<VideoTrend | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const slot = useRef<"start" | "end">("start");
-  const panel = useRef<HTMLDivElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
+  const composer = useRef<HTMLDivElement>(null);
 
   const photoOk = models.some((m) => m.photoEdit);
   const lastFrameOk = models.some((m) => m.photoEdit && m.lastFrame);
   const noProviders = data !== null && models.length === 0;
   const fallback = models.find((m) => m.featured) ?? models[0];
-  const choice: ModelChoice | null = maryxOnly
+  const target: ModelChoice | null = maryxOnly
     ? fallback
       ? { provider: fallback.provider, model: fallback.id }
       : null
     : findModel(models, saved) || !fallback
       ? saved
       : { provider: fallback.provider, model: fallback.id };
-  const target = choice;
   const targetModel = target ? findModel(models, target) : undefined;
 
-  // What goes: the frames this mode uses.
   const frames = mode === "text" ? [] : mode === "frames" ? [start, end].filter((f): f is Frame => Boolean(f)) : start ? [start] : [];
   const withPhoto = frames.length > 0;
   const ready =
     Boolean(me && target && !reading) &&
-    (mode === "text"
-      ? prompt.trim().length > 0
-      : mode === "photo"
-        ? Boolean(start)
-        : mode === "frames"
-          ? Boolean(start && end)
-          : Boolean(effect && (start || prompt.trim())));
+    (mode === "text" ? prompt.trim().length > 0 : mode === "photo" ? Boolean(start) : mode === "frames" ? Boolean(start && end) : Boolean(effect && (start || prompt.trim())));
   const modelCant = withPhoto && targetModel && !maryxOnly && !targetModel.photoEdit;
   const usage = me?.usage.video;
   const left = usage && usage.limit !== null ? Math.max(0, usage.limit - usage.used) : null;
+  const current = MODES.find((m) => m.id === mode)!;
+  const chosenCamera = CAMERA_MOTIONS.find((m) => m.id === camera);
+  const chosenEffect = VIDEO_EFFECTS.find((e) => e.id === effect);
 
-  const readFrame = async (file: File, which: "start" | "end") => {
+  const readFrame = async (file: File) => {
     setError(null);
     if (!file.type.startsWith("image/") && !/\.(heic|heif)$/i.test(file.name)) {
       setError("Можно загрузить только фото (JPEG, PNG, WebP, HEIC).");
       return;
     }
-    setReading(which);
+    setReading(true);
     try {
       const frame = await imageToAttachment(file);
-      const other = which === "start" ? end : start;
-      if ((frame.data?.length ?? 0) + (mode === "frames" ? (other?.data?.length ?? 0) : 0) > MAX_TOTAL_BASE64) {
+      // The first photo starts the clip; with «Начало и конец», the second ends it.
+      const second = mode === "frames" && start && !end;
+      if ((frame.data?.length ?? 0) + (second ? (start?.data?.length ?? 0) : 0) > MAX_TOTAL_BASE64) {
         setError("Фото слишком большие: всего до 3 МБ за раз.");
-      } else if (which === "start") {
+      } else if (second) setEnd(frame);
+      else {
         setStart(frame);
         setContinuing(null);
-      } else setEnd(frame);
+        if (mode === "text") setMode("photo");
+      }
     } catch {
       setError(`Не удалось прочитать «${file.name}» — сохраните его как JPEG или PNG.`);
     }
-    setReading(null);
-  };
-
-  const pick = (which: "start" | "end") => {
-    slot.current = which;
-    fileInput.current?.click();
+    setReading(false);
   };
 
   // A picture sent here from the image studio ("Оживить") becomes the first frame.
@@ -361,9 +328,13 @@ export function VideoStudio() {
     };
   }, []);
 
-  const toPanel = () => {
-    panel.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    promptRef.current?.focus({ preventScroll: true });
+  /** Back to the composer, the cursor in the description. */
+  const toComposer = () => {
+    setTab("create");
+    requestAnimationFrame(() => {
+      composer.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+      promptRef.current?.focus({ preventScroll: true });
+    });
   };
 
   const submit = () => {
@@ -381,6 +352,22 @@ export function VideoStudio() {
     for (let i = 0; i < count; i++) void generate(request);
   };
 
+  const makeTrend = (t: VideoTrend, photo: Frame, extra: string) => {
+    if (!target) return;
+    void generate({
+      kind: "video",
+      ...target,
+      prompt: [`Тренд «${t.title}»: ${t.prompt}`, extra].filter(Boolean).join(". "),
+      aspectRatio: nearestRatio(photo.width, photo.height, RATIOS),
+      images: [{ mime: photo.mime, data: photo.data! }],
+      ...(t.camera ? { camera: t.camera } : {}),
+      ...(t.effect ? { effect: t.effect } : {}),
+      duration: 5,
+    });
+    setTrend(null);
+    setTab("create");
+  };
+
   const enhance = async () => {
     const idea = prompt.trim();
     if (!idea || enhancing) return;
@@ -396,12 +383,14 @@ export function VideoStudio() {
     setEnhancing(false);
   };
 
-  const switchMode = (next: Mode) => {
+  const chooseMode = (next: Mode) => {
     setMode(next);
     setError(null);
+    setPop(null);
+    if (next !== "frames") setEnd(undefined);
   };
 
-  /** "Повторить": the clip's words, frames and settings back in the panel. */
+  /** "Повторить": the clip's words, frames and settings back in the composer. */
   const reuse = (item: MediaItem) => {
     const auto = /^(Оживить фото|Переход между кадрами|Эффект «)/.test(item.prompt);
     setPrompt(auto ? "" : item.prompt);
@@ -416,20 +405,20 @@ export function VideoStudio() {
     setStart(undefined);
     setEnd(undefined);
     if (inputs.length) {
-      setReading("start");
+      setReading(true);
       Promise.all(inputs.slice(0, 2).map(frameFrom)).then(
         ([first, second]) => {
           setStart(first);
           setEnd(second);
-          setReading(null);
+          setReading(false);
         },
         () => {
           setError("Не удалось загрузить кадры — загрузите фото заново.");
-          setReading(null);
+          setReading(false);
         },
       );
     }
-    toPanel();
+    toComposer();
   };
 
   /** «Продолжить»: the clip's last frame starts the next one. */
@@ -442,10 +431,9 @@ export function VideoStudio() {
     setEffect(null);
     setContinuing(item.prompt);
     setError(null);
-    toPanel();
+    toComposer();
   };
 
-  /** A still from a clip: a new video from it, or a picture to edit in the image studio. */
   const takeFrame = (frame: Frame, to: "video" | "image") => {
     if (to === "image") {
       if (sendToImageStudio(frame)) router.push("/images");
@@ -455,70 +443,51 @@ export function VideoStudio() {
     setMode("photo");
     setStart(frame);
     setContinuing(null);
-    toPanel();
+    toComposer();
   };
 
-  // The kinds of video, at the top of the panel (the trend has its own panel).
-  const tabs = (
-    <div role="tablist" aria-label="Что снимаем" className="vs-modes" onKeyDown={(e) => {
-      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
-      e.preventDefault();
-      const buttons = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"));
-      const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
-      const next = e.key === "Home" ? 0 : e.key === "End" ? buttons.length - 1 : (index + (e.key === "ArrowRight" ? 1 : -1) + buttons.length) % buttons.length;
-      buttons[next]?.click();
-      buttons[next]?.focus();
-    }}>
-      {MODES.map(({ id, label, Icon, hint }, index) => {
-        const off = (id === "photo" && !photoOk) || (id === "frames" && !lastFrameOk);
-        return (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={mode === id}
-            aria-label={label}
-            id={`video-mode-${id}`}
-            aria-controls="video-workspace"
-            tabIndex={mode === id ? 0 : -1}
-            disabled={off}
-            title={off ? "Подключённые модели этого пока не умеют" : hint}
-            onClick={() => switchMode(id)}
-          >
-            <span className="vs-mode-symbol"><Icon size={23} /></span>
-            <span className="vs-mode-copy"><strong>{label}</strong><small>{hint}</small></span>
-            <span className="vs-mode-number" aria-hidden="true">0{index + 1}</span>
-          </button>
-        );
-      })}
-    </div>
+  const q = search.trim().toLowerCase();
+  const matches = (...texts: (string | undefined)[]) => !q || texts.some((t) => t?.toLowerCase().includes(q));
+  const tq = trendQuery.trim().toLowerCase();
+  const trends = VIDEO_TRENDS.filter(
+    (t) => (trendFilter === "all" || (trendFilter === "hit" ? t.hit : t.category === trendFilter)) && (!tq || `${t.title} ${t.hint}`.toLowerCase().includes(tq)),
   );
 
-  const chosenCamera = CAMERA_MOTIONS.find((m) => m.id === camera);
-  const chosenEffect = VIDEO_EFFECTS.find((e) => e.id === effect);
-  const featured = CAMERA_MOTIONS.filter((m) => m.featured);
+  const modeDisabled = (id: Mode) => (id === "photo" && !photoOk) || (id === "frames" && !lastFrameOk);
 
   return (
-    <div className="studio-page h-full overflow-y-auto">
-      <div className="page-content video-studio-page">
-        <header className="film-hero">
-          <StudioImage preload />
-          <div className="film-hero-shade" />
-          <div className="film-hero-copy"><span className="film-kicker"><Clapperboard size={15} />Киностудия MARYX</span><h1>Ваши идеи.<br /><span>В движении.</span></h1><p>От первой мысли до последнего кадра.<br />Снимайте истории, которые хочется пересматривать.</p></div>
-          <div className="film-hero-footer"><span><span className="film-live-dot" />Текст. Кадры. Камера. Ваш стиль.</span>{left !== null && <span className="film-quota"><Clapperboard size={14} />Сегодня осталось: {left}</span>}</div>
-        </header>
-        {!noProviders && tabs}
-        <div id="video-workspace" role={!noProviders ? "tabpanel" : undefined} aria-labelledby={!noProviders ? `video-mode-${mode}` : undefined}>
-        {!noProviders && <div className="vs-workspace-heading"><div><span className="section-kicker">Ваш режиссёрский пульт</span><h2>{MODES.find(m => m.id === mode)?.label}</h2></div><p>{MODES.find(m => m.id === mode)?.hint}</p></div>}
+    <div className="lx-studio h-full overflow-y-auto">
+      <div className="lx-top">
+        <div role="tablist" aria-label="Разделы видео" className="lx-tabs">
+          {(
+            [
+              ["create", "Создать", null],
+              ["trends", "Тренды", "Топ"],
+              ["effects", "Эффекты", null],
+            ] as const
+          ).map(([id, label, badge]) => (
+            <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => { setTab(id); setRemix(false); }}>
+              {label}
+              {badge && <span className="lx-badge lx-badge--top">{badge}</span>}
+            </button>
+          ))}
+        </div>
+        {left !== null && (
+          <span className="lx-quota" title="Видео на сегодня по вашему тарифу">
+            <Clapperboard size={14} /> Сегодня осталось: {left}
+          </span>
+        )}
+      </div>
 
-        {noProviders ? (
+      {noProviders ? (
+        <div className="lx-body">
           <div className="empty-notice mt-6 rounded-2xl border p-5 text-sm text-zinc-200">
             <div className="mb-2 flex items-center gap-2 font-medium">
               <KeyRound className="size-4" /> Видео пока не подключено
             </div>
             {me?.admin ? (
               <p className="text-zinc-400">
-                Добавьте OPENROUTER_API_KEY в переменные окружения сервера.{" "}
+                Добавьте OPENROUTER_API_KEY (или свой GPU: COMFYUI_URL) в переменные окружения сервера.{" "}
                 <Link href="/settings" className="font-medium text-violet-200 underline">
                   Настройки →
                 </Link>
@@ -527,72 +496,199 @@ export function VideoStudio() {
               <p className="text-zinc-400">Эта функция скоро появится.</p>
             )}
           </div>
-        ) : mode === "trend" ? (
-          <TrendStudio />
-        ) : (
-          <div className="video-studio">
-            <div ref={panel} className="vs-panel composer-panel" aria-label="Создать видео">
-              {mode !== "text" && (mode !== "effects" || photoOk) && (
-                <div className={mode === "frames" ? "vs-frames" : ""}>
-                  <FrameSlot
-                    frame={start}
-                    label={mode === "frames" ? "Начало" : "Начальный кадр"}
-                    alt="Фото для видео"
-                    busy={reading === "start"}
-                    onPick={() => pick("start")}
-                    onDrop={(files) => void readFrame(files[0], "start")}
-                    onClear={() => {
-                      setStart(undefined);
-                      setContinuing(null);
-                    }}
-                    compact={mode === "frames"}
-                  />
-                  {mode === "frames" && (
-                    <>
-                      <span className="vs-frames-arrow" aria-hidden="true">
-                        <ArrowRight size={18} />
+        </div>
+      ) : tab === "trends" ? (
+        <div className="lx-body">
+          {remix ? (
+            <>
+              <button type="button" className="lx-back" onClick={() => setRemix(false)}>
+                ← Все тренды
+              </button>
+              <TrendStudio />
+            </>
+          ) : (
+            <section aria-label="Тренды">
+              <h1 className="lx-title">Тренды</h1>
+              <p className="lx-sub">Готовые тренды для быстрых видео — без подбора промпта. Выберите тренд и загрузите своё фото.</p>
+              <label className="lx-search">
+                <Search size={16} />
+                <input value={trendQuery} onChange={(e) => setTrendQuery(e.target.value)} placeholder="Найти тренд" aria-label="Поиск трендов" />
+              </label>
+              <div role="group" aria-label="Категории трендов" className="lx-chips">
+                {TREND_CATEGORIES.map((c) => (
+                  <button key={c.id} type="button" aria-pressed={trendFilter === c.id} onClick={() => setTrendFilter(c.id)}>
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+              <ul className="lx-trend-grid">
+                {!tq && trendFilter === "all" && (
+                  <li>
+                    <button type="button" className="lx-trend lx-trend--remix" onClick={() => setRemix(true)}>
+                      <span className="lx-trend-remix-art">
+                        <Recast size={34} />
                       </span>
-                      <FrameSlot
-                        frame={end}
-                        label="Конец"
-                        alt="Последний кадр"
-                        busy={reading === "end"}
-                        onPick={() => pick("end")}
-                        onDrop={(files) => void readFrame(files[0], "end")}
-                        onClear={() => setEnd(undefined)}
-                        compact
-                      />
-                    </>
-                  )}
-                </div>
-              )}
-              {continuing && start && mode === "photo" && (
-                <p className="vs-note">
-                  <Layers size={14} /> Продолжение видео «{continuing.slice(0, 60)}»: его последний кадр стал первым. Опишите, что дальше.
-                </p>
-              )}
-              {mode === "frames" && start && end && <div className="vs-note">Переход между кадрами</div>}
-
-              {mode === "effects" && (
-                <div className="vs-section">
-                  <div className="vs-section-head">
-                    <span>Эффект</span>
-                    <button type="button" onClick={() => setPresets("effect")}>
-                      Все эффекты
+                      <span className="lx-badge lx-badge--new">Новое</span>
+                      <span className="lx-trend-copy">
+                        <strong>Повторить свой тренд</strong>
+                        <small>Загрузите любой ролик из TikTok или Reels — MARYX повторит его с вами</small>
+                      </span>
                     </button>
+                  </li>
+                )}
+                {trends.map((t) => (
+                  <li key={t.id}>
+                    <button type="button" className="lx-trend" data-cat={t.category} onClick={() => setTrend(t)} aria-label={t.title}>
+                      <PresetArt motion={t.camera} effect={t.effect} />
+                      {t.hit && <span className="lx-hit">ХИТ</span>}
+                      <span className="lx-trend-copy">
+                        <strong>{t.title}</strong>
+                        <small>{t.hint}</small>
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {!trends.length && <p className="lx-sub">Ничего не нашлось — попробуйте другое слово.</p>}
+            </section>
+          )}
+        </div>
+      ) : tab === "effects" ? (
+        <div className="lx-body">
+          <section aria-label="Эффекты">
+            <h1 className="lx-title">Эффекты</h1>
+            <p className="lx-sub">Эффект в один клик: загрузите фото — и оно оживёт с этим эффектом. Можно добавить движение камеры.</p>
+            <ul className="lx-effect-grid">
+              {VIDEO_EFFECTS.map((e) => (
+                <li key={e.id} className="lx-effect">
+                  <PresetArt effect={e.id} />
+                  <div className="lx-effect-copy">
+                    <strong>{e.label}</strong>
+                    <small>{e.hint}</small>
                   </div>
-                  <div role="group" aria-label="Эффекты" className="vs-effects">
-                    {VIDEO_EFFECTS.slice(0, 9).map((e) => (
-                      <PresetCard key={e.id} kind="effect" id={e.id} label={e.label} hint={e.hint} selected={effect === e.id} onClick={() => setEffect(effect === e.id ? null : e.id)} />
-                    ))}
-                  </div>
+                  <button
+                    type="button"
+                    className="lx-try"
+                    aria-label={`Попробовать: ${e.label}`}
+                    onClick={() => {
+                      setEffect(e.id);
+                      setMode("effects");
+                      setEnd(undefined);
+                      toComposer();
+                    }}
+                  >
+                    Попробовать ▸
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        </div>
+      ) : (
+        <>
+          <div className="lx-body">
+            {items.length ? (
+              <VideoGallery items={items} onReuse={reuse} onContinue={continueFrom} onFrame={takeFrame} onDelete={(id) => void removeMedia(id)} />
+            ) : (
+              <section className="lx-start" aria-label="Как создать видео">
+                <h1>Создайте первое видео</h1>
+                <p>Всего три шага от идеи до готового ролика.</p>
+                <ol className="lx-steps">
+                  <li>
+                    <div className="lx-step-art">
+                      <span className="lx-step-switch">
+                        <span>Текст</span>
+                        <span data-on>Фото</span>
+                        <span>Эффекты</span>
+                      </span>
+                    </div>
+                    <small>Шаг 1</small>
+                    <strong>Выберите режим</strong>
+                    <span>Текст, своё фото, два кадра или эффект.</span>
+                  </li>
+                  <li>
+                    <div className="lx-step-art">
+                      <span className="lx-step-typing">Портрет у моря в мягком вечернем свете</span>
+                    </div>
+                    <small>Шаг 2</small>
+                    <strong>Опишите идею</strong>
+                    <span>Напишите, что происходит, и загрузите фото, если нужно.</span>
+                  </li>
+                  <li>
+                    <div className="lx-step-art lx-step-fan">
+                      <PresetArt motion="orbit" />
+                      <PresetArt effect="petals" live />
+                      <PresetArt motion="drone" />
+                    </div>
+                    <small>Шаг 3</small>
+                    <strong>Получите результат</strong>
+                    <span>Видео появится здесь — можно уйти со страницы.</span>
+                  </li>
+                </ol>
+                <PromptGallery
+                  kind="video"
+                  prompt={prompt}
+                  disabled={noProviders}
+                  onChoose={(value) => {
+                    setMode("text");
+                    setPrompt(value);
+                    toComposer();
+                  }}
+                />
+              </section>
+            )}
+          </div>
+
+          <div className="lx-dock">
+            <div ref={composer} className="lx-composer" aria-label="Создать видео">
+              {(start || end || continuing) && (
+                <div className="lx-attachments">
+                  {start && (
+                    <span className="lx-attachment">
+                      {/* eslint-disable-next-line @next/next/no-img-element -- a local data URL */}
+                      <img src={src(start)} alt="Фото для видео" />
+                      <small>{mode === "frames" ? "Начало" : "Первый кадр"}</small>
+                      <button type="button" aria-label="Убрать фото" onClick={() => { setStart(undefined); setEnd(undefined); setContinuing(null); }}>
+                        <X size={12} />
+                      </button>
+                    </span>
+                  )}
+                  {end && (
+                    <span className="lx-attachment">
+                      {/* eslint-disable-next-line @next/next/no-img-element -- a local data URL */}
+                      <img src={src(end)} alt="Последний кадр" />
+                      <small>Конец</small>
+                      <button type="button" aria-label="Убрать последний кадр" onClick={() => setEnd(undefined)}>
+                        <X size={12} />
+                      </button>
+                    </span>
+                  )}
+                  {mode === "frames" && start && !end && (
+                    <button type="button" className="lx-attachment lx-attachment--add" onClick={() => fileInput.current?.click()} aria-label="Загрузить конец">
+                      <Plus size={16} />
+                      <small>Конец</small>
+                    </button>
+                  )}
+                  {continuing && start && (
+                    <span className="lx-note">
+                      <Layers size={13} /> Продолжение видео «{continuing.slice(0, 50)}»: опишите, что дальше
+                    </span>
+                  )}
+                  {mode === "frames" && start && end && <span className="lx-note">Переход между кадрами</span>}
                 </div>
               )}
-
-              <div className="vs-prompt">
-                <label className="vs-field-label" htmlFor="video-description"><ScriptVideo size={15} />Сценарий</label>
+              <div className="lx-input">
+                <button
+                  type="button"
+                  className="lx-plus"
+                  onClick={() => fileInput.current?.click()}
+                  disabled={reading || (mode === "frames" ? Boolean(start && end) : false)}
+                  aria-label={mode === "frames" && start ? "Загрузить конец" : "Загрузить начальный кадр"}
+                  title="Добавить фото: оно станет первым кадром"
+                >
+                  {reading ? <LoaderCircle className="size-4 animate-spin" /> : <Plus size={18} />}
+                </button>
                 <textarea
-                  id="video-description"
                   ref={promptRef}
                   value={prompt}
                   onChange={(e) => {
@@ -600,138 +696,181 @@ export function VideoStudio() {
                     setBefore(null);
                   }}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
+                    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                      e.preventDefault();
+                      submit();
+                    }
                   }}
-                  rows={mode === "text" ? 4 : 3}
+                  rows={2}
                   maxLength={4000}
                   placeholder={continuing ? "Что происходит дальше? Например: герой оборачивается и идёт к морю" : PLACEHOLDER[mode]}
                   aria-label="Описание видео"
                 />
-                <div className="vs-prompt-tools">
-                  <button type="button" onClick={() => void enhance()} disabled={!prompt.trim() || enhancing} title="MARYX превратит идею в подробное режиссёрское описание">
-                    {enhancing ? <LoaderCircle className="size-3.5 animate-spin" /> : <Sparkles size={14} />}
-                    {enhancing ? "Улучшаю…" : "Улучшить промпт"}
-                  </button>
+                <div className="lx-input-tools">
                   {before !== null && !enhancing && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPrompt(before);
-                        setBefore(null);
-                      }}
-                    >
-                      <Undo2 size={14} /> Вернуть как было
+                    <button type="button" onClick={() => { setPrompt(before); setBefore(null); }} title="Вернуть как было" aria-label="Вернуть как было">
+                      <Undo2 size={15} />
                     </button>
                   )}
-                </div>
-              </div>
-              {!prompt && IDEAS[mode].length > 0 && !continuing && (
-                <div className="vs-ideas">
-                  {IDEAS[mode].map((idea) => (
-                    <button
-                      key={idea}
-                      type="button"
-                      onClick={() => {
-                        setPrompt(idea);
-                        promptRef.current?.focus();
-                      }}
-                    >
-                      {idea}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              <div className="vs-section">
-                <div className="vs-section-head">
-                  <span>Движение камеры</span>
-                  <button type="button" onClick={() => setPresets("camera")}>
-                    Все движения · {CAMERA_MOTIONS.length}
+                  <button type="button" onClick={() => void enhance()} disabled={!prompt.trim() || enhancing} title="Улучшить промпт: MARYX превратит идею в подробное описание" aria-label="Улучшить промпт">
+                    {enhancing ? <LoaderCircle className="size-4 animate-spin" /> : <Sparkles size={15} />}
                   </button>
                 </div>
-                <div role="group" aria-label="Движение камеры" className="vs-strip">
-                  {(chosenCamera && !chosenCamera.featured ? [chosenCamera, ...featured] : featured).map((m) => (
-                    <PresetCard key={m.id} kind="camera" id={m.id} label={m.label} hint={m.hint} selected={camera === m.id} onClick={() => setCamera(camera === m.id ? null : m.id)} />
-                  ))}
-                </div>
               </div>
 
-              {(chosenCamera || (chosenEffect && mode !== "frames")) && (
-                <div className="vs-mix" aria-label="Выбрано">
-                  {chosenCamera && (
-                    <span>
-                      Камера: {chosenCamera.label}
-                      <button type="button" onClick={() => setCamera(null)} aria-label="Убрать движение камеры">
-                        <X size={12} />
-                      </button>
-                    </span>
-                  )}
-                  {chosenEffect && mode !== "frames" && (
-                    <span>
-                      Эффект: {chosenEffect.label}
-                      <button type="button" onClick={() => setEffect(null)} aria-label="Убрать эффект">
-                        <X size={12} />
-                      </button>
-                    </span>
-                  )}
-                  {mode !== "effects" && mode !== "frames" && !chosenEffect && (
-                    <button type="button" className="vs-mix-add" onClick={() => setPresets("effect")}>
-                      + эффект
-                    </button>
-                  )}
-                </div>
-              )}
+              <div className="lx-controls">
+                <Pill
+                  title={`Режим: ${current.label}`}
+                  icon={<current.Icon size={15} />}
+                  label={current.label}
+                  open={pop === "mode"}
+                  onOpen={() => { setPop("mode"); setSearch(""); }}
+                  onClose={() => setPop(null)}
+                  wide
+                >
+                  <div className="lx-pop-tabs" role="tablist" aria-label="Что выбрать">
+                    <button type="button" role="tab" aria-selected={modeTab === "video"} onClick={() => setModeTab("video")}>Видео</button>
+                    <button type="button" role="tab" aria-selected={modeTab === "effects"} onClick={() => setModeTab("effects")}>Эффекты</button>
+                  </div>
+                  <label className="lx-pop-search">
+                    <Search size={15} />
+                    <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск режимов и эффектов" aria-label="Поиск режимов и эффектов" autoFocus />
+                  </label>
+                  <div className="lx-pop-list">
+                    {modeTab === "video" ? (
+                      <>
+                        <h3>Основное</h3>
+                        {MODES.filter((m) => matches(m.label, m.hint)).map((m) => (
+                          <button key={m.id} type="button" className="lx-row" aria-pressed={mode === m.id} disabled={modeDisabled(m.id)} onClick={() => chooseMode(m.id)} title={modeDisabled(m.id) ? "Подключённые модели этого пока не умеют" : undefined}>
+                            <m.Icon size={18} />
+                            <span>
+                              <strong>
+                                {m.label}
+                                {m.badge && <em className="lx-badge">{m.badge}</em>}
+                              </strong>
+                              <small>{m.hint}</small>
+                            </span>
+                            {mode === m.id && <Check size={15} />}
+                          </button>
+                        ))}
+                        {matches("Тренды", "готовые тренды повтор") && (
+                          <button type="button" className="lx-row" onClick={() => { setPop(null); setTab("trends"); }}>
+                            <Recast size={18} />
+                            <span>
+                              <strong>
+                                Тренды<em className="lx-badge lx-badge--top">Топ</em>
+                              </strong>
+                              <small>Готовые тренды из одного фото и повтор вашего ролика</small>
+                            </span>
+                          </button>
+                        )}
+                        {!maryxOnly && models.length > 0 && (
+                          <>
+                            <h3>Модели</h3>
+                            {models.filter((m) => matches(m.label, m.id)).map((m) => (
+                              <button key={`${m.provider}:${m.id}`} type="button" className="lx-row" aria-pressed={target?.model === m.id && target.provider === m.provider} onClick={() => { setSaved({ provider: m.provider, model: m.id }); setPop(null); }}>
+                                <Clapperboard size={18} />
+                                <span>
+                                  <strong>{m.label}</strong>
+                                  <small>{m.photoEdit ? "Текст и фото" : "Только текст"}</small>
+                                </span>
+                                {target?.model === m.id && target.provider === m.provider && <Check size={15} />}
+                              </button>
+                            ))}
+                          </>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <h3>Эффекты</h3>
+                        {VIDEO_EFFECTS.filter((e) => matches(e.label, e.hint)).map((e) => (
+                          <button key={e.id} type="button" className="lx-row lx-row--art" aria-pressed={effect === e.id} onClick={() => { setEffect(e.id); if (mode === "text" || mode === "frames") setMode("effects"); setPop(null); }}>
+                            <PresetArt effect={e.id} />
+                            <span>
+                              <strong>{e.label}</strong>
+                              <small>{e.hint}</small>
+                            </span>
+                            {effect === e.id && <Check size={15} />}
+                          </button>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                </Pill>
 
-              <div className="vs-settings">
-                {withPhoto ? (
-                  <span className="vs-setting-note">Формат как у фото</span>
-                ) : (
-                  <div className="vs-setting-group"><span>Формат</span><div role="radiogroup" aria-label="Формат" className="vs-segment">
+                <Pill title="Движение камеры" icon={<Camera size={15} />} label={chosenCamera?.label ?? "Камера"} open={pop === "camera"} onOpen={() => setPop("camera")} onClose={() => setPop(null)} wide>
+                  <div className="lx-pop-grid">
+                    <button type="button" className="preset-card preset-card--none" aria-pressed={camera === null} onClick={() => { setCamera(null); setPop(null); }}>
+                      <span className="preset-none-art">
+                        <X size={22} />
+                      </span>
+                      <span className="preset-card-label">Без движения</span>
+                    </button>
+                    {CAMERA_MOTIONS.map((m) => (
+                      <PresetTile key={m.id} kind="camera" id={m.id} label={m.label} hint={m.hint} selected={camera === m.id} onClick={() => { setCamera(m.id); setPop(null); }} />
+                    ))}
+                  </div>
+                </Pill>
+
+                {mode !== "frames" && (
+                  <Pill title="Эффект" icon={<VideoMagic size={15} />} label={chosenEffect?.label ?? "Эффект"} open={pop === "effect"} onOpen={() => setPop("effect")} onClose={() => setPop(null)} wide>
+                    <div className="lx-pop-grid">
+                      <button type="button" className="preset-card preset-card--none" aria-pressed={effect === null} onClick={() => { setEffect(null); if (mode === "effects") setMode(start ? "photo" : "text"); setPop(null); }}>
+                        <span className="preset-none-art">
+                          <X size={22} />
+                        </span>
+                        <span className="preset-card-label">Без эффекта</span>
+                      </button>
+                      {VIDEO_EFFECTS.map((e) => (
+                        <PresetTile key={e.id} kind="effect" id={e.id} label={e.label} hint={e.hint} selected={effect === e.id} onClick={() => { setEffect(e.id); if (mode === "text") setMode("effects"); setPop(null); }} />
+                      ))}
+                    </div>
+                  </Pill>
+                )}
+
+                <Pill title={withPhoto ? "Формат: как у фото" : `Формат: ${ratio}`} icon={<span className={`vs-ratio vs-ratio-${(withPhoto ? "9:16" : ratio).replace(":", "x")}`} aria-hidden="true" />} label={withPhoto ? "Как у фото" : ratio} open={pop === "ratio"} onOpen={() => setPop("ratio")} onClose={() => setPop(null)} disabled={withPhoto}>
+                  <div role="radiogroup" aria-label="Формат" className="lx-pop-options">
                     {RATIOS.map((r) => (
-                      <button key={r} type="button" role="radio" aria-checked={ratio === r} onClick={() => setRatio(r)}>
+                      <button key={r} type="button" role="radio" aria-checked={ratio === r} onClick={() => { setRatio(r); setPop(null); }}>
                         <span className={`vs-ratio vs-ratio-${r.replace(":", "x")}`} aria-hidden="true" />
-                        {r}
+                        {r === "16:9" ? "16:9 · горизонтальное" : "9:16 · вертикальное"}
                       </button>
                     ))}
-                  </div></div>
-                )}
-                <div className="vs-setting-group"><span>Длительность</span><div role="radiogroup" aria-label="Длительность" className="vs-segment">
-                  {DURATIONS.map((d) => (
-                    <button key={d} type="button" role="radio" aria-checked={duration === d} onClick={() => setDuration(d)}>
-                      {d} с
-                    </button>
-                  ))}
-                </div></div>
-                <div className="vs-setting-group"><span>Варианты</span><div role="radiogroup" aria-label="Сколько вариантов" className="vs-segment" title="Каждый вариант — отдельное видео из лимита">
-                  {COUNTS.map((n) => (
-                    <button key={n} type="button" role="radio" aria-checked={count === n} onClick={() => setCount(n)}>
-                      ×{n}
-                    </button>
-                  ))}
-                </div></div>
-              </div>
+                  </div>
+                </Pill>
 
+                <Pill title={`Длительность: ${duration} с`} icon={<Clock size={15} />} label={`${duration} с`} open={pop === "duration"} onOpen={() => setPop("duration")} onClose={() => setPop(null)}>
+                  <div role="radiogroup" aria-label="Длительность" className="lx-pop-options">
+                    {DURATIONS.map((d) => (
+                      <button key={d} type="button" role="radio" aria-checked={duration === d} onClick={() => { setDuration(d); setPop(null); }}>
+                        {d} секунд
+                      </button>
+                    ))}
+                  </div>
+                </Pill>
+
+                <div className="lx-go">
+                  <div className="lx-stepper" role="group" aria-label="Сколько вариантов" title="Каждый вариант — отдельное видео из лимита">
+                    <button type="button" onClick={() => setCount((n) => Math.max(1, n - 1))} disabled={count <= 1} aria-label="Меньше вариантов">
+                      <Minus size={14} />
+                    </button>
+                    <output aria-label="Вариантов">{count}</output>
+                    <button type="button" onClick={() => setCount((n) => Math.min(MAX_COUNT, n + 1))} disabled={count >= MAX_COUNT} aria-label="Больше вариантов">
+                      <Plus size={14} />
+                    </button>
+                  </div>
+                  <button type="button" onClick={submit} disabled={!ready || Boolean(modelCant)} className="lx-create" aria-label={`Создать${count > 1 ? ` ×${count}` : ""}`}>
+                    {ready ? "Создать" : mode === "text" ? "Опишите видео" : mode === "photo" ? "Добавьте фото" : mode === "frames" ? "Добавьте два кадра" : "Выберите эффект"}
+                    <span className="lx-cost">{count} <Clapperboard size={12} /></span>
+                  </button>
+                </div>
+              </div>
               {modelCant && <p className="vs-error">Эта модель не умеет начинать видео с фото — выберите другую.</p>}
-              {mode === "frames" && targetModel && !maryxOnly && !targetModel.lastFrame && (
-                <p className="vs-error">Эта модель не умеет заканчивать видео на втором кадре — выберите другую.</p>
-              )}
               {error && (
                 <p role="alert" className="vs-error">
                   {error}
                 </p>
               )}
-
-              <div className="vs-generate">
-                {maryxOnly ? <MaryxBadge /> : <ModelPicker models={models} value={choice} onChange={setSaved} loading={loading} />}
-                <button type="button" onClick={submit} disabled={!ready || Boolean(modelCant)} className="maryx-button vs-go">
-                  <WandSparkles size={17} />
-                  {BUTTON[mode]}
-                  {count > 1 && <span className="vs-go-count">×{count}</span>}
-                </button>
-              </div>
-              <p className="vs-cost">
-                {count > 1 ? `${count} видео из лимита` : "1 видео из лимита"} · {duration} с · готово за 1–5 минут, можно уйти со страницы
-              </p>
               <input
                 ref={fileInput}
                 type="file"
@@ -739,54 +878,18 @@ export function VideoStudio() {
                 hidden
                 onChange={(e) => {
                   const file = e.target.files?.[0];
-                  if (file) void readFrame(file, slot.current);
+                  if (file) void readFrame(file);
                   e.target.value = "";
                 }}
               />
             </div>
-
-            <div className="vs-results">
-              <VideoGallery
-                items={items}
-                onReuse={reuse}
-                onContinue={continueFrom}
-                onFrame={takeFrame}
-                onDelete={(id) => void removeMedia(id)}
-              />
-              <PromptGallery
-                kind="video"
-                prompt={prompt}
-                disabled={noProviders}
-                onChoose={(value) => {
-                  setMode("text");
-                  setPrompt(value);
-                  toPanel();
-                }}
-              />
-            </div>
+            <p className="lx-dock-note">
+              {count > 1 ? `${count} видео из лимита` : "1 видео из лимита"} · {duration} с · готово за 1–5 минут, можно уйти со страницы
+            </p>
           </div>
-        )}
-        </div>
-      </div>
-      {presets && (
-        <PresetDialog
-          tab={presets}
-          camera={camera}
-          effect={effect}
-          onTab={setPresets}
-          onCamera={(id) => {
-            setCamera(id);
-            setPresets(null);
-          }}
-          onEffect={(id) => {
-            setEffect(id);
-            // Effects go on one first frame, not on a transition.
-            if (id && mode === "frames") setMode("effects");
-            setPresets(null);
-          }}
-          onClose={() => setPresets(null)}
-        />
+        </>
       )}
+      {trend && <TrendSheet trend={trend} onClose={() => setTrend(null)} onMake={(photo, extra) => makeTrend(trend, photo, extra)} />}
     </div>
   );
 }
