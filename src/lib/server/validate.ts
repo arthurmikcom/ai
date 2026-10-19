@@ -1,5 +1,5 @@
 import { PROVIDERS } from "@/lib/catalog";
-import { CAMERA_MOTIONS } from "@/lib/effects";
+import { CAMERA_MOTIONS, IMAGE_STYLES } from "@/lib/effects";
 import type { AspectRatio, ChatSendRequest, GenerateRequest, InlineFile, InlineImage, ProviderId } from "@/lib/types";
 import { maryxOnly } from "./config";
 import { isDocumentMime } from "./documents";
@@ -33,7 +33,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 /** Returns the parsed request, or an error message for the client. */
 export function parseChatSendRequest(body: unknown): ChatSendRequest | string {
   if (!isObject(body)) return "Пустой запрос";
-  const { chatId, create, deepThinking, image, video, camera, webSearch, message, answerId, replyTo } = body;
+  const { chatId, create, deepThinking, image, video, camera, style, webSearch, message, answerId, replyTo } = body;
   // Tabs opened before the rename to MARYX still say "nexus".
   const provider = body.provider === "nexus" ? "maryx" : body.provider;
   const model = body.model === "nexus" ? "maryx" : body.model;
@@ -47,6 +47,7 @@ export function parseChatSendRequest(body: unknown): ChatSendRequest | string {
 
   if (image === true && video === true) return "Выберите что-то одно: картинку или видео";
   if (camera !== undefined && (video !== true || !CAMERA_MOTIONS.some((m) => m.id === camera))) return "Неизвестное движение камеры";
+  if (style !== undefined && (image !== true || !IMAGE_STYLES.some((s) => s.id === style))) return "Неизвестный стиль";
 
   let assistantId: string | undefined;
   if (create !== undefined) {
@@ -95,6 +96,7 @@ export function parseChatSendRequest(body: unknown): ChatSendRequest | string {
     image: image === true,
     video: video === true,
     ...(typeof camera === "string" ? { camera } : {}),
+    ...(typeof style === "string" ? { style } : {}),
     webSearch: webSearch === true,
     replyTo: replyTo as string | undefined,
     message: parsedMessage,
@@ -133,7 +135,7 @@ function parsePhotos(value: unknown): InlineImage[] | string {
 
 export function parseGenerateRequest(body: unknown): GenerateRequest | string {
   if (!isObject(body)) return "Пустой запрос";
-  const { kind, provider, model, prompt, aspectRatio, images, camera } = body;
+  const { kind, provider, model, prompt, aspectRatio, images, camera, style } = body;
   if (kind !== "image" && kind !== "video") return "Неизвестный тип генерации";
   if (!isProvider(provider) || provider === "browser") return "Неизвестный провайдер";
   if (maryxOnly() && provider !== "maryx") return ONLY_MARYX;
@@ -146,6 +148,7 @@ export function parseGenerateRequest(body: unknown): GenerateRequest | string {
   if (prompt.length > 4000) return "Описание слишком длинное: до 4000 символов";
   if (typeof aspectRatio !== "string" || !ASPECT_RATIOS.has(aspectRatio)) return "Неверное соотношение сторон";
   if (camera !== undefined && (kind !== "video" || !CAMERA_MOTIONS.some((m) => m.id === camera))) return "Неизвестное движение камеры";
+  if (style !== undefined && (kind !== "image" || !IMAGE_STYLES.some((s) => s.id === style))) return "Неизвестный стиль";
   return {
     kind,
     provider,
@@ -154,5 +157,6 @@ export function parseGenerateRequest(body: unknown): GenerateRequest | string {
     aspectRatio: aspectRatio as AspectRatio,
     ...(photos ? { images: photos } : {}),
     ...(typeof camera === "string" ? { camera } : {}),
+    ...(typeof style === "string" ? { style } : {}),
   };
 }

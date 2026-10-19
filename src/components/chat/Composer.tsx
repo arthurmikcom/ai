@@ -11,7 +11,9 @@ import {
   Mic,
   Palette,
   Paperclip,
+  Sparkles,
   Square,
+  Undo2,
   X,
 } from "lucide-react";
 import { useEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
@@ -32,7 +34,8 @@ import {
   transcribe,
   type Recording,
 } from "@/lib/client/voice";
-import { CAMERA_MOTIONS, PHOTO_EFFECTS } from "@/lib/effects";
+import { enhancePrompt } from "@/lib/client/media";
+import { CAMERA_MOTIONS, IMAGE_STYLES, PHOTO_EFFECTS } from "@/lib/effects";
 import type { Attachment, ModelInfo } from "@/lib/types";
 
 interface Props {
@@ -65,6 +68,9 @@ interface Props {
   /** Video mode: how the camera moves (an id of CAMERA_MOTIONS), or null. */
   camera?: string | null;
   onCameraChange?: (value: string | null) => void;
+  /** Draw mode: a new picture's look (an id of IMAGE_STYLES), or null. */
+  style?: string | null;
+  onStyleChange?: (value: string | null) => void;
   /** How dictation is recognized: on our server, by the browser, or not at all. */
   voiceInput: "server" | "browser" | null;
   /** Talk mode: dictated messages are sent right away and answers are read aloud. */
@@ -105,6 +111,8 @@ export function Composer({
   onVideoModeChange,
   camera = null,
   onCameraChange,
+  style = null,
+  onStyleChange,
   voiceInput,
   voiceMode,
   onVoiceModeChange,
@@ -149,6 +157,27 @@ export function Composer({
   const keeping = attachments.filter((a) => !sending.includes(a));
   const canSeeImages = model?.vision !== false || takesPhotos;
   const canSend = !disabled && !streaming && (text.trim() !== "" || sending.length > 0);
+  // "✨ Улучшить" (draw and video modes): the rewrite in progress, and the words before it.
+  const [enhancing, setEnhancing] = useState(false);
+  const [before, setBefore] = useState<string | null>(null);
+  const enhance = async () => {
+    const idea = text.trim();
+    if (!idea || enhancing) return;
+    setError(null);
+    setEnhancing(true);
+    try {
+      const better = await enhancePrompt(videoMode ? "video" : "image", idea, sending.length > 0);
+      setBefore(idea);
+      setText(better);
+      if (textarea.current) {
+        textarea.current.style.height = "auto";
+        textarea.current.style.height = `${Math.min(textarea.current.scrollHeight, 240)}px`;
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+    setEnhancing(false);
+  };
 
   const addFiles = async (files: File[]) => {
     setError(null);
@@ -195,6 +224,7 @@ export function Composer({
     if (!canSend) return;
     onSend(text.trim(), sending);
     setText("");
+    setBefore(null);
     // A picture prompt (or a text-only model) doesn't take the other files along; they stay for later.
     setAttachments(keeping);
     setError(null);
@@ -365,6 +395,28 @@ export function Composer({
           </div>
         )}
 
+        {imageMode && onStyleChange && !sending.length && (
+          // One scrolling line on phones, like the camera moves.
+          <div role="group" aria-label="Стиль" className="flex items-center gap-1.5 overflow-x-auto px-2 pb-1 sm:flex-wrap">
+            <span className="mr-0.5 shrink-0 text-xs text-zinc-500">Стиль:</span>
+            {IMAGE_STYLES.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                aria-pressed={style === s.id}
+                onClick={() => onStyleChange(style === s.id ? null : s.id)}
+                className={`shrink-0 whitespace-nowrap rounded-lg border px-2 py-0.5 text-xs transition ${
+                  style === s.id
+                    ? "border-violet-300/50 bg-violet-500/20 text-violet-100"
+                    : "border-white/10 bg-white/[0.03] text-zinc-400 hover:border-violet-300/40 hover:text-zinc-100"
+                }`}
+              >
+                <span aria-hidden="true">{s.emoji}</span> {s.label}
+              </button>
+            ))}
+          </div>
+        )}
+
         {videoMode && onCameraChange && (
           // One scrolling line on phones, so the text field keeps its room.
           <div role="group" aria-label="Движение камеры" className="flex items-center gap-1.5 overflow-x-auto px-2 pb-1 sm:flex-wrap">
@@ -393,6 +445,7 @@ export function Composer({
           rows={1}
           onChange={(e) => {
             setText(e.target.value);
+            setBefore(null);
             e.target.style.height = "auto";
             e.target.style.height = `${Math.min(e.target.scrollHeight, 240)}px`;
           }}
@@ -578,6 +631,34 @@ export function Composer({
           )}
 
           <div className="flex-1" />
+
+          {mediaMode && before !== null && !enhancing && (
+            <button
+              type="button"
+              onClick={() => {
+                setText(before);
+                setBefore(null);
+              }}
+              title="Вернуть как было"
+              aria-label="Вернуть как было"
+              className="rounded-full p-2 text-zinc-500 transition hover:bg-white/5 hover:text-zinc-100"
+            >
+              <Undo2 className="size-4" />
+            </button>
+          )}
+          {mediaMode && (
+            <button
+              type="button"
+              onClick={() => void enhance()}
+              disabled={!text.trim() || enhancing || disabled}
+              title="Улучшить описание: MARYX сделает его подробным и профессиональным"
+              aria-label="Улучшить описание"
+              className="flex items-center gap-1.5 rounded-full px-2 py-1.5 text-sm text-violet-200 transition hover:bg-violet-500/15 disabled:opacity-40 sm:px-3"
+            >
+              {enhancing ? <LoaderCircle className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
+              <span className="hidden sm:inline">{enhancing ? "Улучшаю…" : "Улучшить"}</span>
+            </button>
+          )}
 
           {streaming ? (
             <button

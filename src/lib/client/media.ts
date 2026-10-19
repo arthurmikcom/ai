@@ -92,6 +92,15 @@ export async function generate(req: GenerateRequest): Promise<void> {
   put(result);
 }
 
+/**
+ * "✨ Улучшить": MARYX rewrites a short idea into a detailed prompt for a
+ * picture or clip (with `photo`, for what to do with the user's photo). Counts as one message.
+ */
+export async function enhancePrompt(kind: MediaKind, prompt: string, photo = false): Promise<string> {
+  const res = await api<{ prompt: string }>("/api/prompt", { method: "POST", body: JSON.stringify({ kind, prompt, photo }) });
+  return res.prompt;
+}
+
 /** A gallery item made outside the studio (a video answer in the chat): followed until it's ready. */
 export function track(item: MediaItem) {
   put(item);

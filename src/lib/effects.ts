@@ -50,3 +50,32 @@ export function withCameraMotion(prompt: string, motion: CameraMotion | undefine
   const text = prompt.trim();
   return text ? `${text.replace(/[.\s]+$/, "")}. Camera: ${motion.prompt}.` : `Camera: ${motion.prompt}.`;
 }
+
+export interface ImageStyle {
+  id: string;
+  label: string;
+  emoji: string;
+  /** Added to the picture's description (image models follow style words best in English). */
+  prompt: string;
+}
+
+/** Looks for a new picture, one click each (a photo being edited takes PHOTO_EFFECTS instead). */
+export const IMAGE_STYLES: ImageStyle[] = [
+  { id: "photo", label: "Фотореализм", emoji: "📷", prompt: "photorealistic, shot on a professional camera, natural light, high detail" },
+  { id: "cinema", label: "Кино", emoji: "🎬", prompt: "cinematic film still, dramatic lighting, anamorphic lens, color graded" },
+  { id: "anime", label: "Аниме", emoji: "🌸", prompt: "anime illustration, clean line art, vibrant colors, studio quality" },
+  { id: "3d", label: "3D", emoji: "🧸", prompt: "3D render in the style of an animated feature film, soft global illumination" },
+  { id: "watercolor", label: "Акварель", emoji: "💧", prompt: "delicate watercolor painting on textured paper" },
+  { id: "oil", label: "Масло", emoji: "🎨", prompt: "oil painting with visible brush strokes and rich texture" },
+  { id: "neon", label: "Неон", emoji: "🌃", prompt: "neon cyberpunk aesthetic, glowing lights at night, reflections" },
+  { id: "pixel", label: "Пиксель-арт", emoji: "👾", prompt: "pixel art, 16-bit retro video game style" },
+  { id: "minimal", label: "Минимализм", emoji: "◻️", prompt: "minimalist flat design, clean shapes, plenty of negative space" },
+  { id: "logo", label: "Логотип", emoji: "🔷", prompt: "professional flat vector logo, simple and memorable, centered on a plain background" },
+];
+
+/** The picture's description with the chosen style. */
+export function withStyle(prompt: string, style: ImageStyle | undefined): string {
+  if (!style) return prompt;
+  const text = prompt.trim();
+  return text ? `${text.replace(/[.\s]+$/, "")}. Style: ${style.prompt}.` : `Style: ${style.prompt}.`;
+}

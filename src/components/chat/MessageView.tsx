@@ -45,6 +45,15 @@ interface Props {
   onAnimatePicture?: (src: string) => void;
 }
 
+/** One-click changes to the last answer, sent as the next message (the user sees what was asked). */
+const REWRITES = [
+  { label: "Короче", text: "Перепиши свой последний ответ короче, сохранив главное." },
+  { label: "Подробнее", text: "Раскрой свой последний ответ подробнее, с примерами." },
+  { label: "Проще", text: "Объясни свой последний ответ проще, как для новичка." },
+  { label: "Списком", text: "Оформи свой последний ответ коротким списком главных пунктов." },
+  { label: "На английском", text: "Переведи свой последний ответ на английский язык." },
+];
+
 const CHIP =
   "flex items-center gap-1.5 rounded-xl border border-violet-300/15 bg-violet-300/[0.04] px-3 py-1.5 text-sm text-zinc-300 transition hover:border-violet-300/40 hover:text-zinc-50";
 
@@ -468,6 +477,22 @@ export function MessageView({
             </button>
           )}
           {modelLabel && <span className="ml-1 text-xs">{modelLabel}</span>}
+        </div>
+      )}
+
+      {isLast && !streaming && onSuggest && message.content && !message.error && !message.mediaId && !picture && (
+        <div role="group" aria-label="Изменить ответ" className="mt-2 flex flex-wrap items-center gap-1.5">
+          {REWRITES.map((r) => (
+            <button
+              key={r.label}
+              type="button"
+              title={r.text}
+              onClick={() => onSuggest(r.text)}
+              className="rounded-full border border-white/10 px-2.5 py-0.5 text-xs text-zinc-400 transition hover:border-violet-300/40 hover:text-zinc-100"
+            >
+              {r.label}
+            </button>
+          ))}
         </div>
       )}
 

@@ -154,6 +154,8 @@ export interface SendOptions {
   video?: boolean;
   /** Video: how the camera moves (an id of CAMERA_MOTIONS). */
   camera?: string;
+  /** Picture: its look (an id of IMAGE_STYLES). */
+  style?: string;
   /** Let the model search the web. */
   webSearch?: boolean;
   /** Answer with this model in the browser (see client/local-ai.ts) instead of the server. */
@@ -174,6 +176,8 @@ export interface ChatSendRequest {
   video?: boolean;
   /** Video: how the camera moves (an id of CAMERA_MOTIONS). */
   camera?: string;
+  /** Picture: its look (an id of IMAGE_STYLES). */
+  style?: string;
   /** Let the model search the web (models with `search`). */
   webSearch?: boolean;
   /** The new user message; omitted when regenerating the last answer. */
@@ -253,6 +257,8 @@ export interface GenerateRequest {
   images?: InlineImage[];
   /** Video: how the camera moves (an id of CAMERA_MOTIONS). */
   camera?: string;
+  /** A new picture's look (an id of IMAGE_STYLES). */
+  style?: string;
 }
 
 export type MediaOutput =

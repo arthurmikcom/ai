@@ -1,11 +1,11 @@
 "use client";
 
-import { Clapperboard, Image as ImageIcon, ImagePlus, KeyRound, LoaderCircle, WandSparkles, X } from "lucide-react";
+import { Clapperboard, Image as ImageIcon, ImagePlus, KeyRound, LoaderCircle, Sparkles, Undo2, WandSparkles, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent } from "react";
-import { CAMERA_MOTIONS, PHOTO_EFFECTS } from "@/lib/effects";
-import { generate, removeMedia, useMediaItems } from "@/lib/client/media";
+import { CAMERA_MOTIONS, IMAGE_STYLES, PHOTO_EFFECTS } from "@/lib/effects";
+import { enhancePrompt, generate, removeMedia, useMediaItems } from "@/lib/client/media";
 import { useModels } from "@/lib/client/useModels";
 import { useStoredJson } from "@/lib/client/useStored";
 import { imageToAttachment, MAX_TOTAL_BASE64, nearestRatio } from "@/lib/client/util";
@@ -115,6 +115,11 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
   const [photoError, setPhotoError] = useState<string | null>(null);
   // Video: how the camera moves (Higgsfield style), sent along as a direction.
   const [camera, setCamera] = useState<string | null>(null);
+  // A new picture's look, sent along as a direction.
+  const [style, setStyle] = useState<string | null>(null);
+  // "✨ Улучшить": the rewrite in progress, and the words before it (to go back).
+  const [enhancing, setEnhancing] = useState(false);
+  const [before, setBefore] = useState<string | null>(null);
 
   const replicateReady = !maryxOnly && (data?.providers.some((p) => p.id === "replicate" && p.configured) ?? false);
   const noProviders = data !== null && models.length === 0 && !replicateReady;
@@ -237,7 +242,23 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
       aspectRatio: editing ? nearestRatio(photos[0].width, photos[0].height, RATIOS[kind]) : ratio,
       ...(editing ? { images: photos.map((p) => ({ mime: p.mime, data: p.data! })) } : {}),
       ...(kind === "video" && camera ? { camera } : {}),
+      ...(kind === "image" && !editing && style ? { style } : {}),
     });
+  };
+
+  const enhance = async () => {
+    const idea = prompt.trim();
+    if (!idea || enhancing) return;
+    setPhotoError(null);
+    setEnhancing(true);
+    try {
+      const better = await enhancePrompt(kind, idea, editing);
+      setBefore(idea);
+      setPrompt(better);
+    } catch (e) {
+      setPhotoError(e instanceof Error ? e.message : String(e));
+    }
+    setEnhancing(false);
   };
 
   const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
@@ -340,7 +361,10 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
             <textarea
               ref={promptRef}
               value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
+              onChange={(e) => {
+                setPrompt(e.target.value);
+                setBefore(null);
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
               }}
@@ -350,11 +374,58 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
               aria-label={editing ? edit.placeholder : copy.placeholder}
               className="w-full resize-none bg-transparent px-2 py-1 text-[15px] text-zinc-100 outline-none placeholder:text-zinc-500"
             />
+            {(prompt.trim() || before !== null) && (
+              <div className="flex flex-wrap items-center gap-2 px-2 pb-2">
+                <button
+                  type="button"
+                  onClick={() => void enhance()}
+                  disabled={!prompt.trim() || enhancing}
+                  title="MARYX превратит идею в подробное профессиональное описание"
+                  className="flex items-center gap-1.5 rounded-lg border border-violet-300/25 bg-violet-500/10 px-2.5 py-1 text-xs text-violet-100 transition hover:border-violet-300/50 disabled:opacity-50"
+                >
+                  {enhancing ? <LoaderCircle className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
+                  {enhancing ? "Улучшаю…" : "Улучшить промпт"}
+                </button>
+                {before !== null && !enhancing && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPrompt(before);
+                      setBefore(null);
+                    }}
+                    className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-zinc-500 hover:text-zinc-200"
+                  >
+                    <Undo2 className="size-3.5" /> Вернуть как было
+                  </button>
+                )}
+              </div>
+            )}
             {editable && !photos.length && !reading && ASKS_FOR_PHOTO.test(prompt) && (
               <p className="px-2 pb-2 text-xs text-violet-200">{edit.hint}</p>
             )}
             {editing && !targetEdits && <p className="px-2 pb-2 text-xs text-red-300">{edit.cant}</p>}
             {photoError && <p className="px-2 pb-2 text-xs text-red-300">{photoError}</p>}
+
+            {kind === "image" && !editing && (
+              <div role="group" aria-label="Стиль" className="flex flex-wrap items-center gap-1.5 px-2 pb-2">
+                <span className="mr-1 text-xs text-zinc-500">Стиль:</span>
+                {IMAGE_STYLES.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    aria-pressed={style === s.id}
+                    onClick={() => setStyle((c) => (c === s.id ? null : s.id))}
+                    className={`rounded-lg border px-2.5 py-1 text-xs transition ${
+                      style === s.id
+                        ? "border-violet-300/50 bg-violet-500/20 text-violet-100"
+                        : "border-white/10 bg-white/[0.03] text-zinc-400 hover:border-violet-300/40 hover:text-zinc-100"
+                    }`}
+                  >
+                    <span aria-hidden="true">{s.emoji}</span> {s.label}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {kind === "video" && (
               <div role="group" aria-label="Движение камеры" className="flex flex-wrap items-center gap-1.5 px-2 pb-2">

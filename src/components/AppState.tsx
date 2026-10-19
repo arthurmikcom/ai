@@ -381,6 +381,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           image: options.image,
           video: options.video,
           camera: options.video ? options.camera : undefined,
+          style: options.image ? options.style : undefined,
           webSearch: options.webSearch,
           message: message && {
             id: message.id,

@@ -17,6 +17,7 @@ import { describeAiError, maryxOnly, publicNotice } from "@/lib/server/brand";
 import { StorageUnavailableError, statusOf } from "@/lib/server/errors";
 import { loadOpenRouterChatModels } from "@/lib/server/models";
 import { jsonError, requireUser, storageUnavailable } from "@/lib/server/http";
+import { IMAGE_STYLES, withStyle } from "@/lib/effects";
 import { startMediaJob } from "@/lib/server/media-job";
 import {
   DocumentError,
@@ -370,7 +371,9 @@ export async function POST(request: Request) {
           until: requestStarted + VIDEO_FALLBACK_WINDOW_MS,
         });
       }
-      return drawInChat(request, bill, chatId, req.answerId, asked.content, via, photos, attached);
+      // A new picture takes the chosen look (an edited photo keeps its own).
+      const style = photos.length ? undefined : IMAGE_STYLES.find((s) => s.id === req.style);
+      return drawInChat(request, bill, chatId, req.answerId, withStyle(asked.content, style), via, photos, attached);
     }
 
     // Images of the new message are already in memory; older ones are re-read.

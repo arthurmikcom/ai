@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, ArrowUpRight, Clapperboard, Code2, Compass, FileText, Image as ImageIcon, KeyRound, Lightbulb, LoaderCircle, Plus, Sparkles, X } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Clapperboard, Code2, Compass, FileText, Gamepad2, Image as ImageIcon, KeyRound, Lightbulb, LoaderCircle, Plus, Sparkles, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BROWSER_MODELS } from "@/lib/catalog";
@@ -17,9 +17,11 @@ import { MaryxVisual } from "../Design";
 
 const SUGGESTIONS = [
   { title: "Объясни просто", icon: Sparkles, text: "Объясни, как работают нейросети, как будто мне 12 лет" },
-  { title: "Напиши код", icon: Code2, text: "Напиши на Python скрипт, который переименовывает фото по дате съёмки" },
+  // The answer runs right in the chat ("Запустить").
+  { title: "Сделай игру", icon: Gamepad2, text: "Сделай игру «Змейка» с красивым неоновым дизайном, счётом и управлением стрелками и свайпами" },
   { title: "Составь план", icon: Compass, text: "Составь план запуска своего онлайн-сервиса за 30 дней" },
   { title: "Придумай идеи", icon: Lightbulb, text: "Придумай 10 идей для AI-стартапа с описанием и монетизацией" },
+  { title: "Напиши код", icon: Code2, text: "Напиши на Python скрипт, который переименовывает фото по дате съёмки" },
 ];
 
 const ASSISTANT_LINKS = [
@@ -55,6 +57,7 @@ export function ChatView() {
   const videos = useModels("video");
   const [videoMode, setVideoMode] = useState(false);
   const [camera, setCamera] = useState<string | null>(null);
+  const [style, setStyle] = useState<string | null>(null);
   // Answers name their model; pictures and clips come from image and video models.
   const allModels = useMemo(
     () => [...models, ...(images.data?.models ?? []), ...(videos.data?.models ?? [])],
@@ -390,6 +393,8 @@ export function ChatView() {
           onVideoModeChange={changeVideoMode}
           camera={camera}
           onCameraChange={setCamera}
+          style={style}
+          onStyleChange={setStyle}
           voiceInput={voiceInput}
           voiceMode={voiceMode && Boolean(voice?.speak)}
           onVoiceModeChange={voice?.speak ? setVoiceMode : null}
@@ -398,13 +403,15 @@ export function ChatView() {
             stopSpeaking();
             speakNext.current = viaVoice && voiceMode && voice?.speak ? (chat?.id ?? "new") : null;
             const filming = videoMode && canFilm;
+            const drawing = !filming && imageMode && canDraw && !current?.local;
             app.send(
               text,
               attachments,
               sendOptions({
-                image: !filming && imageMode && canDraw && !current?.local,
+                image: drawing,
                 video: filming,
                 camera: filming ? (camera ?? undefined) : undefined,
+                style: drawing ? (style ?? undefined) : undefined,
               }),
               choice,
             );
