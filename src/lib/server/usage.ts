@@ -67,24 +67,28 @@ export async function consume(user: SessionUser, kind: UsageKind): Promise<boole
 /** Counter kinds besides the plan's: requests made with the user's own key, whole videos uploaded. */
 type Counter = UsageKind | "byok" | "upload";
 
-/** Whole videos (up to 100 MB each) one user may upload a day: storage isn't free. */
-const DAILY_UPLOADS = 40;
-
-/** Counts one video upload; false when today's are used up. */
-export async function countUpload(user: SessionUser): Promise<boolean> {
-  return bump(user.id, "upload", isAdmin(user) ? null : DAILY_UPLOADS);
+/** Megabytes of whole videos one user may upload a day (DAILY_UPLOAD_MB, 4 GB by default): storage isn't free. */
+export function dailyUploadMb(): number {
+  const value = Number.parseInt(process.env.DAILY_UPLOAD_MB ?? "", 10);
+  return Number.isFinite(value) && value > 0 ? value : 4096;
 }
 
-async function bump(userId: string, kind: Counter, limit: number | null): Promise<boolean> {
-  if (limit === 0) return false;
+/** Counts a video upload of `bytes` against the day's megabytes; false when it doesn't fit in what's left. */
+export async function countUpload(user: SessionUser, bytes: number): Promise<boolean> {
+  return bump(user.id, "upload", isAdmin(user) ? null : dailyUploadMb(), Math.max(1, Math.ceil(bytes / (1024 * 1024))));
+}
+
+/** Adds `amount` to today's counter, unless that would go past `limit`. */
+async function bump(userId: string, kind: Counter, limit: number | null, amount = 1): Promise<boolean> {
+  if (limit === 0 || (limit !== null && amount > limit)) return false;
   const db = await getDb();
   const rows = await db
     .insert(schema.usage)
-    .values({ userId, day: today(), kind: kind as UsageKind, count: 1 })
+    .values({ userId, day: today(), kind: kind as UsageKind, count: amount })
     .onConflictDoUpdate({
       target: [schema.usage.userId, schema.usage.day, schema.usage.kind],
-      set: { count: sql`${schema.usage.count} + 1` },
-      ...(limit === null ? {} : { setWhere: sql`${schema.usage.count} < ${limit}` }),
+      set: { count: sql`${schema.usage.count} + ${amount}` },
+      ...(limit === null ? {} : { setWhere: sql`${schema.usage.count} + ${amount} <= ${limit}` }),
     })
     .returning({ count: schema.usage.count });
   return rows.length > 0;

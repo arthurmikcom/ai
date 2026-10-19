@@ -5,6 +5,9 @@
 
 import { api, errorOf } from "./api";
 
+/** Parts sent at once. */
+const PARALLEL_PARTS = 3;
+
 /** The video's type as the server takes it (phones don't always say it; the name does). */
 export function videoMime(file: File): string {
   if (/^video\/(mp4|webm|quicktime)$/.test(file.type)) return file.type;
@@ -29,20 +32,32 @@ export async function uploadVideo(
     signal,
   });
   const parts = Math.ceil(file.size / part);
-  try {
-    for (let i = 0; i < parts; i++) {
-      const body = file.slice(i * part, Math.min(file.size, (i + 1) * part));
-      // A part that fails (a flaky connection) is tried again twice.
-      for (let attempt = 0; ; attempt++) {
-        signal?.throwIfAborted();
-        const res = await fetch(`/api/uploads/${id}?part=${i}`, { method: "PUT", body, signal }).catch((e: unknown) => e as Error);
-        if (res instanceof Response && res.ok) break;
-        signal?.throwIfAborted();
-        if (attempt >= 2) throw res instanceof Response ? await errorOf(res) : new Error("Связь прервалась — видео не загрузилось.");
-        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
-      }
-      onProgress(Math.round(((i + 1) / parts) * 95));
+  // A few parts go at once (a big video has hundreds); one that fails stops the rest.
+  const stop = new AbortController();
+  const sending = signal ? AbortSignal.any([signal, stop.signal]) : stop.signal;
+  let next = 0;
+  let sent = 0;
+  const sendPart = async (i: number) => {
+    const body = file.slice(i * part, Math.min(file.size, (i + 1) * part));
+    // A part that fails (a flaky connection) is tried again twice.
+    for (let attempt = 0; ; attempt++) {
+      sending.throwIfAborted();
+      const res = await fetch(`/api/uploads/${id}?part=${i}`, { method: "PUT", body, signal: sending }).catch((e: unknown) => e as Error);
+      if (res instanceof Response && res.ok) break;
+      sending.throwIfAborted();
+      if (attempt >= 2) throw res instanceof Response ? await errorOf(res) : new Error("Связь прервалась — видео не загрузилось.");
+      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
     }
+    onProgress(Math.round((++sent / parts) * 95));
+  };
+  const worker = async () => {
+    while (next < parts) await sendPart(next++);
+  };
+  try {
+    await Promise.all(Array.from({ length: Math.min(PARALLEL_PARTS, parts) }, () => worker())).catch((err: unknown) => {
+      stop.abort();
+      throw err;
+    });
     signal?.throwIfAborted();
   } catch (err) {
     void fetch(`/api/uploads/${id}`, { method: "DELETE" }).catch(() => {});

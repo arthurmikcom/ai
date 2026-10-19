@@ -43,6 +43,7 @@ import {
 import { canCaptureScreen, canUseCamera, captureScreen, clock, videoSheet } from "@/lib/client/capture";
 import { enhancePrompt } from "@/lib/client/media";
 import { discardVideo, uploadVideo, videoMime } from "@/lib/client/upload";
+import { MAX_VIDEO_MB, sizeText } from "@/lib/limits";
 import { CAMERA_MOTIONS, IMAGE_STYLES, PHOTO_EFFECTS } from "@/lib/effects";
 import type { Attachment, ModelInfo } from "@/lib/types";
 import { CameraDialog } from "./CameraDialog";
@@ -106,7 +107,6 @@ export interface ComposerInject {
 
 const MAX_ATTACHMENTS = 4;
 /** The biggest video (the server takes the same). */
-const MAX_VIDEO_MB = 100;
 
 /** A video file (phones don't always say its type; the name does). */
 function isVideoFile(file: File): boolean {
@@ -331,7 +331,7 @@ export function Composer({
   const addVideo = async (file: File) => {
     setError(null);
     if (file.size > MAX_VIDEO_MB * 1024 * 1024) {
-      setError(`Видео слишком большое: до ${MAX_VIDEO_MB} МБ.`);
+      setError(`Видео слишком большое: до ${sizeText(MAX_VIDEO_MB)}.`);
       return;
     }
     const preview = URL.createObjectURL(file);

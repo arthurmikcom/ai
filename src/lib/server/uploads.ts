@@ -2,10 +2,13 @@
 // ~4.5 MB per request, phone videos are far bigger. Each part is stored on its
 // own, then joined into one file in the user's attachments.
 
+import { MAX_VIDEO_MB } from "@/lib/limits";
 import { deleteFiles, getFile, isValidKey, newKey, putFile, userPrefix } from "./storage";
 
-/** The biggest video the chat takes. */
-export const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
+/** The biggest video the site takes (NEXT_PUBLIC_MAX_VIDEO_MB, 2 GB by default). */
+export function maxVideoBytes(): number {
+  return MAX_VIDEO_MB * 1024 * 1024;
+}
 /** One part: well under the platform's request limit. */
 export const UPLOAD_PART_BYTES = 4 * 1024 * 1024;
 export const VIDEO_MIME = new Set(["video/mp4", "video/webm", "video/quicktime"]);
@@ -21,7 +24,7 @@ export function partKey(userId: string, uploadId: string, part: number): string 
 }
 
 export function maxParts(): number {
-  return Math.ceil(MAX_VIDEO_BYTES / UPLOAD_PART_BYTES);
+  return Math.ceil(maxVideoBytes() / UPLOAD_PART_BYTES);
 }
 
 /** An uploaded video as the chat sends it: one of this user's attachments. */
@@ -39,15 +42,20 @@ export async function joinParts(userId: string, uploadId: string, parts: number,
   let next = 0;
   let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
   let missing = false;
+  // The next part is asked for while this one streams: a big video has hundreds of them.
+  let ahead: ReturnType<typeof getFile> | null = null;
+  const fetchNext = () => (next < keys.length ? getFile(keys[next++]).catch(() => null) : null);
   const body = new ReadableStream<Uint8Array>({
     async pull(controller) {
       for (;;) {
         if (!reader) {
-          if (next >= keys.length) {
+          const coming = ahead ?? fetchNext();
+          if (!coming) {
             controller.close();
             return;
           }
-          const part = await getFile(keys[next++]);
+          const part = await coming;
+          ahead = fetchNext();
           if (!part) {
             missing = true;
             controller.error(new Error("part missing"));

@@ -1,7 +1,8 @@
+import { MAX_VIDEO_MB, sizeText } from "@/lib/limits";
 import { jsonError, requireUser } from "@/lib/server/http";
 import { deleteFiles } from "@/lib/server/storage";
-import { isOwnVideoKey, MAX_VIDEO_BYTES, UPLOAD_PART_BYTES, VIDEO_MIME } from "@/lib/server/uploads";
-import { countUpload } from "@/lib/server/usage";
+import { isOwnVideoKey, maxVideoBytes, UPLOAD_PART_BYTES, VIDEO_MIME } from "@/lib/server/uploads";
+import { countUpload, dailyUploadMb } from "@/lib/server/usage";
 
 /** Starts a whole video's upload: its id and the part size to send it in. */
 export async function POST(request: Request) {
@@ -10,8 +11,10 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as { mime?: unknown; size?: unknown } | null;
   if (typeof body?.mime !== "string" || !VIDEO_MIME.has(body.mime)) return jsonError("Можно загрузить видео MP4, WebM или MOV", 400);
   if (typeof body.size !== "number" || body.size <= 0) return jsonError("Пустой файл", 400);
-  if (body.size > MAX_VIDEO_BYTES) return jsonError(`Видео слишком большое: до ${MAX_VIDEO_BYTES / 1024 / 1024} МБ`, 413);
-  if (!(await countUpload(user))) return jsonError("Сегодня загружено слишком много видео. Попробуйте завтра.", 429);
+  if (body.size > maxVideoBytes()) return jsonError(`Видео слишком большое: до ${sizeText(MAX_VIDEO_MB)}`, 413);
+  if (!(await countUpload(user, body.size))) {
+    return jsonError(`На сегодня можно загрузить видео всего на ${sizeText(dailyUploadMb())}, и это видео уже не помещается. Попробуйте завтра или видео поменьше.`, 429);
+  }
   return Response.json({ id: crypto.randomUUID(), part: UPLOAD_PART_BYTES });
 }
 

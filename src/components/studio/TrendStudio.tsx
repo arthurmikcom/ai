@@ -34,13 +34,12 @@ import {
 } from "@/lib/client/trend";
 import { uploadVideo } from "@/lib/client/upload";
 import { useModels } from "@/lib/client/useModels";
+import { MAX_VIDEO_MB, sizeText } from "@/lib/limits";
 import { imageToAttachment, nearestRatio } from "@/lib/client/util";
 import type { AspectRatio, MediaItem, ModelInfo } from "@/lib/types";
 import { useApp } from "../AppState";
 import { PresetArt } from "./PresetArt";
 
-/** The biggest trend the browser cuts (it's never uploaded whole). */
-const MAX_TREND_MB = 200;
 const FRAME_RATIOS: AspectRatio[] = ["9:16", "16:9", "1:1", "3:4", "4:3"];
 const CLIP_RATIOS: AspectRatio[] = ["9:16", "16:9"];
 
@@ -215,8 +214,8 @@ export function TrendStudio() {
       setError("Нужно видео: MP4, MOV или WebM.");
       return;
     }
-    if (f.size > MAX_TREND_MB * 1024 * 1024) {
-      setError(`Видео слишком большое: до ${MAX_TREND_MB} МБ.`);
+    if (f.size > MAX_VIDEO_MB * 1024 * 1024) {
+      setError(`Видео слишком большое: до ${sizeText(MAX_VIDEO_MB)}.`);
       return;
     }
     setFile(f);
