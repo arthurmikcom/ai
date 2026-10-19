@@ -87,21 +87,28 @@ const IDEAS = [
 /** An admin's own tiles, or Mapbox with its public token (both set at build time, never in the source). */
 const CUSTOM_TILES = process.env.NEXT_PUBLIC_MAP_TILES;
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
-const MAP_PROVIDER = CUSTOM_TILES ? "custom" : MAPBOX_TOKEN ? "mapbox" : "carto";
-/** Without them: free OpenStreetMap tiles by CARTO, dark or light like the site. */
-const CARTO = {
-  dark: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-  light: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
-};
+/** CARTO's dark and light maps need the site's free key since 2026 (NEXT_PUBLIC_CARTO_KEY, from carto.com/basemaps/apikey). */
+const CARTO_KEY = process.env.NEXT_PUBLIC_CARTO_KEY;
+const MAP_PROVIDER = CUSTOM_TILES ? "custom" : MAPBOX_TOKEN ? "mapbox" : CARTO_KEY ? "carto" : "osm";
+/**
+ * Without any of them: OpenStreetMap's own tiles (no key), darkened in the
+ * dark theme; when they don't answer, a mirror of them.
+ */
+const OSM_TILES = ["https://tile.openstreetmap.org/{z}/{x}/{y}.png", "https://tile.openstreetmap.de/{z}/{x}/{y}.png"];
 const ATTRIBUTION = `${MAP_PROVIDER === "mapbox" ? '&copy; <a href="https://www.mapbox.com/about/maps/">Mapbox</a> ' : ""}&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>${MAP_PROVIDER === "carto" ? ' &copy; <a href="https://carto.com/attributions">CARTO</a>' : ""}`;
 
-function tileUrl(): string {
-  const light = document.documentElement.dataset.theme === "light";
+const lightTheme = () => document.documentElement.dataset.theme === "light";
+
+function tileUrl(mirror = 0): string {
+  const light = lightTheme();
   if (CUSTOM_TILES) return CUSTOM_TILES;
   if (MAPBOX_TOKEN) {
     return `https://api.mapbox.com/styles/v1/mapbox/${light ? "light-v11" : "dark-v11"}/tiles/256/{z}/{x}/{y}{r}?access_token=${encodeURIComponent(MAPBOX_TOKEN)}`;
   }
-  return light ? CARTO.light : CARTO.dark;
+  if (CARTO_KEY) {
+    return `https://basemaps.cartocdn.com/${light ? "rastertiles/voyager" : "dark_all"}/{z}/{x}/{y}{r}.png?key=${encodeURIComponent(CARTO_KEY)}`;
+  }
+  return OSM_TILES[Math.min(mirror, OSM_TILES.length - 1)];
 }
 
 /** "350 м", "1,2 км". */
@@ -233,12 +240,21 @@ export function MapsView() {
       L.control.zoom({ position: "bottomright", zoomInTitle: "Приблизить", zoomOutTitle: "Отдалить" }).addTo(map);
       map.attributionControl.setPrefix(false);
       let loadedTiles = false;
+      let mirror = 0;
       const tiles = L.tileLayer(tileUrl(), { attribution: ATTRIBUTION, subdomains: "abcd", maxZoom: 19 });
       tiles.on("tileload", () => { loadedTiles = true; setTilesFailed(false); });
-      tiles.on("tileerror", () => { if (!loadedTiles) setTilesFailed(true); });
+      tiles.on("tileerror", () => {
+        if (loadedTiles) return;
+        // OpenStreetMap's tiles not answering: its mirror, then a notice.
+        if (MAP_PROVIDER === "osm" && mirror < OSM_TILES.length - 1) tiles.setUrl(tileUrl(++mirror));
+        else setTilesFailed(true);
+      });
       tiles.addTo(map);
+      // OpenStreetMap's tiles are light only: the dark theme darkens them.
+      const shade = () => tiles.getContainer()?.classList.toggle("map-tiles-dark", MAP_PROVIDER === "osm" && !lightTheme());
+      shade();
       // The map follows the site's light or dark look.
-      observer = new MutationObserver(() => { loadedTiles = false; setTilesFailed(false); tiles.setUrl(tileUrl()); });
+      observer = new MutationObserver(() => { loadedTiles = false; setTilesFailed(false); shade(); tiles.setUrl(tileUrl(mirror)); });
       observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
       const here = L.marker([DEFAULT_POINT.lat, DEFAULT_POINT.lon], {
         icon: L.divIcon({ className: "maryx-here", html: "<span></span>", iconSize: [22, 22], iconAnchor: [11, 11] }),

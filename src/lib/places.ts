@@ -105,35 +105,64 @@ export function placesFrom(answer: unknown, lat: number, lon: number, categories
 }
 
 /**
- * Asks the Overpass servers in turn until one answers; `headers` say who's
- * asking (the server must, a browser can't set a User-Agent).
+ * Asks the Overpass servers until one answers; `headers` say who's asking
+ * (the server must, a browser can't set a User-Agent). A slow server doesn't
+ * hold the rest up: the next one is asked after `hedgeMs` (or as soon as one
+ * fails), the first answer wins and the others are called off.
  */
 export async function askOverpass(
   query: string,
   servers: string[],
-  opts: { headers?: Record<string, string>; timeoutMs: number; signal?: AbortSignal },
+  opts: { headers?: Record<string, string>; timeoutMs: number; signal?: AbortSignal; hedgeMs?: number },
 ): Promise<unknown> {
-  let failure: unknown = new Error("Overpass: no servers");
-  for (const url of servers) {
-    opts.signal?.throwIfAborted();
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { ...opts.headers, "Content-Type": "application/x-www-form-urlencoded" },
-        body: `data=${encodeURIComponent(query)}`,
-        signal: opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(opts.timeoutMs)]) : AbortSignal.timeout(opts.timeoutMs),
-      });
-      // A busy server answers 429/504, or an HTML page instead of JSON.
-      if (res.ok) {
-        const answer: unknown = await res.json();
-        if (Array.isArray((answer as { elements?: unknown }).elements)) return answer;
-      }
-      failure = new Error(`Overpass ${res.status} at ${url}`);
-    } catch (err) {
-      failure = err;
-    }
-  }
-  throw failure;
+  if (!servers.length) throw new Error("Overpass: no servers");
+  opts.signal?.throwIfAborted();
+  const stop = new AbortController();
+  const signal = opts.signal ? AbortSignal.any([opts.signal, stop.signal]) : stop.signal;
+  const ask = async (url: string): Promise<unknown> => {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { ...opts.headers, "Content-Type": "application/x-www-form-urlencoded" },
+      body: `data=${encodeURIComponent(query)}`,
+      signal: AbortSignal.any([signal, AbortSignal.timeout(opts.timeoutMs)]),
+    });
+    // A busy server answers 429/504, or an HTML page instead of JSON.
+    if (!res.ok) throw new Error(`Overpass ${res.status} at ${url}`);
+    const answer: unknown = await res.json().catch(() => null);
+    if (!Array.isArray((answer as { elements?: unknown } | null)?.elements)) throw new Error(`Overpass: no data at ${url}`);
+    return answer;
+  };
+  return new Promise((resolve, reject) => {
+    let next = 0;
+    let running = 0;
+    let done = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const start = () => {
+      clearTimeout(timer);
+      if (done || next >= servers.length) return;
+      running++;
+      ask(servers[next++]).then(
+        (answer) => {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          stop.abort();
+          resolve(answer);
+        },
+        (err: unknown) => {
+          running--;
+          if (done) return;
+          if (next < servers.length) start();
+          else if (!running) {
+            done = true;
+            reject(err);
+          }
+        },
+      );
+      if (next < servers.length) timer = setTimeout(start, opts.hedgeMs ?? 2500);
+    };
+    start();
+  });
 }
 
 /** Which categories a question is about ("где выпить кофе" → кафе); a general one gets a mix. */

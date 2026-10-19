@@ -1201,6 +1201,8 @@ button, a, input, textarea { -webkit-tap-highlight-color: transparent; }
   .temporary-chat-toggle { font-size: .64rem; padding-inline: 7px; }
 }
 
+/* OpenStreetMap's light tiles, darkened for the dark theme (markers stay as they are). */
+.map-tiles-dark { filter: invert(1) hue-rotate(185deg) brightness(.9) contrast(.88) saturate(.55); }
 .map-tiles-notice { position: absolute; z-index: 450; bottom: 32px; left: 14px; display: flex; align-items: flex-start; gap: 10px; max-width: calc(100% - 84px); padding: 13px 15px; border: 1px solid var(--line-strong); border-radius: 14px; color: var(--color-zinc-400); background: color-mix(in oklab, var(--bg) 95%, transparent); box-shadow: 0 4px 18px var(--shadow); backdrop-filter: blur(12px); }
 .map-tiles-notice > svg { flex-shrink: 0; margin-top: 2px; color: var(--color-violet-300); }
 .map-tiles-notice strong { display: block; font-size: .73rem; font-weight: 500; color: var(--color-zinc-200); }
