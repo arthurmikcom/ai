@@ -299,6 +299,8 @@ export const userPref = pgTable("user_pref", {
   about: text("about"),
   /** …and how they want answers to look. Both go into every chat's system prompt. */
   style: text("style"),
+  /** «Плагины» the user has on (null: the default set). */
+  plugins: text("plugins").array(),
 });
 
 /** Daily counters for the free-tier limits. */

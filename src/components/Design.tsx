@@ -1,9 +1,9 @@
 "use client";
 
 import { useId, type ReactNode } from "react";
-import { Bot, CalendarClock, Clapperboard, Gem, Image, MapIcon, Settings, Sparkles, type MaryxIconType } from "./MaryxIcons";
+import { Bot, CalendarClock, Clapperboard, Gem, Image, MapIcon, Puzzle, Settings, Sparkles, type MaryxIconType } from "./MaryxIcons";
 
-const HEADING_ICONS: Record<string, MaryxIconType> = { "02": Image, "03": Clapperboard, "04": Bot, "05": Gem, "06": Settings, "07": CalendarClock, "08": MapIcon };
+const HEADING_ICONS: Record<string, MaryxIconType> = { "02": Image, "03": Clapperboard, "04": Bot, "05": Gem, "06": Settings, "07": CalendarClock, "08": MapIcon, "09": Puzzle };
 
 /** Shared visual elements; no account, provider or application state. */
 export function BrandMark({ className = "" }: { className?: string }) {

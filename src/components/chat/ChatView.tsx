@@ -131,6 +131,21 @@ export function ChatView() {
     ...extra,
     ...(localModel ? { image: false, video: false, local: { model: localModel } } : {}),
   });
+  // «Спросить в чате» from «Плагины»: a new chat with that question, asked once the chat is ready.
+  const ready = Boolean(!chat && app.ready && current && !noProviders && !localBlocked);
+  useEffect(() => {
+    if (!ready) return;
+    let ask: string | null = null;
+    try {
+      ask = sessionStorage.getItem("maryx:ask");
+      sessionStorage.removeItem("maryx:ask");
+    } catch {
+      // no storage: nothing was left to ask
+    }
+    if (ask) app.send(ask, [], sendOptions(), choice);
+    // Only when the chat becomes ready; the question is taken out as it's asked.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
   const disabledText =
     !app.ready || loading
       ? "Загружаю модели…"

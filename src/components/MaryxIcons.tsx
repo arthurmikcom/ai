@@ -150,3 +150,4 @@ export function EffectSymbol({ emoji, className = "" }: { emoji: string; classNa
   const Icon = EFFECTS[emoji] ?? Sparkles;
   return <Icon className={`effect-symbol ${className}`} />;
 }
+export const Puzzle = glyph("Plugins", <><path d="M9 4.5a2 2 0 1 1 4 0V6h3.5A1.5 1.5 0 0 1 18 7.5V11h1.5a2 2 0 1 1 0 4H18v3.5a1.5 1.5 0 0 1-1.5 1.5H13v-1.5a2 2 0 1 0-4 0V20H5.5A1.5 1.5 0 0 1 4 18.5V15h1.5a2 2 0 1 0 0-4H4V7.5A1.5 1.5 0 0 1 5.5 6H9Z" fill="currentColor" fillOpacity=".1" /></>);

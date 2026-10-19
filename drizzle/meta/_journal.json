@@ -113,6 +113,13 @@
       "when": 1792416995560,
       "tag": "0015_media_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1792439434338,
+      "tag": "0016_plugins",
+      "breakpoints": true
     }
   ]
 }

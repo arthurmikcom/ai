@@ -4,6 +4,7 @@ import {
   Bot,
   ArrowUpRight,
   CalendarClock,
+  Puzzle,
   Ghost,
   MapIcon,
   Clapperboard,
@@ -96,6 +97,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
     { id: "character", group: "Действия", label: "Фотосессия с моим персонажем", keywords: "персонаж фото себя", icon: UserRound, run: go("/images") },
     { id: "maps", group: "Разделы", label: "Карты: что рядом", keywords: "карта места кафе рядом поблизости", icon: MapIcon, run: go("/maps") },
     { id: "tasks", group: "Разделы", label: "Задачи по расписанию", keywords: "расписание напоминание мониторинг каждый день", icon: CalendarClock, run: go("/scheduled") },
+    { id: "plugins", group: "Разделы", label: "Плагины", keywords: "плагин приложения погода курс валют новости github википедия крипта", icon: Puzzle, run: go("/plugins") },
     {
       id: "temporary",
       group: "Действия",

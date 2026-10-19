@@ -332,7 +332,7 @@ async function callModels(
   throw new Error("MARYX не смог ответить");
 }
 
-async function quickText(system: string, user: string, timeoutMs: number, meter: Meter): Promise<string> {
+export async function quickText(system: string, user: string, timeoutMs: number, meter: Meter): Promise<string> {
   return (await quickCall(system, user, timeoutMs, meter)).text;
 }
 

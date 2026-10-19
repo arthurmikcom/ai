@@ -51,6 +51,7 @@ import {
   type MaryxPlan,
 } from "@/lib/server/maryx";
 import { endUserId, ownKey, ownKeyInfo } from "@/lib/server/own-key";
+import { installedPlugins, pluginContext } from "@/lib/server/plugins";
 import { answerLimits, chatHold, mediaCost } from "@/lib/server/pricing";
 import { chatEntry, requestChars, type CostEntry, type Meter } from "@/lib/server/spend";
 import { isOwnVideoKey } from "@/lib/server/uploads";
@@ -552,6 +553,9 @@ export async function POST(request: Request) {
     // Experts read only words, so a question with pictures is answered the usual way.
     const consulting = maryx && !researching && req.council === true && loaded[loaded.length - 1].images.length === 0;
     let councilText = "";
+    // «Плагины»: fresh data (weather, rates, news…) from the user's plugins, when the message calls for it.
+    const plugins = maryx && !researching ? await installedPlugins(user.id) : [];
+    let pluginText = "";
     // Stored facts go into every MARYX answer (regenerations too); new ones are learned from new messages.
     // A temporary chat stays out of MARYX's memory (neither read nor learned from).
     const memoryOn = maryx && prefs.memory && !chat.temporary;
@@ -616,6 +620,8 @@ export async function POST(request: Request) {
       const left = leftAfter(spent);
       return left === undefined || left >= holdOf(baseRequest(m)).least;
     };
+    // The plugins already brought the fresh data: no paid web search on top (unless the user asked for one).
+    const searchWeb = () => Boolean(plan?.webSearch) && !(pluginText && !req.webSearch);
     const baseRequest = (m?: ModelInfo): ChatRequest =>
       m && plan
         ? {
@@ -625,14 +631,15 @@ export async function POST(request: Request) {
               maryxSystem(m, facts, {
                 assistantPrompt: assistant?.systemPrompt,
                 instructions: prefs.instructions,
-                webSearch: plan.webSearch,
+                webSearch: searchWeb(),
               }),
               ...omitted,
               ...(researchText ? [researchText] : []),
               ...(councilText ? [councilText] : []),
+              ...(pluginText ? [pluginText] : []),
             ].join("\n"),
             deepThinking: req.deepThinking,
-            webSearch: plan.webSearch,
+            webSearch: searchWeb(),
             // Older pictures can't go to a model that doesn't see images.
             messages: m.vision
               ? messages
@@ -769,6 +776,17 @@ export async function POST(request: Request) {
               send({ type: "source", url: s.url, title: s.title });
             }
           }
+          if (plugins.length) {
+            const before = loaded.slice(0, -1).findLast((l) => l.m.role === "user")?.m.content;
+            const got = await pluginContext(last.m.content, before, plugins, meter, (step) => send({ type: "progress", text: step }));
+            if (got) {
+              pluginText = got.brief;
+              for (const s of got.sources) {
+                sources.push(s);
+                send({ type: "source", url: s.url, title: s.title });
+              }
+            }
+          }
           if (consulting) {
             const question = history[history.length - 1].content;
             const context = loaded
@@ -779,7 +797,7 @@ export async function POST(request: Request) {
           }
           for (let attempt = 0; ; ) {
             const current = candidates[attempt];
-            if (plan) send({ type: "route", ...shown(provider, model), search: plan.webSearch || undefined, retry: attempt > 0 || undefined });
+            if (plan) send({ type: "route", ...shown(provider, model), search: searchWeb() || undefined, retry: attempt > 0 || undefined });
             // The browser clears the failed attempt on "retry", then shows why the model changed.
             if (attempt > 0 && notices[0]) send({ type: "notice", text: notices[0] });
             const { call, limited } = requestFor(current, spentSoFar());
