@@ -33,7 +33,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 /** Returns the parsed request, or an error message for the client. */
 export function parseChatSendRequest(body: unknown): ChatSendRequest | string {
   if (!isObject(body)) return "Пустой запрос";
-  const { chatId, create, deepThinking, image, video, camera, style, webSearch, research, message, answerId, replyTo, replace } = body;
+  const { chatId, create, deepThinking, image, video, camera, style, webSearch, research, council, message, answerId, replyTo, replace } = body;
   // Tabs opened before the rename to MARYX still say "nexus".
   const provider = body.provider === "nexus" ? "maryx" : body.provider;
   const model = body.model === "nexus" ? "maryx" : body.model;
@@ -100,6 +100,7 @@ export function parseChatSendRequest(body: unknown): ChatSendRequest | string {
     ...(typeof style === "string" ? { style } : {}),
     webSearch: webSearch === true,
     research: research === true,
+    council: council === true,
     replyTo: replyTo as string | undefined,
     ...(typeof replace === "string" ? { replace } : {}),
     message: parsedMessage,
@@ -145,7 +146,7 @@ export function parseGenerateRequest(body: unknown): GenerateRequest | string {
   if (typeof model !== "string" || !model || model.length > 200) return "Не выбрана модель";
   const photos = images === undefined ? undefined : parsePhotos(images);
   if (typeof photos === "string") return photos;
-  if (photos && kind === "video" && photos.length > 1) return "Для видео нужно одно фото — с него начнётся ролик";
+  if (photos && kind === "video" && photos.length > 2) return "Для видео — одно фото (первый кадр) или два (первый и последний)";
   // A photo can be edited without words (a natural retouch); a new picture needs a description.
   if (typeof prompt !== "string" || (!prompt.trim() && !photos)) return "Опишите, что нужно сгенерировать";
   if (prompt.length > 4000) return "Описание слишком длинное: до 4000 символов";

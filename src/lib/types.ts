@@ -40,6 +40,8 @@ export interface ModelInfo {
   downloadMB?: number;
   /** Image models: can edit the user's own photo; video models: can animate it (as the first frame). */
   photoEdit?: boolean;
+  /** Video models: can also end on a given picture (a transition between two frames). */
+  lastFrame?: boolean;
 }
 
 export interface ProviderStatus {
@@ -162,6 +164,8 @@ export interface SendOptions {
   webSearch?: boolean;
   /** Deep research: several web searches first, then a report with sources. */
   research?: boolean;
+  /** Консилиум: several strong models answer, MARYX combines the best of them. */
+  council?: boolean;
   /** Answer with this model in the browser (see client/local-ai.ts) instead of the server. */
   local?: { model: string };
 }
@@ -186,6 +190,8 @@ export interface ChatSendRequest {
   webSearch?: boolean;
   /** Deep research (MARYX): several web searches first, then a report with sources. */
   research?: boolean;
+  /** Консилиум (MARYX): several strong models answer, then one combines the best. */
+  council?: boolean;
   /** The new user message; omitted when regenerating the last answer. */
   message?: { id: string; content: string; attachments?: InlineFile[] };
   /** Id for the assistant message the server will store. */

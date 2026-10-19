@@ -16,11 +16,12 @@ import {
   LoaderCircle,
   Maximize2,
   Minimize2,
+  Printer,
   RotateCcw,
   Share2,
   X,
 } from "lucide-react";
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useRef, useState, type ReactNode, type Ref } from "react";
 import { api } from "@/lib/client/api";
 import { downloadFile } from "@/lib/client/util";
 
@@ -55,15 +56,19 @@ export function pageOf(code: string): string {
     : code;
 }
 
+/** Lets the Canvas ask the page to print itself (a sandboxed page may: allow-modals). */
+const PRINT_HOOK = `<script>addEventListener("message",function(e){if(e.data&&e.data.maryx==="print")print()})</script>`;
+
 /**
  * The frame a page runs in: scripts work, but it has no access to this site
  * (no same-origin), can't open windows, navigate the page or submit forms.
  */
-export function ArtifactFrame({ code, className = "" }: { code: string; className?: string }) {
+export function ArtifactFrame({ code, className = "", ref }: { code: string; className?: string; ref?: Ref<HTMLIFrameElement> }) {
   return (
     <iframe
+      ref={ref}
       title="Предпросмотр кода"
-      srcDoc={pageOf(code)}
+      srcDoc={pageOf(code) + PRINT_HOOK}
       sandbox="allow-scripts allow-modals allow-pointer-lock"
       referrerPolicy="no-referrer"
       className={`w-full bg-white ${className}`}
@@ -144,6 +149,7 @@ export function ArtifactPanel({
   const [ask, setAsk] = useState("");
   const [status, setStatus] = useState<{ text: string; link?: string } | null>(null);
   const [sharing, setSharing] = useState(false);
+  const frame = useRef<HTMLIFrameElement>(null);
 
   const share = async () => {
     setSharing(true);
@@ -206,6 +212,17 @@ export function ArtifactPanel({
           <button type="button" title="Перезапустить" aria-label="Перезапустить" onClick={() => setRun((r) => r + 1)} className={ICON_BUTTON}>
             <RotateCcw className="size-4" />
           </button>
+          {tab === "preview" && (
+            <button
+              type="button"
+              title="Печать или PDF (презентация — по слайду на страницу)"
+              aria-label="Печать или PDF"
+              onClick={() => frame.current?.contentWindow?.postMessage({ maryx: "print" }, "*")}
+              className={ICON_BUTTON}
+            >
+              <Printer className="size-4" />
+            </button>
+          )}
           <button type="button" title="Копировать код" aria-label="Копировать код" onClick={() => void copy()} className={ICON_BUTTON}>
             <Copy className="size-4" />
           </button>
@@ -264,7 +281,7 @@ export function ArtifactPanel({
       </div>
 
       {tab === "preview" ? (
-        <ArtifactFrame key={`${index}-${run}`} code={code} className="min-h-0 flex-1" />
+        <ArtifactFrame ref={frame} key={`${index}-${run}`} code={code} className="min-h-0 flex-1" />
       ) : (
         <pre className="min-h-0 flex-1 overflow-auto p-4 text-[12.5px] leading-relaxed text-zinc-300">
           <code>{code}</code>

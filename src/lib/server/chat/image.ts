@@ -2,6 +2,7 @@
 // (or edits the photo they attached) with the best available image model and
 // stores it as the answer's attachment. Also how MARYX picks its media models.
 
+import { BRUSH_PREFIX } from "@/lib/effects";
 import type { GenerateRequest, GenerateResult, InlineImage, MediaKind, ModelInfo } from "@/lib/types";
 import { NotConfiguredError } from "../config";
 import type { StoredFile } from "../db/schema";
@@ -71,6 +72,15 @@ export function chatImageModel(ownKey = false, photos = false): Promise<ModelInf
  * photo real unless they ask for a style (the usual ask is a natural retouch).
  */
 export function editPrompt(text: string): string {
+  // The brush: the second image shows the area to change, painted over in red.
+  if (text.trim().startsWith(BRUSH_PREFIX)) {
+    return (
+      "Edit the first image. The second image is the same picture with the area to change painted over in " +
+      "semi-transparent red. Change ONLY that area, as the user asks, and blend it in naturally (light, shadows, " +
+      "perspective, texture); everything outside the area must stay exactly as in the first image. The result must " +
+      `not contain any red marking. Request for the marked area: ${text.trim().slice(BRUSH_PREFIX.length).trim()}`
+    );
+  }
   return (
     "Edit the attached image as the user asks. Keep the person's face and identity recognizable, and keep " +
     "everything the user didn't ask to change (age, body shape, pose, clothing, background, framing) as it is. " +
@@ -106,8 +116,21 @@ export function characterPrompt(scene: string): string {
   );
 }
 
-/** The prompt for a picture or a clip made from the user's photo. */
-export function photoPrompt(kind: MediaKind, text: string): string {
+/**
+ * What the video model is told for a clip between two frames: it starts
+ * exactly on the first photo and ends exactly on the second.
+ */
+export function transitionPrompt(text: string): string {
+  return (
+    "Create a smooth, realistic video that starts exactly on the first frame and ends exactly on the last frame, " +
+    "with a natural, continuous transformation between them (no cuts, no flashes); keep people's faces recognizable. " +
+    (text.trim() || "A seamless cinematic transition with a gentle camera move.")
+  );
+}
+
+/** The prompt for a picture or a clip made from the user's photos (a clip from two: a transition). */
+export function photoPrompt(kind: MediaKind, text: string, photos = 1): string {
+  if (kind === "video" && photos >= 2) return transitionPrompt(text);
   return kind === "image" ? editPrompt(text) : animatePrompt(text);
 }
 

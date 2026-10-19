@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, ArrowUpRight, Clapperboard, Code2, Compass, Download, FileText, Gamepad2, Image as ImageIcon, KeyRound, Lightbulb, LoaderCircle, Plus, Sparkles, X, Zap } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Clapperboard, Code2, Compass, Download, FileText, Gamepad2, Image as ImageIcon, KeyRound, Lightbulb, LoaderCircle, Plus, Presentation, Sparkles, X, Zap } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BROWSER_MODELS } from "@/lib/catalog";
@@ -8,6 +8,7 @@ import { autoModel, useLocalSupport } from "@/lib/client/local-ai";
 import { useModels } from "@/lib/client/useModels";
 import { useStoredJson } from "@/lib/client/useStored";
 import { downloadFile, imageToAttachment, uid } from "@/lib/client/util";
+import { BrushEditor } from "../BrushEditor";
 import type { Attachment, ChatMessage, SendOptions } from "@/lib/types";
 import { speak, stopSpeaking, useVoiceSupport } from "@/lib/client/voice";
 import { useApp, type ModelChoice } from "../AppState";
@@ -25,6 +26,8 @@ const SUGGESTIONS = [
   { title: "Составь план", icon: Compass, text: "Составь план запуска своего онлайн-сервиса за 30 дней" },
   { title: "Придумай идеи", icon: Lightbulb, text: "Придумай 10 идей для AI-стартапа с описанием и монетизацией" },
   { title: "Напиши код", icon: Code2, text: "Напиши на Python скрипт, который переименовывает фото по дате съёмки" },
+  // A slide deck in the Canvas, saved as PDF with «Печать / PDF».
+  { title: "Презентация", icon: Presentation, text: "Сделай презентацию на 8 слайдов: как искусственный интеллект меняет образование" },
 ];
 
 const ASSISTANT_LINKS = [
@@ -45,6 +48,7 @@ export function ChatView() {
   const [imageMode, setImageMode] = useState(false);
   const [webSearch, setWebSearch] = useState(false);
   const [research, setResearch] = useState(false);
+  const [council, setCouncil] = useState(false);
   const [voiceMode, setVoiceMode] = useState(false);
   const voice = useVoiceSupport();
   // Dictation runs on our server when it can (works in every browser); else the browser's own.
@@ -72,6 +76,8 @@ export function ChatView() {
   const stickToBottom = useRef(true);
   // A chat picture put into the composer to be changed.
   const [inject, setInject] = useState<ComposerInject | null>(null);
+  // The brush: the picture being painted on (only the painted area changes).
+  const [brushing, setBrushing] = useState<string | null>(null);
 
   // Only MARYX is offered: every chat, old ones too, talks to it.
   const only = app.maryxOnly;
@@ -380,6 +386,7 @@ export function ChatView() {
                 streaming={streaming && i === chat.messages.length - 1}
                 onEditPicture={canChangePictures ? (src, prompt) => void editPicture(src, prompt) : undefined}
                 onAnimatePicture={canAnimatePictures ? (src) => void animatePicture(src) : undefined}
+                onBrushPicture={canChangePictures ? setBrushing : undefined}
                 before={m.role === "assistant" ? photoOf(chat.messages[i - 1]) : undefined}
                 onOpenDocument={
                   m.role === "assistant" && m.content.trim().length >= 200 && !m.mediaId && !(streaming && i === chat.messages.length - 1)
@@ -501,7 +508,23 @@ export function ChatView() {
           webSearch={webSearch && Boolean(current?.search)}
           onWebSearchChange={setWebSearch}
           research={research && only && !onDevice}
-          onResearchChange={only && !onDevice ? setResearch : undefined}
+          onResearchChange={
+            only && !onDevice
+              ? (on) => {
+                  setResearch(on);
+                  if (on) setCouncil(false);
+                }
+              : undefined
+          }
+          council={council && only && !onDevice}
+          onCouncilChange={
+            only && !onDevice
+              ? (on) => {
+                  setCouncil(on);
+                  if (on) setResearch(false);
+                }
+              : undefined
+          }
           canDraw={canDraw && !onDevice}
           canEditPhotos={canEditPhotos}
           imageMode={imageMode && canDraw && !onDevice}
@@ -530,6 +553,7 @@ export function ChatView() {
                 image: drawing,
                 video: filming,
                 research: research && only && !onDevice && !drawing && !filming,
+                council: council && !research && only && !onDevice && !drawing && !filming,
                 camera: filming ? (camera ?? undefined) : undefined,
                 style: drawing ? (style ?? undefined) : undefined,
               }),
@@ -553,6 +577,20 @@ export function ChatView() {
         </p>
       </div>
     </div>
+    {brushing && (
+      <BrushEditor
+        src={brushing}
+        onClose={() => setBrushing(null)}
+        onApply={(edit) => {
+          setBrushing(null);
+          sendNow(
+            edit.prompt,
+            edit.photos.map((p) => ({ mime: p.mime, data: p.data, name: p.name ?? "Картинка" })),
+            { image: true },
+          );
+        }}
+      />
+    )}
     {docMessage && <DocumentPanel key={docMessage.id} id={docMessage.id} text={docMessage.content} onClose={() => setDoc(null)} />}
     {!docMessage && chat && panel?.chatId === chat.id && versions.length > 0 && (
       <ArtifactPanel

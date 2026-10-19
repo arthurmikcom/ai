@@ -138,11 +138,15 @@ function toResult(job: VideoJob): GenerateResult {
 export function openRouterVideoBody(req: GenerateRequest, endUser?: string): Record<string, unknown> {
   const caps = openRouterVideoCaps(req.model);
   const body: Record<string, unknown> = { model: req.model, prompt: req.prompt };
-  const photo = req.images?.[0];
+  const [photo, end] = req.images ?? [];
   if (photo) {
     // The clip keeps the photo's proportions; a ratio would crop or pad it.
     body.frame_images = [
       { type: "image_url", image_url: { url: `data:${photo.mime};base64,${photo.data}` }, frame_type: "first_frame" },
+      // A second photo is where the clip ends, when the model takes that.
+      ...(end && caps?.frameImages?.includes("last_frame")
+        ? [{ type: "image_url", image_url: { url: `data:${end.mime};base64,${end.data}` }, frame_type: "last_frame" }]
+        : []),
     ];
   } else if (!caps?.aspectRatios || caps.aspectRatios.includes(req.aspectRatio)) {
     body.aspect_ratio = req.aspectRatio;

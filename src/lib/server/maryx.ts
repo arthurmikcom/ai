@@ -155,7 +155,7 @@ function wantsSearch(text: string): boolean {
 
 function needsSmart(text: string, hasDocuments: boolean): boolean {
   if (hasDocuments || text.length > 700) return true;
-  return /(```|(?<![а-яё])код|функци|скрипт|программ|python|javascript|typescript|\bjava\b|c\+\+|\bsql\b|regex|регулярн|баг|ошибк[а-яё]* в код|компил|\bapi\b|html|css|react|игр[уаы]|сайт|лендинг|приложени|калькулятор|анимаци|алгоритм|подробно|детально|проанализируй|сравни|стратеги|бизнес-план|эссе|статью|докажи|реши задачу|рассчитай|переведи текст|резюме|договор)/i.test(
+  return /(```|(?<![а-яё])код|функци|скрипт|программ|python|javascript|typescript|\bjava\b|c\+\+|\bsql\b|regex|регулярн|баг|ошибк[а-яё]* в код|компил|\bapi\b|html|css|react|игр[уаы]|сайт|лендинг|приложени|калькулятор|анимаци|алгоритм|подробно|детально|проанализируй|сравни|стратеги|бизнес-план|презентаци|слайд|эссе|статью|докажи|реши задачу|рассчитай|переведи текст|резюме|договор)/i.test(
     text,
   );
 }
@@ -252,21 +252,35 @@ async function quickCall(
   meter: Meter,
   opts: { webSearch?: boolean; maxTokens?: number; strong?: boolean } = {},
 ): Promise<{ text: string; sources: Source[] }> {
-  const ownKey = meter.paidBy === "byok" && meter.key ? meter.key : undefined;
   const plan = await planRoute({
     text: "",
     hasImages: false,
     hasDocuments: false,
     deepThinking: false,
     webSearch: Boolean(opts.webSearch),
-    ownKey: Boolean(ownKey),
+    ownKey: meter.paidBy === "byok" && Boolean(meter.key),
     strong: opts.strong,
   });
-  const signal = AbortSignal.timeout(timeoutMs);
   // One fallback (from another vendor) if the first model is down.
-  const [first, second] = [plan.model, ...plan.fallbacks];
-  for (const model of [first, second]) {
-    if (!model) break;
+  return callModels([plan.model, ...plan.fallbacks].slice(0, 2), system, user, timeoutMs, meter, {
+    webSearch: Boolean(opts.webSearch && plan.webSearch),
+    maxTokens: opts.maxTokens,
+    light: true,
+  });
+}
+
+/** Asks `models` in turn (the next one when one fails) and records what each call cost against `meter`. */
+async function callModels(
+  models: ModelInfo[],
+  system: string,
+  user: string,
+  timeoutMs: number,
+  meter: Meter,
+  opts: { webSearch?: boolean; maxTokens?: number; light?: boolean },
+): Promise<{ text: string; sources: Source[] }> {
+  const ownKey = meter.paidBy === "byok" && meter.key ? meter.key : undefined;
+  const signal = AbortSignal.timeout(timeoutMs);
+  for (const [i, model] of models.entries()) {
     let out = "";
     const sources: Source[] = [];
     let usage: ChatUsage | undefined;
@@ -275,8 +289,8 @@ async function quickCall(
       provider: model.provider,
       model: model.id,
       system,
-      light: true,
-      webSearch: Boolean(opts.webSearch && plan.webSearch),
+      light: opts.light,
+      webSearch: Boolean(opts.webSearch),
       messages: [{ role: "user", content: user }],
       apiKey: model.provider === "openrouter" ? ownKey : undefined,
       endUser: endUserId(meter.userId),
@@ -293,7 +307,7 @@ async function quickCall(
       // A self-hosted server without a reasoning parser leaves the model's thinking in the text.
       return { text: out.replace(/^[\s\S]*<\/think>/, "").trim(), sources };
     } catch (err) {
-      if (model === second || !second || signal.aborted) throw err;
+      if (i === models.length - 1 || signal.aborted) throw err;
     } finally {
       const entry = chatEntry(
         "background",
@@ -410,6 +424,70 @@ export function researchBrief(findings: Finding[]): { brief: string; sources: So
 }
 
 
+// ---------- Консилиум ----------
+
+/** How long an expert may take. */
+const EXPERT_MS = 75_000;
+const EXPERTS = ["", "одному эксперту", "двум экспертам", "трём экспертам"];
+
+const COUNCIL_EXPERT =
+  "Ты — один из экспертов, к которым MARYX обратился за независимым мнением. Ответь на вопрос пользователя как можно " +
+  "точнее, полнее и полезнее, по существу и без вступлений. Если однозначного ответа нет или в вопросе есть подвох — " +
+  "скажи об этом прямо. Отвечай на языке вопроса.";
+
+/**
+ * Консилиум: the question goes to up to three strong models of different
+ * vendors at once. Their answers (those that came) come back for the answer's
+ * model to combine into one, better than each.
+ */
+export async function council(question: string, context: string, meter: Meter, progress: (step: string) => void): Promise<string[]> {
+  const plan = await planRoute({
+    text: question,
+    hasImages: false,
+    hasDocuments: false,
+    deepThinking: false,
+    webSearch: false,
+    ownKey: meter.paidBy === "byok" && Boolean(meter.key),
+    strong: true,
+  });
+  // The plan's fallbacks come from other vendors first: different minds.
+  const experts = [plan.model, ...plan.fallbacks].slice(0, 3);
+  progress(`Задаю вопрос ${EXPERTS[experts.length]} одновременно`);
+  const ask = context ? `Предыдущий разговор (для контекста):\n${context}\n\nВопрос:\n${question}` : question;
+  const answers = await Promise.all(
+    experts.map((m) =>
+      callModels([m], COUNCIL_EXPERT, excerpt(ask, 40_000), EXPERT_MS, meter, { maxTokens: 3000 }).then(
+        (r) => r.text,
+        (err) => {
+          console.error("[maryx] expert failed", m.id, err);
+          return "";
+        },
+      ),
+    ),
+  );
+  const opinions = answers.filter(Boolean);
+  progress(
+    opinions.length
+      ? `Ответили ${opinions.length} из ${experts.length}. Сверяю ответы и пишу лучший`
+      : "Эксперты не ответили — отвечаю сам",
+  );
+  return opinions;
+}
+
+/** What the answer's model is told about the experts' answers (empty when there are none). */
+export function councilBrief(opinions: string[]): string {
+  if (!opinions.length) return "";
+  const n = opinions.length;
+  return [
+    `Ты собрал консилиум: на вопрос пользователя независимо ответили ${n} ${n === 1 ? "эксперт" : "эксперта"}. Их ответы ниже.`,
+    "Сверь их и напиши один итоговый ответ — лучше, чем каждый по отдельности: возьми самое точное и полезное из каждого, исправь ошибки, убери повторы.",
+    "Где эксперты расходятся — разберись, кто прав, и коротко объясни. Если расхождения были, в конце добавь короткий раздел «Где мнения разошлись».",
+    "Не пересказывай экспертов по очереди и не называй модели или компании — пиши от себя.",
+    "",
+    ...opinions.map((o, i) => `### Эксперт ${i + 1}\n${excerpt(o, 8000)}`),
+  ].join("\n");
+}
+
 /** How answers should look, for MARYX and for every other model in the chat. */
 export const ANSWER_STYLE = [
   "Отвечай на языке пользователя. Сразу к сути, без вступлений вроде «Конечно!» или «Отличный вопрос».",
@@ -423,6 +501,12 @@ export const ANSWER_STYLE = [
     "Делай красиво и рабочим с первого раза: современный дизайн, адаптивность, управление с клавиатуры и касанием. " +
     "Не используй внешние картинки — рисуй через CSS, SVG, Canvas или эмодзи. Дай странице понятный <title>. " +
     "Когда просят доработать такое приложение — присылай обновлённый файл целиком (не кусками), коротко сказав, что изменилось.",
+  // Presentations open in the same Canvas; its «Печать / PDF» button saves them as PDF, one slide per page.
+  "Если просят презентацию или слайды — сделай её таким же HTML-файлом: слайды 16:9 по одному на экране, листание " +
+    "стрелками, кнопками и свайпом, номер слайда, плавные переходы. На слайде — крупный заголовок и мало текста " +
+    "(тезисы, цифры, схемы и графики через SVG), продуманная цветовая тема, титульный и итоговый слайды. Добавь " +
+    "@media print, где все слайды показаны подряд, каждый на отдельной странице (@page { size: 16in 9in; margin: 0 }), " +
+    "без кнопок — так её сохраняют в PDF. Если число слайдов не названо — 8–10.",
 ].join("\n");
 
 /** Personal instructions from settings: who the user is and how they like answers. */

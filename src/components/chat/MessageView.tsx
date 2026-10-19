@@ -2,6 +2,7 @@
 
 import {
   Brain,
+  Brush,
   Check,
   Clapperboard,
   Columns2,
@@ -46,6 +47,8 @@ interface Props {
   onEditPicture?: (src: string, prompt?: string) => void;
   /** Bring a picture of this answer to life: a video that starts from it. */
   onAnimatePicture?: (src: string) => void;
+  /** Change only a painted area of a picture of this answer (the brush). */
+  onBrushPicture?: (src: string) => void;
   /** The user's last question can be corrected and sent again (its answer is made anew). */
   onEdit?: (text: string) => void;
   /** The photo this answer's picture was made from (to compare before and after). */
@@ -109,12 +112,14 @@ function PictureActions({
   src,
   onEdit,
   onAnimate,
+  onBrush,
   comparing,
   onCompare,
 }: {
   src: string;
   onEdit?: (src: string, prompt?: string) => void;
   onAnimate?: (src: string) => void;
+  onBrush?: (src: string) => void;
   comparing?: boolean;
   onCompare?: () => void;
 }) {
@@ -130,6 +135,11 @@ function PictureActions({
         {onEdit && (
           <button type="button" onClick={() => onEdit(src)} title="Написать, что изменить на картинке" className={CHIP}>
             <Pencil className="size-3.5 text-violet-300" /> Изменить
+          </button>
+        )}
+        {onBrush && (
+          <button type="button" onClick={() => onBrush(src)} title="Закрасить место и изменить только его" className={CHIP}>
+            <Brush className="size-3.5 text-violet-300" /> Кисть
           </button>
         )}
         {onAnimate && (
@@ -269,6 +279,7 @@ export function MessageView({
   maryxOnly,
   onEditPicture,
   onAnimatePicture,
+  onBrushPicture,
   onEdit,
   before,
   onOpenDocument,
@@ -402,7 +413,7 @@ export function MessageView({
 
       {/* The steps of deep research: done ones ticked, the current one spinning. */}
       {waiting && message.status?.includes("\n") && (
-        <ol role="status" aria-label="Исследование" className="space-y-2 rounded-2xl border border-violet-300/15 bg-violet-300/[0.04] p-4 text-sm">
+        <ol role="status" aria-label="Ход работы" className="space-y-2 rounded-2xl border border-violet-300/15 bg-violet-300/[0.04] p-4 text-sm">
           {message.status.split("\n").map((step, i, steps) => (
             <li key={i} className={`flex items-start gap-2 ${i < steps.length - 1 ? "text-zinc-500" : "text-zinc-200"}`}>
               {i < steps.length - 1 ? (
@@ -482,6 +493,7 @@ export function MessageView({
           src={picture}
           onEdit={onEditPicture}
           onAnimate={onAnimatePicture}
+          onBrush={onBrushPicture}
           comparing={comparing}
           onCompare={before ? () => setComparing((c) => !c) : undefined}
         />

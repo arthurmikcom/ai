@@ -103,3 +103,18 @@ export const PHOTOSHOOT_SCENES: PhotoshootScene[] = [
   { id: "anime", label: "Аниме-герой", emoji: "🌸", prompt: "Герой аниме: иллюстрация в стиле японской анимации, яркие цвета, узнаваемые черты лица" },
   { id: "cartoon", label: "3D-мультфильм", emoji: "🧸", prompt: "Герой 3D-мультфильма в стиле Pixar: выразительный, добрый, узнаваемые черты лица" },
 ];
+
+/**
+ * The brush: what's asked is about the area painted over on the picture. The
+ * marked copy goes along as the second photo; the server knows the ask by this start.
+ */
+export const BRUSH_PREFIX = "В выделенном месте:";
+
+/** Ready asks for the painted area, one click each. */
+export const BRUSH_IDEAS: { label: string; emoji: string; prompt: string }[] = [
+  { label: "Убрать", emoji: "🧽", prompt: "убери это и естественно дорисуй фон, чтобы не осталось следов" },
+  { label: "Другой цвет", emoji: "🎨", prompt: "перекрась в другой красивый цвет, всё остальное без изменений" },
+  { label: "Цветы", emoji: "🌸", prompt: "замени на красивые живые цветы" },
+  { label: "Шляпа", emoji: "🎩", prompt: "добавь стильную шляпу, по размеру и в том же свете" },
+  { label: "Аккуратнее", emoji: "✨", prompt: "сделай это место аккуратнее и красивее, естественно" },
+];

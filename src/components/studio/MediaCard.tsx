@@ -1,6 +1,6 @@
 "use client";
 
-import { Clapperboard, Columns2, Download, ImagePlus, LoaderCircle, RotateCcw, Trash2, TriangleAlert, X } from "lucide-react";
+import { Brush, Clapperboard, Columns2, Download, ImagePlus, LoaderCircle, RotateCcw, Trash2, TriangleAlert, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { providerName } from "@/lib/catalog";
@@ -33,10 +33,12 @@ interface Props {
   onEdit?: () => void;
   /** Bring this picture to life: it becomes a video's first frame. */
   onAnimate?: () => void;
+  /** Change only a painted area of this picture (the brush). */
+  onBrush?: () => void;
   onDelete: () => void;
 }
 
-export function MediaCard({ item, modelLabel, onReuse, onEdit, onAnimate, onDelete }: Props) {
+export function MediaCard({ item, modelLabel, onReuse, onEdit, onAnimate, onBrush, onDelete }: Props) {
   const source = item.inputs?.[0];
   const file = item.files[0];
   const url = file?.url;
@@ -122,6 +124,17 @@ export function MediaCard({ item, modelLabel, onReuse, onEdit, onAnimate, onDele
               className="rounded-lg p-1.5 text-zinc-400 hover:bg-white/5 hover:text-zinc-100"
             >
               <ImagePlus className="size-4" />
+            </button>
+          )}
+          {onBrush && item.status === "succeeded" && url && !isVideo && (
+            <button
+              type="button"
+              onClick={onBrush}
+              title="Кисть: закрасить место и изменить только его"
+              aria-label="Кисть"
+              className="rounded-lg p-1.5 text-zinc-400 hover:bg-white/5 hover:text-zinc-100"
+            >
+              <Brush className="size-4" />
             </button>
           )}
           {source && item.status === "succeeded" && url && !isVideo && (

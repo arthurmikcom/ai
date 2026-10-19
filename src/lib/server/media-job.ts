@@ -50,7 +50,7 @@ export async function startMediaJob(
   const words = req.character
     ? characterPrompt(withStyle(req.prompt, IMAGE_STYLES.find((s) => s.id === req.style)))
     : photos.length
-      ? photoPrompt(req.kind, req.prompt)
+      ? photoPrompt(req.kind, req.prompt, photos.length)
       : withStyle(req.prompt, IMAGE_STYLES.find((s) => s.id === req.style));
   const ask = { ...req, prompt: withCameraMotion(words, CAMERA_MOTIONS.find((m) => m.id === req.camera)) };
   try {

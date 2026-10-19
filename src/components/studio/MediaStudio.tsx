@@ -1,6 +1,6 @@
 "use client";
 
-import { Clapperboard, Image as ImageIcon, ImagePlus, KeyRound, LoaderCircle, Sparkles, Undo2, WandSparkles, X } from "lucide-react";
+import { Brush, Clapperboard, Image as ImageIcon, ImagePlus, KeyRound, LoaderCircle, Sparkles, Undo2, WandSparkles, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent } from "react";
@@ -12,6 +12,7 @@ import { useStoredJson } from "@/lib/client/useStored";
 import { imageToAttachment, MAX_TOTAL_BASE64, nearestRatio } from "@/lib/client/util";
 import type { AspectRatio, Attachment, MediaFile, MediaKind } from "@/lib/types";
 import { useApp, type ModelChoice } from "../AppState";
+import { BrushEditor, type BrushEdit } from "../BrushEditor";
 import { findModel, MaryxBadge, ModelPicker } from "../ModelPicker";
 import { Characters } from "./Characters";
 import { MediaCard } from "./MediaCard";
@@ -78,6 +79,13 @@ const EDIT: Record<MediaKind, { label: string; placeholder: string; ideas: strin
   },
 };
 const MAX_PHOTOS: Record<MediaKind, number> = { image: 4, video: 1 };
+/** Video between two frames (Higgsfield's start and end frame): ideas for what happens in between. */
+const TRANSITION_IDEAS = [
+  "Плавное превращение одного в другое",
+  "Камера пролетает от первого кадра ко второму",
+  "День сменяется ночью",
+  "Время ускоряется, всё меняется вокруг",
+];
 /** A prompt that asks to change "my photo" while none is loaded. */
 const ASKS_FOR_PHOTO = /(обработ|отретуш|ретуш|оживи|анимируй|на (нём|нем|ней) я|мо[её] фото|с моего фото|моё лицо|мое лицо)/i;
 /** The image studio hands a picture to the video studio here ("Оживить" on a card). */
@@ -100,9 +108,11 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
   const router = useRouter();
   const copy = COPY[kind];
   const edit = EDIT[kind];
-  const maxPhotos = MAX_PHOTOS[kind];
   const { data, loading } = useModels(kind);
   const models = useMemo(() => data?.models ?? [], [data]);
+  // Video: a second photo is the last frame (a transition), when a model ends on a given picture.
+  const lastFrameOk = kind === "video" && models.some((m) => m.photoEdit && m.lastFrame);
+  const maxPhotos = lastFrameOk ? 2 : MAX_PHOTOS[kind];
   // A picture can be brought to life when a video model starts from a photo.
   const canAnimate = Boolean(useModels("video").data?.models.some((m) => m.photoEdit));
   const items = useMediaItems(kind);
@@ -124,6 +134,8 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
   // «Мой персонаж»: the character a photoshoot draws (pictures only).
   const characters = useCharacters();
   const [characterId, setCharacterId] = useState<string | null>(null);
+  // The brush: the picture being painted on (only the painted area changes).
+  const [brushing, setBrushing] = useState<string | null>(null);
   // "✨ Улучшить": the rewrite in progress, and the words before it (to go back).
   const [enhancing, setEnhancing] = useState(false);
   const [before, setBefore] = useState<string | null>(null);
@@ -165,7 +177,15 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
     // Video starts from one photo: a new one replaces it.
     const kept = maxPhotos === 1 ? [] : photos;
     const room = maxPhotos - kept.length;
-    if (images.length > room) problems.push(maxPhotos === 1 ? "Видео начинается с одного фото." : `Не больше ${maxPhotos} фото за раз.`);
+    if (images.length > room) {
+      problems.push(
+        maxPhotos === 1
+          ? "Видео начинается с одного фото."
+          : kind === "video"
+            ? "Для видео — два фото: первый и последний кадр."
+            : `Не больше ${maxPhotos} фото за раз.`,
+      );
+    }
     let total = kept.reduce((sum, p) => sum + (p.data?.length ?? 0), 0);
     const added: Photo[] = [];
     setReading(true);
@@ -262,6 +282,23 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
     for (let i = 0; i < (kind === "image" ? variants : 1); i++) void generate(request);
   };
 
+  // The painted picture and its marked copy go to a model that edits photos.
+  const brush = (painted: BrushEdit) => {
+    setBrushing(null);
+    if (!targetEdits || !target) {
+      setPhotoError(edit.cant);
+      return;
+    }
+    const [photo] = painted.photos;
+    void generate({
+      kind: "image",
+      ...target,
+      prompt: painted.prompt,
+      aspectRatio: nearestRatio(photo.width, photo.height, RATIOS.image),
+      images: painted.photos.map((p) => ({ mime: p.mime, data: p.data! })),
+    });
+  };
+
   const enhance = async () => {
     const idea = prompt.trim();
     if (!idea || enhancing) return;
@@ -289,9 +326,13 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
     e.preventDefault();
     void addPhotos([...e.dataTransfer.files]);
   };
-  const ideas = editing ? edit.ideas : character ? [] : copy.ideas;
+  // Video from two photos: a clip from the first to the second.
+  const transition = kind === "video" && editing && photos.length === 2;
+  const ideas = transition ? TRANSITION_IDEAS : editing ? edit.ideas : character ? [] : copy.ideas;
 
-  const placeholder = editing
+  const placeholder = transition
+    ? "Что происходит между кадрами? Например: день сменяется ночью. Можно оставить пустым"
+    : editing
     ? edit.placeholder
     : character
       ? `Где и кем нарисовать «${character.name}»? Например: на обложке журнала или в образе космонавта`
@@ -366,7 +407,7 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
             onDrop={onDrop}
           >
             <div className="section-label mb-3 px-2">
-              {editing ? edit.label : character ? `Фотосессия: ${character.name}` : "Опишите вашу идею"}
+              {transition ? "Переход между кадрами" : editing ? edit.label : character ? `Фотосессия: ${character.name}` : "Опишите вашу идею"}
             </div>
             {(photos.length > 0 || reading) && (
               <div className="flex flex-wrap gap-2 px-2 pb-2">
@@ -375,9 +416,14 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
                     {/* eslint-disable-next-line @next/next/no-img-element -- local data URL */}
                     <img
                       src={`data:${p.mime};base64,${p.data}`}
-                      alt={kind === "video" ? "Фото для видео" : i === 0 ? "Фото для обработки" : "Дополнительное фото"}
+                      alt={kind === "video" ? (i === 0 ? "Фото для видео" : "Последний кадр") : i === 0 ? "Фото для обработки" : "Дополнительное фото"}
                       className="size-16 rounded-xl object-cover"
                     />
+                    {lastFrameOk && (
+                      <span className="absolute inset-x-0 bottom-0 rounded-b-xl bg-black/60 text-center text-[10px] text-zinc-200">
+                        {i === 0 ? "Начало" : "Конец"}
+                      </span>
+                    )}
                     <button
                       type="button"
                       onClick={() => setPhotos((list) => list.filter((_, j) => j !== i))}
@@ -389,6 +435,26 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
                     </button>
                   </div>
                 ))}
+                {lastFrameOk && photos.length === 1 && !reading && (
+                  <button
+                    type="button"
+                    onClick={() => fileInput.current?.click()}
+                    title="Добавить последний кадр: видео плавно перейдёт от первого фото ко второму"
+                    className="flex size-16 flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-violet-300/30 text-[11px] leading-tight text-violet-200 transition hover:border-violet-300/60 hover:bg-violet-500/10"
+                  >
+                    <ImagePlus className="size-4" /> Конец
+                  </button>
+                )}
+                {kind === "image" && editing && photos[0] && (
+                  <button
+                    type="button"
+                    onClick={() => setBrushing(`data:${photos[0].mime};base64,${photos[0].data}`)}
+                    title="Кисть: закрасить место на фото и изменить только его"
+                    className="flex size-16 flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-violet-300/30 text-[11px] text-violet-200 transition hover:border-violet-300/60 hover:bg-violet-500/10"
+                  >
+                    <Brush className="size-4" /> Кисть
+                  </button>
+                )}
                 {reading && (
                   <div className="flex size-16 items-center justify-center rounded-xl bg-white/[0.04]">
                     <LoaderCircle className="size-5 animate-spin text-violet-300" />
@@ -442,6 +508,9 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
               <p className="px-2 pb-2 text-xs text-violet-200">{edit.hint}</p>
             )}
             {editing && !targetEdits && <p className="px-2 pb-2 text-xs text-red-300">{edit.cant}</p>}
+            {transition && targetEdits && !findModel(models, target!)?.lastFrame && (
+              <p className="px-2 pb-2 text-xs text-red-300">Эта модель не умеет заканчивать видео на втором фото — выберите другую или уберите второе фото.</p>
+            )}
             {character && !targetEdits && (
               <p className="px-2 pb-2 text-xs text-red-300">Эта модель не умеет рисовать персонажа по фото — выберите другую.</p>
             )}
@@ -583,7 +652,7 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
                 className="maryx-button flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm"
               >
                 <WandSparkles className="size-4" />
-                {editing ? edit.button : character ? "Создать фото" : "Сгенерировать"}
+                {transition ? "Создать переход" : editing ? edit.button : character ? "Создать фото" : "Сгенерировать"}
               </button>
             </div>
           </div>
@@ -686,6 +755,7 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
                     : undefined
                 }
                 onAnimate={kind === "image" && canAnimate && item.files[0] ? () => animate(item.files[0]) : undefined}
+                onBrush={editable && kind === "image" && item.files[0] ? () => setBrushing(item.files[0].url) : undefined}
                 onDelete={() => removeMedia(item.id)}
               />
             ))}
@@ -700,6 +770,7 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
           </div>
         )}
       </div>
+      {brushing && <BrushEditor src={brushing} onClose={() => setBrushing(null)} onApply={brush} />}
     </div>
   );
 }

@@ -37,6 +37,8 @@ import {
   planRoute,
   research,
   researchBrief,
+  council,
+  councilBrief,
   rememberFrom,
   suggestFollowUps,
   suggestTitle,
@@ -96,6 +98,8 @@ const HISTORY_IMAGES = 4;
 
 /** What deep research's searches may cost on top of the report, held with it. */
 const RESEARCH_HOLD_USD = 0.08;
+/** What the council's experts may cost on top of the answer, held with it. */
+const COUNCIL_HOLD_USD = 0.1;
 
 /** A video answer tries MARYX's next model only this soon (starting a clip is quick; making it is in the background). */
 const VIDEO_FALLBACK_WINDOW_MS = 60_000;
@@ -530,6 +534,10 @@ export async function POST(request: Request) {
     // Deep research: searches run first (in the answer's stream), and the report is written from them.
     const researching = maryx && req.research === true;
     let researchText = "";
+    // Консилиум: strong models answer first (in the answer's stream), and the answer combines them.
+    // Experts read only words, so a question with pictures is answered the usual way.
+    const consulting = maryx && !researching && req.council === true && loaded[loaded.length - 1].images.length === 0;
+    let councilText = "";
     // Stored facts go into every MARYX answer (regenerations too); new ones are learned from new messages.
     const memoryOn = maryx && prefs.memory;
     let facts: string[] = [];
@@ -539,6 +547,7 @@ export async function POST(request: Request) {
       try {
         route = await planRoute({
           research: researching,
+          strong: consulting,
           text: last.m.content,
           hasImages: last.images.length > 0,
           hasDocuments: loaded.some((l) => l.docs.some((d) => d.max > 0)),
@@ -605,6 +614,7 @@ export async function POST(request: Request) {
               }),
               ...omitted,
               ...(researchText ? [researchText] : []),
+              ...(councilText ? [councilText] : []),
             ].join("\n"),
             deepThinking: req.deepThinking,
             webSearch: plan.webSearch,
@@ -633,7 +643,7 @@ export async function POST(request: Request) {
     const firstCall = baseRequest(candidates[0]);
     const firstHold = holdOf(firstCall);
     // Research's searches are paid on top (they're recorded as MARYX's own jobs).
-    const extra = researching ? RESEARCH_HOLD_USD : 0;
+    const extra = researching ? RESEARCH_HOLD_USD : consulting ? COUNCIL_HOLD_USD : 0;
     const refused = await reserve(
       bill,
       { expected: firstHold.expected + extra, most: firstHold.most + extra, least: firstHold.least + extra },
@@ -743,6 +753,14 @@ export async function POST(request: Request) {
               sources.push(s);
               send({ type: "source", url: s.url, title: s.title });
             }
+          }
+          if (consulting) {
+            const question = history[history.length - 1].content;
+            const context = loaded
+              .slice(-5, -1)
+              .map((l) => `${l.m.role === "user" ? "Пользователь" : "MARYX"}: ${l.m.content.slice(0, 3000)}`)
+              .join("\n\n");
+            councilText = councilBrief(await council(question, context, meter, (step) => send({ type: "progress", text: step })));
           }
           for (let attempt = 0; ; ) {
             const current = candidates[attempt];
@@ -1041,7 +1059,8 @@ function filmInChat(
             model: first.id,
             prompt,
             aspectRatio,
-            ...(withPhoto ? { images: photos } : {}),
+            // The chat's clip starts from one photo (the studio also takes a last frame).
+            ...(withPhoto ? { images: photos.slice(0, 1) } : {}),
             ...(opts.camera ? { camera: opts.camera } : {}),
           },
           bill,

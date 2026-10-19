@@ -26,6 +26,8 @@ interface LiveModel {
   reasoning?: boolean;
   /** Image models: takes a reference photo to edit; video models: starts from the user's photo. */
   photoEdit?: boolean;
+  /** Video models: can also end on a given picture (a transition between two frames). */
+  lastFrame?: boolean;
 }
 
 /** One entry of OpenRouter's model lists (/models, /images/models, /videos/models). */
@@ -163,7 +165,10 @@ async function openRouterList(capability: Capability): Promise<LiveModel[]> {
         ? { photoEdit: Boolean(m.architecture?.input_modalities?.includes("image") || "input_references" in (described(m) ?? {})) }
         : {}),
       ...(capability === "video" && Array.isArray(m.supported_frame_images)
-        ? { photoEdit: m.supported_frame_images.includes("first_frame") }
+        ? {
+            photoEdit: m.supported_frame_images.includes("first_frame"),
+            lastFrame: m.supported_frame_images.includes("first_frame") && m.supported_frame_images.includes("last_frame"),
+          }
         : {}),
     }));
 }
@@ -298,6 +303,7 @@ function liveModelInfo(provider: ProviderId, capability: Capability, m: LiveMode
     vision: provider === "anthropic" || provider === "google" || selfHostedVision ? true : m.vision,
     // Only OpenRouter's media APIs take the user's photo (our other media adapters can't yet).
     ...(provider === "openrouter" && capability !== "chat" && m.photoEdit ? { photoEdit: true } : {}),
+    ...(provider === "openrouter" && capability === "video" && m.lastFrame ? { lastFrame: true } : {}),
     reasoning:
       m.reasoning ||
       (provider === "anthropic" && ADAPTIVE_THINKING.test(id)) ||
@@ -327,10 +333,10 @@ async function modelsFor(provider: ProviderId, capability: Capability, ownKey: b
   const result = featured
     .filter((m) => byId.has(m.id))
     .map((m) => {
-      const said = byId.get(m.id)?.photoEdit;
-      if (said === undefined || !m.photoEdit) return m;
-      const info = { ...m };
-      if (!said) delete info.photoEdit;
+      const live = byId.get(m.id);
+      // Only OpenRouter's list says which video models end on a given frame.
+      const info = provider === "openrouter" && live?.lastFrame ? { ...m, lastFrame: true } : { ...m };
+      if (live?.photoEdit === false) delete info.photoEdit;
       return info;
     });
   const featuredIds = new Set(featured.map((m) => m.id));

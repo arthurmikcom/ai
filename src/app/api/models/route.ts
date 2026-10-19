@@ -42,7 +42,9 @@ function onlyMaryx(all: ModelsResponse, capability: Capability | null): ModelsRe
   if ((!capability || capability === "video") && has("video")) {
     // …and "animate a photo" when one of its video models starts from a photo.
     const photoEdit = all.models.some((m) => m.capability === "video" && m.photoEdit);
-    models.push(photoEdit ? { ...MARYX_VIDEO_MODEL, photoEdit } : MARYX_VIDEO_MODEL);
+    // …and a transition between two frames when one of them also ends on a given picture.
+    const lastFrame = all.models.some((m) => m.capability === "video" && m.photoEdit && m.lastFrame);
+    models.push(photoEdit ? { ...MARYX_VIDEO_MODEL, photoEdit, ...(lastFrame ? { lastFrame } : {}) } : MARYX_VIDEO_MODEL);
   }
   return { providers: [], models };
 }

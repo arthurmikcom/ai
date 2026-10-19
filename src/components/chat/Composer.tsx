@@ -17,6 +17,7 @@ import {
   Sparkles,
   Square,
   Telescope,
+  UsersRound,
   Undo2,
   X,
 } from "lucide-react";
@@ -60,6 +61,9 @@ interface Props {
   /** Deep research (MARYX): several searches, then a report with sources. */
   research?: boolean;
   onResearchChange?: (value: boolean) => void;
+  /** Консилиум (MARYX): several strong models answer, MARYX combines the best. */
+  council?: boolean;
+  onCouncilChange?: (value: boolean) => void;
   /** An image model is available, so the "draw" toggle can be offered. */
   canDraw: boolean;
   /** An image model edits photos: in "draw" mode, attached photos are what it edits. */
@@ -145,6 +149,8 @@ export function Composer({
   onWebSearchChange,
   research = false,
   onResearchChange,
+  council = false,
+  onCouncilChange,
   canDraw,
   canEditPhotos = false,
   imageMode,
@@ -562,6 +568,8 @@ export function Composer({
                     : "Опишите видео: что происходит, атмосфера, звук…"
                 : research && !mediaMode
                 ? "О чём исследование? Например: какой электромобиль выбрать в 2026 году"
+                : council && !mediaMode
+                ? "Вопрос для консилиума: три ИИ ответят, MARYX соберёт лучшее из их ответов"
               : imageMode
                   ? sending.length
                     ? "Что сделать с фото? Например: естественная ретушь, другой фон…"
@@ -767,6 +775,22 @@ export function Composer({
             >
               <Telescope className="size-4" />
               <span className="hidden sm:inline">Исследование</span>
+            </button>
+          )}
+
+          {!mediaMode && onCouncilChange && (
+            <button
+              type="button"
+              onClick={() => onCouncilChange(!council)}
+              aria-pressed={council}
+              title="Консилиум: на вопрос сразу отвечают три сильных ИИ, MARYX сверяет их и пишет лучший ответ"
+              aria-label="Консилиум"
+              className={`flex items-center gap-1.5 rounded-full px-2 py-1.5 text-sm transition sm:px-3 ${
+                council ? "bg-violet-500/20 text-violet-200" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-100"
+              }`}
+            >
+              <UsersRound className="size-4" />
+              <span className="hidden sm:inline">Консилиум</span>
             </button>
           )}
 

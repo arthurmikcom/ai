@@ -16,6 +16,7 @@ export const maxDuration = 120;
 
 /** MARYX starts another model after a refusal only this soon, so the picture still fits in maxDuration. */
 const FALLBACK_WINDOW_MS = 45_000;
+const NO_TRANSITION = "Видео с последним кадром пока не подключено — оставьте одно фото.";
 
 /**
  * Starts an image or video generation and returns the gallery item. Images
@@ -39,6 +40,8 @@ export async function POST(request: Request) {
     req = { ...req, images: references };
   }
   const photos = req.images ?? [];
+  // Video with two photos: a clip from the first to the second.
+  const transition = req.kind === "video" && photos.length === 2;
 
   // OpenRouter models (and MARYX, which picks them) go out with the user's own key when they saved one.
   const key = req.provider === "openrouter" || req.provider === "maryx" ? await ownKey(user.id) : undefined;
@@ -49,7 +52,12 @@ export async function POST(request: Request) {
       // Says what to set up when there's no model for it.
       const first = await maryxMediaModel(req.kind, key !== undefined, photos.length > 0);
       models = await maryxMediaModels(req.kind, key !== undefined, photos.length > 0);
-      req = { ...req, provider: first.provider, model: first.id };
+      // A transition between two frames: only models that end on a given picture.
+      if (transition) {
+        models = models.filter((m) => m.lastFrame);
+        if (!models.length) return jsonError(NO_TRANSITION, 400);
+      }
+      req = { ...req, provider: (models[0] ?? first).provider, model: (models[0] ?? first).id };
     } catch (err) {
       return jsonError(
         photos.length && maryxOnly()
@@ -61,9 +69,11 @@ export async function POST(request: Request) {
   } else {
     if (photos.length) {
       const { models: offered } = await listModels(req.kind, { ownKey: key !== undefined });
-      if (!offered.some((m) => m.provider === req.provider && m.id === req.model && m.photoEdit)) {
+      const chosen = offered.find((m) => m.provider === req.provider && m.id === req.model && m.photoEdit);
+      if (!chosen) {
         return jsonError(`Эта модель не умеет ${req.kind === "image" ? "обрабатывать" : "оживлять"} фото — выберите другую.`, 400);
       }
+      if (transition && !chosen.lastFrame) return jsonError(NO_TRANSITION, 400);
     }
     models = [{ provider: req.provider, id: req.model, label: req.model, capability: req.kind, featured: false }];
   }

@@ -92,7 +92,15 @@ export async function createMedia(user: SessionUser, req: GenerateRequest, paid:
       id: crypto.randomUUID(),
       userId: user.id,
       kind: req.kind,
-      prompt: req.prompt || (inputs?.length ? (req.kind === "image" ? "Естественная ретушь фото" : "Оживить фото") : req.prompt),
+      prompt:
+        req.prompt ||
+        (inputs?.length
+          ? req.kind === "image"
+            ? "Естественная ретушь фото"
+            : inputs.length > 1
+              ? "Переход между кадрами"
+              : "Оживить фото"
+          : req.prompt),
       inputs: inputs?.length ? inputs : null,
       characterId: req.character ?? null,
       provider: req.provider,
