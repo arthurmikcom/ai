@@ -136,6 +136,8 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
   // «Мой персонаж»: the character a photoshoot draws (pictures only).
   const characters = useCharacters();
   const [characterId, setCharacterId] = useState<string | null>(null);
+  // The «Мой персонаж» panel: open while a photoshoot is on, or once the user opened it.
+  const [charactersOpen, setCharactersOpen] = useState(false);
   // The brush: the picture being painted on (only the painted area changes).
   const [brushing, setBrushing] = useState<string | null>(null);
   // "✨ Улучшить": the rewrite in progress, and the words before it (to go back).
@@ -356,7 +358,11 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
         </CreativeHero>
 
         {kind === "image" && editable && !noProviders && characters && (
-          <details className="studio-character-disclosure" open={character ? true : undefined}>
+          <details
+            className="studio-character-disclosure"
+            open={charactersOpen || Boolean(character)}
+            onToggle={(e) => setCharactersOpen(e.currentTarget.open)}
+          >
           <summary><UserRound size={20} /><span>Персонаж для фотосессии<small>{character ? character.name : "Сохраните образ и создавайте новые сцены"}</small></span><ChevronDown size={16} /></summary>
           <Characters
             characters={characters}

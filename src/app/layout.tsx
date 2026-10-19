@@ -1,6 +1,5 @@
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import type { Metadata, Viewport } from "next";
-import Script from "next/script";
 import type { ReactNode } from "react";
 import { AppShell } from "@/components/AppShell";
 import { AppStateProvider } from "@/components/AppState";
@@ -24,7 +23,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     // The saved theme is set on <html> by the script before React hydrates.
     <html lang="ru" className="dark h-full antialiased" suppressHydrationWarning>
       <head>
-        <Script id="maryx-appearance" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: APPEARANCE_SCRIPT }} />
+        {/* A plain inline script: it runs while the page is parsed, before the first paint.
+            (next/script's beforeInteractive queues inline code until Next's own JS loads, so a
+            light theme would flash dark first.) */}
+        <script dangerouslySetInnerHTML={{ __html: APPEARANCE_SCRIPT }} />
       </head>
       <body className="h-full bg-zinc-950">
         <AppStateProvider>

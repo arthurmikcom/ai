@@ -312,6 +312,8 @@ function NavigationRail({ onExpand, onPalette }: { onExpand: () => void; onPalet
 
 export function AppShell({ children }: { children: ReactNode }) {
   useApplyAppearance();
+  // The top bar's «Возможности Pro» is for the free plan only (like the sidebar's card).
+  const { me } = useApp();
   const [open, setOpen] = useState(false);
   // The command palette: Ctrl/⌘+K anywhere (the key, whatever the keyboard layout).
   const [palette, setPalette] = useState(false);
@@ -396,7 +398,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <header className="workspace-topbar">
           <div className="workspace-breadcrumb"><span className="hidden items-center gap-2 md:flex"><LockKeyhole size={12} />Личное пространство<ChevronRight size={13} /></span><Link href="/" className="flex items-center gap-2 md:hidden"><BrandMark className="!size-7 !rounded-lg" /><BrandName className="!text-base" /></Link><strong className="hidden md:block">{NAV.find(n => n.href === pathname)?.label || "MARYX Ai"}</strong></div>
         <div className="workspace-topbar-actions">
-          <Link href="/pricing" className="workspace-plan-link"><Sparkles size={13} /><span>Возможности Pro</span></Link>
+          {me?.plan.id === "free" && <Link href="/pricing" className="workspace-plan-link"><Sparkles size={13} /><span>Возможности Pro</span></Link>}
         <button
           type="button"
           onClick={() => setPalette(true)}

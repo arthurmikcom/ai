@@ -15,7 +15,9 @@ export function useWorkbenchPanel(full: boolean, onClose: () => void) {
     const controls = () => Array.from(element.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),textarea:not(:disabled),a[href],[tabindex="0"]')).filter(e => e.getClientRects().length > 0);
     if (overlay()) element.querySelector<HTMLElement>('[data-workbench-close]')?.focus();
     const keydown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      // Esc closes the panel when it covers the page (full screen, phones); beside the chat it's
+      // part of the page, and an Esc while typing in the document shouldn't close it.
+      if (event.key === "Escape" && !event.isComposing && overlay()) {
         event.preventDefault();
         event.stopPropagation();
         close.current();
