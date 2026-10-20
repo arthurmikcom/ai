@@ -5,7 +5,7 @@ import { paddleConfigured, paddleCreditsConfigured, paddlePriceLabel, paddleSand
 import { paypalConfigured, paypalSandbox } from "@/lib/server/billing/paypal";
 import { tonConfigured } from "@/lib/server/billing/ton";
 import { maryxMediaModel } from "@/lib/server/chat/image";
-import { freePlanFreeImages, maryxOnly } from "@/lib/server/config";
+import { freePhotoEdits, freePlanFreeImages, maryxOnly } from "@/lib/server/config";
 import { listModels } from "@/lib/server/models";
 import { mediaCost } from "@/lib/server/pricing";
 import { planDailyUsd, planMonthlyMediaUsd } from "@/lib/server/spend";
@@ -90,6 +90,7 @@ export async function GET(request: Request) {
     budget: each(planDailyUsd),
     media: each(media),
     freeImages: freePlanFreeImages(),
+    freePhotoEdits: freePhotoEdits(),
     credits: {
       packs,
       methods: (

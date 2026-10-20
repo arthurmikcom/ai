@@ -1,7 +1,7 @@
 import { isAdmin } from "@/lib/server/auth";
 import { describeAiError, maryxOnly } from "@/lib/server/brand";
 import { characterPhotos } from "@/lib/server/characters";
-import { FREE_PLAN_PHOTOS, freeLane, maryxMediaModel, maryxMediaModels } from "@/lib/server/chat/image";
+import { freeLane, freePlanPhotos, maryxMediaModel, maryxMediaModels } from "@/lib/server/chat/image";
 import { isConfigured } from "@/lib/server/config";
 import { StorageUnavailableError } from "@/lib/server/errors";
 import { jsonError, requireUser, storageUnavailable } from "@/lib/server/http";
@@ -10,7 +10,7 @@ import { MOTION_MAX_REFERENCES, MOTION_MODEL } from "@/lib/server/media/higgsfie
 import { listModels } from "@/lib/server/models";
 import { ownKey, ownKeyInfo } from "@/lib/server/own-key";
 import { mediaCost } from "@/lib/server/pricing";
-import { charge, deniedResponse, refundCharge, reserve } from "@/lib/server/usage";
+import { charge, chargePhotoEdit, deniedResponse, refundCharge, reserve } from "@/lib/server/usage";
 import { isOwnVideoKey } from "@/lib/server/uploads";
 import { parseGenerateRequest } from "@/lib/server/validate";
 import type { ModelInfo } from "@/lib/types";
@@ -106,14 +106,14 @@ export async function POST(request: Request) {
   let paid = await charge(user, req.kind, key);
   if ("denied" in paid) return deniedResponse(user, req.kind, paid.denied, { ownKey: await hasKey() });
   if (req.provider === "maryx" && !req.motion) {
-    // The free model can't edit photos: on the free plan, credits pay for that (with GPT Image).
+    // The free model can't edit photos: on the free plan, a few a day are made like a paid plan's, then credits pay.
     if (freeLane(paid, req.kind) && photos.length) {
       await refundCharge(paid);
-      const credits = await charge(user, req.kind, key, { creditsOnly: true });
-      if ("denied" in credits) {
-        return deniedResponse(user, req.kind, credits.denied, { ownKey: await hasKey(), ...(credits.denied === "busy" ? {} : { reason: FREE_PLAN_PHOTOS }) });
+      const edit = await chargePhotoEdit(user, key);
+      if ("denied" in edit) {
+        return deniedResponse(user, req.kind, edit.denied, { ownKey: await hasKey(), ...(edit.denied === "busy" ? {} : { reason: freePlanPhotos() }) });
       }
-      paid = credits;
+      paid = edit;
     }
     try {
       const free = freeLane(paid, req.kind);

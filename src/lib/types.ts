@@ -459,6 +459,8 @@ export interface MeResponse {
   maryxOnly: boolean;
   /** Pictures within the plan come from the free model (the free plan); paid plans and credits draw with GPT Image. */
   freeImages: boolean;
+  /** The free plan's photo edits a day (made like a paid plan's), and how many are left today. */
+  photoEdits?: { perDay: number; left: number };
 }
 
 /** Admins: how users rate MARYX's answers (👍/👎), for the last `days`. */
@@ -517,10 +519,12 @@ export interface BillingOptions {
   limits: Record<PlanId, Record<UsageKind, number | null>>;
   /** Each plan's daily AI budget for chat and dictation, in US dollars (null: none). */
   budget: Record<PlanId, number | null>;
-  /** About how many pictures (GPT Image) or clips a plan's monthly budget for them pays for (null: no cap). */
+  /** About how many pictures or clips a plan's monthly budget for them pays for (null: no cap). */
   media: Record<PlanId, { images: number; videos: number } | null>;
-  /** The free plan draws with the free model (no credits, no photo edits). */
+  /** The free plan draws with the free model (no credits); its photo edits are counted apart. */
   freeImages: boolean;
+  /** Photo edits a day on the free plan. */
+  freePhotoEdits: number;
   /** Credit packs on sale (empty without a payment method), the methods that sell them, and the least a request takes. */
   credits: { packs: CreditPack[]; methods: PaymentMethod[]; min: Record<UsageKind, number> };
   /**

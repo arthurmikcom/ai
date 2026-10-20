@@ -12,7 +12,7 @@ import {
   takeCredits,
 } from "./billing/credits";
 import { currentPlan, planLimit } from "./billing/plans";
-import { freePlanFreeImages, maryxOnly } from "./config";
+import { freePhotoEdits, freePlanFreeImages, maryxOnly } from "./config";
 import { sellablePacks } from "./billing/packs";
 import { getDb, schema } from "./db";
 import {
@@ -65,7 +65,11 @@ export async function consume(user: SessionUser, kind: UsageKind): Promise<boole
 }
 
 /** Counter kinds besides the plan's: requests made with the user's own key, whole videos uploaded. */
-type Counter = UsageKind | "byok" | "upload";
+type Counter = UsageKind | "byok" | "upload" | "photo";
+
+/** The counter a charge took its use from. */
+const counterOf = (c: Pick<Charge, "paidBy" | "kind" | "photoEdit">): Counter =>
+  c.paidBy === "byok" ? "byok" : c.photoEdit ? "photo" : c.kind;
 
 /** Megabytes of whole videos one user may upload a day (DAILY_UPLOAD_MB, 4 GB by default): storage isn't free. */
 export function dailyUploadMb(): number {
@@ -161,6 +165,8 @@ export interface Charge {
   room?: number;
   /** Settled or refunded already; later calls do nothing. */
   done?: boolean;
+  /** One of the free plan's daily photo edits (counted apart from its pictures, made like a paid plan's). */
+  photoEdit?: boolean;
 }
 
 /**
@@ -214,6 +220,28 @@ export async function charge(
   return { denied: (await creditsBusy(user.id, need)) ? "busy" : denied };
 }
 
+/** The free plan's photo edits a day, and how many are left today. */
+export async function photoEditsToday(userId: string): Promise<{ perDay: number; left: number }> {
+  const perDay = freePhotoEdits();
+  const db = await getDb();
+  const [row] = await db
+    .select({ count: schema.usage.count })
+    .from(schema.usage)
+    .where(and(eq(schema.usage.userId, userId), eq(schema.usage.day, today()), eq(schema.usage.kind, "photo" as UsageKind)));
+  return { perDay, left: Math.max(0, perDay - (row?.count ?? 0)) };
+}
+
+/**
+ * A photo edit on the free plan: one of today's free ones while the site's
+ * budget for free use lasts, else credits.
+ */
+export async function chargePhotoEdit(user: SessionUser, ownKey?: string): Promise<Charge | { denied: Denial }> {
+  if (!(await siteBudgetSpent()) && (await bump(user.id, "photo", freePhotoEdits()))) {
+    return { id: crypto.randomUUID(), userId: user.id, kind: "image", held: 0, day: today(), paidBy: "free", photoEdit: true };
+  }
+  return charge(user, "image", ownKey, { creditsOnly: true });
+}
+
 /**
  * Whether credits held by the user's running requests (besides `except`)
  * would cover `need` once they come back, with the balance and what this
@@ -257,7 +285,8 @@ export async function reserve(
     // Over a budget, or short of a full answer: credits can pay, and the plan's use is given back.
     const balance = await creditBalance(c.userId);
     if (balance < creditsFor(c.kind, least)) return verdict;
-    await refund(c.userId, c.kind, c.day);
+    await refund(c.userId, counterOf(c), c.day);
+    c.photoEdit = false;
     c.paidBy = "credits";
     c.held = 0;
   }
@@ -378,7 +407,7 @@ export async function settleCharge(c: Charge, costs: CostEntry[], failed = false
   try {
     if (failed) {
       if (c.paidBy === "credits") await releaseCredits(c.userId, c.held);
-      else await refund(c.userId, c.paidBy === "byok" ? "byok" : c.kind, c.day);
+      else await refund(c.userId, counterOf(c), c.day);
     } else if (c.paidBy === "credits") {
       const total = creditsFor(c.kind, costs.reduce((sum, e) => sum + e.usd, 0));
       if (total > c.held) await takeCredits(c.userId, total - c.held);
@@ -431,7 +460,7 @@ export async function deniedResponse(
   const only = maryxOnly();
   const ways = [
     ...(sellablePacks().length ? ["купите кредиты"] : []),
-    ...(plan === "free" ? ["оформите Pro"] : []),
+    ...(plan === "free" ? ["оформите тариф", "введите промокод"] : []),
     ...(only
       ? []
       : [
@@ -480,7 +509,11 @@ export async function deniedResponse(
     error =
       balance < 0
         ? `Предыдущий запрос стоил больше, чем оставалось кредитов: долг ${-balance} кр. Пополните кредиты, чтобы продолжить.`
-        : `Не хватает кредитов: этот запрос стоит около ${need ?? "?"}, а у вас ${balance}. Пополните кредиты или ${simpler}.`;
+        : `Не хватает кредитов: этот запрос стоит около ${need ?? "?"}, а у вас ${balance}. ${
+            kind === "image" || kind === "video"
+              ? `Пополните кредиты${plan === "free" ? ", оформите тариф или введите промокод" : ""}.`
+              : `Пополните кредиты или ${simpler}.`
+          }`;
   } else if (denied === "budget") {
     error = `Бесплатные запросы на сегодня закончились: сайт исчерпал дневной бюджет. Попробуйте после полуночи по UTC. ${hint}`;
   } else if (opts.reason) {

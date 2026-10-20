@@ -86,7 +86,7 @@ export function BillingSection() {
             {paid ? PLAN_NAMES[plan.id] : "Бесплатный тариф"}
           </div>
           <div className="mt-1 text-sm text-zinc-400">
-            {plan.id === "free" && "Больше сообщений, картинок GPT Image и видео — на тарифах Plus, Pro и Ultra."}
+            {plan.id === "free" && "Больше сообщений, картинки в высоком качестве и видео — на тарифах Plus, Pro и Ultra."}
             {paid && plan.provider === "promo" && plan.periodEnd && `По промокоду до ${date(plan.periodEnd)}`}
             {paid && once && plan.periodEnd &&
               `Оплачено через ${plan.provider === "ton" ? "TON" : "PayPal"} до ${date(plan.periodEnd)}. Автопродления нет — следующий месяц оплачивается так же.`}

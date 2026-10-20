@@ -5,7 +5,7 @@ import { freePlanFreeImages, maryxOnly } from "@/lib/server/config";
 import { requireUser } from "@/lib/server/http";
 import { ownKeyInfo } from "@/lib/server/own-key";
 import { planDailyUsd, userSpendToday } from "@/lib/server/spend";
-import { usageSummary } from "@/lib/server/usage";
+import { photoEditsToday, usageSummary } from "@/lib/server/usage";
 import { transcriptionAvailable } from "@/lib/server/voice";
 import type { MeResponse } from "@/lib/types";
 
@@ -13,13 +13,15 @@ import type { MeResponse } from "@/lib/types";
 export async function GET(request: Request) {
   const user = await requireUser(request);
   if (user instanceof Response) return user;
-  const [plan, usage, credits, ownKey, spent] = await Promise.all([
+  const [plan, usage, credits, ownKey, spent, photoEdits] = await Promise.all([
     planInfo(user.id),
     usageSummary(user),
     creditBalance(user.id),
     ownKeyInfo(user.id),
     userSpendToday(user.id),
+    photoEditsToday(user.id),
   ]);
+  const freeImages = plan.id === "free" && !isAdmin(user) && freePlanFreeImages();
   const body: MeResponse = {
     user: { id: user.id, name: user.name, email: user.email, image: user.image },
     admin: isAdmin(user),
@@ -31,7 +33,8 @@ export async function GET(request: Request) {
     social: socialProviders(),
     voice: { transcribe: transcriptionAvailable(Boolean(ownKey)) },
     maryxOnly: maryxOnly(),
-    freeImages: plan.id === "free" && !isAdmin(user) && freePlanFreeImages(),
+    freeImages,
+    ...(freeImages ? { photoEdits } : {}),
   };
   return Response.json(body, { headers: { "Cache-Control": "no-store" } });
 }

@@ -522,7 +522,7 @@ export const creditGrant = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     credits: integer("credits").notNull(),
-    source: text("source").$type<"yookassa" | "stripe" | "paddle" | "paypal" | "ton" | "promo" | "admin">().notNull(),
+    source: text("source").$type<"yookassa" | "stripe" | "paddle" | "paypal" | "ton" | "promo" | "admin" | "welcome">().notNull(),
     note: text("note"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },

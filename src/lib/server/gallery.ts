@@ -26,6 +26,9 @@ const GIVE_UP_AFTER_MS = 2 * 60 * 60 * 1000;
  * model by hand in the video section. Admins also see the provider's own
  * reason for a failure.
  */
+/** The free plan's own models (no fee per picture). */
+const FREE_MODELS = new Set(["pollinations", "comfy"]);
+
 function toItem(row: MediaRow, admin = false): MediaItem {
   const masked = maryxOnly() && !row.chosen;
   const error = row.error ? publicError(row.error) : undefined;
@@ -66,6 +69,8 @@ export async function listMedia(userId: string, kind: MediaKind, admin = false):
  */
 function chargeOf(row: MediaRow): Charge {
   return {
+    // A photo (or a character) drawn on the free plan with a paid plan's model: one of its daily photo edits.
+    photoEdit: row.kind === "image" && row.paidBy === "free" && Boolean(row.inputs?.length || row.characterId) && !FREE_MODELS.has(row.provider),
     id: row.chargeId ?? row.id,
     userId: row.userId,
     kind: row.kind,

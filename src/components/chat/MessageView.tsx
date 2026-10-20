@@ -584,9 +584,14 @@ export function MessageView({
           <span>
             {message.error}
             {message.errorCode === "limit" && (
-              <Link href="/pricing" className="ml-2 font-medium text-white underline">
-                Тарифы и кредиты →
-              </Link>
+              <>
+                <Link href="/pricing" className="ml-2 font-medium text-white underline">
+                  Тарифы и кредиты →
+                </Link>
+                <Link href="/pricing#promo" className="ml-3 font-medium text-white underline">
+                  Есть промокод?
+                </Link>
+              </>
             )}
           </span>
         </div>

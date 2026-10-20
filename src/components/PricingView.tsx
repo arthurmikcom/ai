@@ -50,9 +50,10 @@ export function PricingView() {
     refreshMe();
   }, [refreshMe]);
 
-  // The credits section appears once the plans have loaded, so a link to #credits scrolls here then.
+  // The credits and promo sections appear once the plans have loaded, so a link to #credits or #promo scrolls there then.
   useEffect(() => {
-    if (options && window.location.hash === "#credits") document.getElementById("credits")?.scrollIntoView();
+    const hash = window.location.hash;
+    if (options && (hash === "#credits" || hash === "#promo")) document.getElementById(hash.slice(1))?.scrollIntoView({ block: "center" });
   }, [options]);
 
   const buyCredits = async (method: Method, pack: string) => {
@@ -133,8 +134,9 @@ export function PricingView() {
       <>
         {feature(limitText(limits.chat, "chat"))}
         {free && o.freeImages
-          ? feature(`Картинки: бесплатная нейросеть — ${limits.image === null ? "без лимита" : `${limits.image} в день`}, кредиты не тратятся`)
-          : feature(<><b className="font-medium text-zinc-100">GPT Image</b>: картинки и обработка ваших фото{limits.image !== null ? ` — до ${limits.image} в день` : ""}</>)}
+          ? feature(`Картинки — ${limits.image === null ? "без лимита" : `${limits.image} в день`}, кредиты не тратятся`)
+          : feature(<><b className="font-medium text-zinc-100">Картинки в высоком качестве</b> и обработка ваших фото{limits.image !== null ? ` — до ${limits.image} в день` : ""}</>)}
+        {free && o.freeImages && o.freePhotoEdits > 0 && feature(`Обработка ваших фото — ${o.freePhotoEdits} в день`)}
         {limits.video === 0 ? feature("Видео — на платных тарифах или за кредиты", true) : feature(limitText(limits.video, "video"))}
         {!free && media && feature(<>В месяц на картинки и видео: ≈ {media.images.toLocaleString("ru-RU")} картинок или ≈ {media.videos.toLocaleString("ru-RU")} видео</>)}
         {feature(limitText(limits.voice, "voice"))}
@@ -218,7 +220,7 @@ export function PricingView() {
       <div className="page-content !max-w-[1240px]">
         <PageHeading number="05" eyebrow="Больше возможностей" title="Тарифы" description={
             maryxOnly
-              ? "Выберите свой масштаб. MARYX доступен на любом тарифе — платные дают больше сообщений, картинки GPT Image и видео."
+              ? "Выберите свой масштаб. MARYX доступен на любом тарифе — платные дают больше сообщений, картинки в высоком качестве и видео."
               : "Выберите свой масштаб. Все модели доступны на любом тарифе — платные дают больше пространства для работы и творчества."
           } />
 
@@ -364,7 +366,7 @@ export function PricingView() {
           </div>
         )}
 
-        <div className="surface-card mx-auto mt-8 max-w-md rounded-2xl p-5">
+        <div id="promo" className="surface-card mx-auto mt-8 max-w-md scroll-mt-6 rounded-2xl p-5">
           <h3 className="mb-2 text-center text-sm font-medium text-zinc-300">Есть промокод?</h3>
           <PromoForm />
         </div>

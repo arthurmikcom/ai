@@ -50,18 +50,18 @@ export async function generatePollinationsImage(req: GenerateRequest): Promise<G
   try {
     res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: AbortSignal.timeout(TIMEOUT_MS) });
   } catch {
-    return { status: "failed", error: "Бесплатная нейросеть не ответила — попробуйте ещё раз через минуту." };
+    return { status: "failed", error: "MARYX не успел нарисовать — попробуйте ещё раз через минуту." };
   }
-  if (res.status === 429) return { status: "failed", error: "Бесплатная нейросеть сейчас занята — попробуйте через минуту." };
+  if (res.status === 429) return { status: "failed", error: "MARYX сейчас рисует много картинок — попробуйте через минуту." };
   if (res.status === 401 || res.status === 402 || res.status === 403) {
     console.error("[pollinations] refused", res.status, await res.text().catch(() => ""));
-    return { status: "failed", error: "Бесплатная нейросеть сейчас недоступна. Картинки GPT Image — на платном тарифе или за кредиты." };
+    return { status: "failed", error: "Бесплатное рисование сейчас недоступно. Попробуйте позже — или рисуйте в высоком качестве за кредиты или на платном тарифе." };
   }
-  if (!res.ok) return { status: "failed", error: `Бесплатная нейросеть не смогла нарисовать (${res.status}) — попробуйте ещё раз.` };
+  if (!res.ok) return { status: "failed", error: `MARYX не смог нарисовать (${res.status}) — попробуйте ещё раз.` };
   const mime = res.headers.get("content-type")?.split(";")[0].trim().toLowerCase() ?? "";
   const data = Buffer.from(await res.arrayBuffer());
   if (!/^image\/(jpeg|png|webp)$/.test(mime) || data.length < 100 || data.length > MAX_BYTES) {
-    return { status: "failed", error: "Бесплатная нейросеть вернула не картинку — попробуйте ещё раз." };
+    return { status: "failed", error: "MARYX не смог нарисовать — попробуйте ещё раз." };
   }
   return { status: "succeeded", outputs: [{ type: "base64", mime, data: data.toString("base64") }] };
 }

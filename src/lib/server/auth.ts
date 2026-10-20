@@ -5,7 +5,9 @@ import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
 import { getDb, schema, type DB } from "./db";
+import { grantCredits } from "./billing/credits";
 import { cancelPaddleForUser, paddleCreditsConfigured } from "./billing/paddle";
+import { welcomeCredits } from "./config";
 import { cancelStripeForUser, stripeCreditsConfigured } from "./billing/stripe";
 import { deleteUserFiles } from "./storage";
 
@@ -89,6 +91,20 @@ function createAuth(db: DB, secret: string) {
       },
     }),
     emailAndPassword: { enabled: true, minPasswordLength: 8, autoSignIn: true },
+    databaseHooks: {
+      user: {
+        create: {
+          // A gift to try what the free plan doesn't include (photo edits beyond the daily ones, video); once per account.
+          after: async (user) => {
+            const credits = welcomeCredits();
+            if (!credits) return;
+            await grantCredits({ id: `welcome:${user.id}`, userId: user.id, credits, source: "welcome", note: "подарок при регистрации" }).catch((err) =>
+              console.error("[auth] welcome credits not added", user.id, err),
+            );
+          },
+        },
+      },
+    },
     socialProviders: {
       ...(social.google
         ? { google: { clientId: env.GOOGLE_CLIENT_ID!, clientSecret: env.GOOGLE_CLIENT_SECRET! } }

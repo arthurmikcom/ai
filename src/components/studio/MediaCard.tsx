@@ -67,9 +67,14 @@ export function MediaCard({ item, modelLabel, onReuse, onEdit, onAnimate, onBrus
             <TriangleAlert className="size-6" />
             <span className="line-clamp-6 break-words" title={item.error}>{item.error}</span>
             {item.errorCode === "limit" && (
-              <Link href="/pricing" className="font-medium text-white underline">
-                Тарифы и кредиты →
-              </Link>
+              <span className="flex flex-wrap justify-center gap-x-3">
+                <Link href="/pricing" className="font-medium text-white underline">
+                  Тарифы и кредиты →
+                </Link>
+                <Link href="/pricing#promo" className="font-medium text-white underline">
+                  Есть промокод?
+                </Link>
+              </span>
             )}
           </div>
         )}

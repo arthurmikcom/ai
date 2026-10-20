@@ -4,7 +4,7 @@
 
 import { BRUSH_PREFIX } from "@/lib/effects";
 import type { GenerateRequest, GenerateResult, InlineImage, MediaKind, ModelInfo, PaidBy } from "@/lib/types";
-import { freePlanFreeImages, NotConfiguredError } from "../config";
+import { freePhotoEdits, freePlanFreeImages, NotConfiguredError } from "../config";
 import type { StoredFile } from "../db/schema";
 import { statusOf } from "../errors";
 import { checkGeneration, downloadOutput, startGeneration, type OpenRouterCall } from "../media";
@@ -67,15 +67,20 @@ const GPT_IMAGE = /(^|\/)(gpt-image|chatgpt-image)/i;
 
 /**
  * Whether a picture is the free plan's: drawn with the free model, within the
- * plan's daily limit (past it, credits pay for GPT Image).
+ * plan's daily limit (past it, credits pay for GPT Image). The free plan's
+ * daily photo edits are made like a paid plan's.
  */
-export function freeLane(c: { paidBy: PaidBy }, kind: MediaKind): boolean {
-  return kind === "image" && c.paidBy === "free" && freePlanFreeImages();
+export function freeLane(c: { paidBy: PaidBy; photoEdit?: boolean }, kind: MediaKind): boolean {
+  return kind === "image" && c.paidBy === "free" && freePlanFreeImages() && !c.photoEdit;
 }
 
-/** The free model draws from words only: a photo edit on the free plan is for credits (GPT Image). */
-export const FREE_PLAN_PHOTOS =
-  "На бесплатном тарифе картинки рисует бесплатная нейросеть — она не умеет менять фото. Обработка фото — на платном тарифе или за кредиты.";
+/** Why a photo edit on the free plan wasn't made: today's free ones are used (or there are none), and no credits. */
+export function freePlanPhotos(): string {
+  const n = freePhotoEdits();
+  return n > 0
+    ? `Бесплатные обработки фото на сегодня закончились (${n} в день) — завтра будут снова.`
+    : "На бесплатном тарифе фото обрабатываются за кредиты.";
+}
 
 /** Video models that won't start from a photo of a real person ("…may contain real person"). */
 const REFUSES_REAL_PEOPLE = /seedance/i;

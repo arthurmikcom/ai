@@ -105,7 +105,10 @@ function VideoTile({ item, model, onOpen, onReuse, onDelete }: { item: MediaItem
               {item.error ?? "Не получилось снять видео."}
             </span>
             {item.errorCode === "limit" ? (
-              <Link href="/pricing">Тарифы и кредиты →</Link>
+              <>
+                <Link href="/pricing">Тарифы и кредиты →</Link>
+                <Link href="/pricing#promo">Есть промокод?</Link>
+              </>
             ) : (
               <button type="button" onClick={onReuse}>
                 Попробовать снова

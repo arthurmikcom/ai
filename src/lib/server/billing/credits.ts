@@ -180,7 +180,7 @@ export async function takeCredits(userId: string, n: number): Promise<number> {
  * transaction when the grant must commit together with other changes.
  */
 export async function grantCredits(
-  grant: { id: string; userId: string; credits: number; source: "yookassa" | "stripe" | "paddle" | "paypal" | "ton" | "promo" | "admin"; note?: string },
+  grant: { id: string; userId: string; credits: number; source: "yookassa" | "stripe" | "paddle" | "paypal" | "ton" | "promo" | "admin" | "welcome"; note?: string },
   tx?: Tx,
 ): Promise<boolean> {
   if (!Number.isInteger(grant.credits) || grant.credits <= 0) return false;

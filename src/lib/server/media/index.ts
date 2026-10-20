@@ -22,7 +22,7 @@ export async function startGeneration(req: GenerateRequest, call: OpenRouterCall
   if (req.provider === "pollinations") {
     return req.kind === "image" && !req.images?.length
       ? generatePollinationsImage(req)
-      : { status: "failed", error: "Бесплатная нейросеть рисует только по описанию, без фото." };
+      : { status: "failed", error: "На бесплатном тарифе MARYX рисует по описанию — обработка фото здесь недоступна." };
   }
   // Only OpenRouter's media APIs take the user's photo; the others would make something new.
   if (req.images?.length && req.provider !== "openrouter") {

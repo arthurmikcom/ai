@@ -126,6 +126,23 @@ export function freePlanFreeImages(): boolean {
   return env("FREE_PLAN_IMAGES")?.toLowerCase() !== "gpt";
 }
 
+/** Credits every new account gets as a gift (WELCOME_CREDITS, default 50; 0 turns it off). */
+export function welcomeCredits(): number {
+  const n = Number.parseInt(env("WELCOME_CREDITS") ?? "", 10);
+  return Number.isFinite(n) && n >= 0 && n <= 100_000 ? n : 50;
+}
+
+/**
+ * Photo edits a day on the free plan (FREE_DAILY_PHOTO_EDITS, default 2; 0
+ * turns them off). The free plan's own model only draws from words, so these
+ * are made like a paid plan's — within the free plan's monthly budget for
+ * pictures and the site's daily budget.
+ */
+export function freePhotoEdits(): number {
+  const n = Number.parseInt(env("FREE_DAILY_PHOTO_EDITS") ?? "", 10);
+  return Number.isFinite(n) && n >= 0 ? n : 2;
+}
+
 /** Higgsfield's API (HIGGSFIELD_BASE_URL points it elsewhere, e.g. a local mock in tests). */
 export function higgsfieldBase(): string {
   return (env("HIGGSFIELD_BASE_URL") ?? "https://api.higgsfield.ai").replace(/\/+$/, "");

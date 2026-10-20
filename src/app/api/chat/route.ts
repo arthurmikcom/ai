@@ -6,7 +6,7 @@ import {
   canDrawInChat,
   canFilmInChat,
   chatImageModel,
-  FREE_PLAN_PHOTOS,
+  freePlanPhotos,
   freeLane,
   generateChatImage,
   maryxMediaModel,
@@ -60,6 +60,7 @@ import { chatEntry, requestChars, type CostEntry, type Meter } from "@/lib/serve
 import { isOwnVideoKey } from "@/lib/server/uploads";
 import {
   charge,
+  chargePhotoEdit,
   deniedResponse,
   refundCharge,
   reserve,
@@ -235,11 +236,11 @@ export async function POST(request: Request) {
   const chargeMedia = async (k: MediaKind, photos: boolean): Promise<Charge | { denied: Denial; charge?: Charge; reason?: string }> => {
     let c = await charge(user, k, key);
     if ("denied" in c) return c;
-    // The free model can't edit photos: on the free plan, credits pay for that (with GPT Image).
+    // The free model can't edit photos: on the free plan, a few a day are made like a paid plan's, then credits pay.
     if (photos && freeLane(c, k)) {
       await refundCharge(c);
-      c = await charge(user, k, key, { creditsOnly: true });
-      if ("denied" in c) return c.denied === "busy" ? c : { ...c, reason: FREE_PLAN_PHOTOS };
+      c = await chargePhotoEdit(user, key);
+      if ("denied" in c) return c.denied === "busy" ? c : { ...c, reason: freePlanPhotos() };
     }
     let refused: Denial | null;
     try {

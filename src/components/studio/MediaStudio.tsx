@@ -384,8 +384,14 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
           <p className="studio-free-note">
             <Sparkles size={14} />
             <span>
-              Бесплатный тариф: картинки рисует бесплатная нейросеть — кредиты не тратятся. На платном тарифе — GPT Image: выше качество и
-              обработка ваших фото. <Link href="/pricing">Тарифы →</Link>
+              Бесплатный тариф: картинки — бесплатно, кредиты не тратятся.
+              {me.photoEdits && me.photoEdits.perDay > 0 && (
+                <>
+                  {" "}
+                  Обработка ваших фото — {me.photoEdits.perDay} в день, сегодня осталось {me.photoEdits.left}.
+                </>
+              )}{" "}
+              На платных тарифах — высокое качество и больше обработок. <Link href="/pricing">Тарифы →</Link>
             </span>
           </p>
         )}
