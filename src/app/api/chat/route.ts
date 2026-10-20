@@ -6,6 +6,8 @@ import {
   canDrawInChat,
   canFilmInChat,
   chatImageModel,
+  FREE_PLAN_PHOTOS,
+  freeLane,
   generateChatImage,
   maryxMediaModel,
   maryxMediaModels,
@@ -221,16 +223,22 @@ export async function POST(request: Request) {
       ? await askedHasPhotos(chat.id)
       : false;
   const editing = autoEdit || (Boolean(req.image) && withPhotos);
-  const refuse = async (k: UsageKind, denied: Denial, c?: Charge) =>
-    deniedResponse(user, k, denied, { ownKey: key !== undefined || Boolean(await ownKeyInfo(user.id)), charge: c });
+  const refuse = async (k: UsageKind, denied: Denial, c?: Charge, reason?: string) =>
+    deniedResponse(user, k, denied, { ownKey: key !== undefined || Boolean(await ownKeyInfo(user.id)), charge: c, reason });
   // A picture's (or clip's) price is known up front, so it is held against budgets and credits right away.
-  const chargeMedia = async (k: MediaKind, photos: boolean): Promise<Charge | { denied: Denial; charge?: Charge }> => {
-    const c = await charge(user, k, key);
+  const chargeMedia = async (k: MediaKind, photos: boolean): Promise<Charge | { denied: Denial; charge?: Charge; reason?: string }> => {
+    let c = await charge(user, k, key);
     if ("denied" in c) return c;
+    // The free model can't edit photos: on the free plan, credits pay for that (with GPT Image).
+    if (photos && freeLane(c, k)) {
+      await refundCharge(c);
+      c = await charge(user, k, key, { creditsOnly: true });
+      if ("denied" in c) return c.denied === "busy" ? c : { ...c, reason: FREE_PLAN_PHOTOS };
+    }
     let refused: Denial | null;
     try {
       // With no model set up, the answer says so (and refunds); hold a typical price meanwhile.
-      const picked = await maryxMediaModel(k, Boolean(c.key), photos).catch(() => null);
+      const picked = await maryxMediaModel(k, Boolean(c.key), photos, { free: freeLane(c, k) }).catch(() => null);
       refused = await reserve(c, mediaCost(k, picked?.id ?? ""), {
         provider: picked?.provider ?? "openrouter",
         model: picked?.id ?? k,
@@ -254,7 +262,9 @@ export async function POST(request: Request) {
   if ("denied" in paid) {
     // MARYX chose to draw (or edit) on its own: with no pictures left today, answer in words.
     // A video isn't something words can stand in for: the user is told why (and about plans).
-    if (film || (!autoDraw && !autoEdit)) return refuse(kind, paid.denied, (paid as { charge?: Charge }).charge);
+    // …unless it's a photo edit on the free plan: the user is told it's for credits or a paid plan.
+    const why = paid as { charge?: Charge; reason?: string };
+    if (film || (!autoDraw && !autoEdit) || why.reason) return refuse(kind, paid.denied, why.charge, why.reason);
     paid = await charge(user, "chat", key);
     if ("denied" in paid) return refuse("chat", paid.denied);
     draw = false;
@@ -1212,10 +1222,12 @@ function drawInChat(
         // A picture needs a description (an attached photo can be edited without one).
         if (!editing && !prompt.trim()) throw new Error("Опишите картинку словами — и MARYX её нарисует.");
         // Says what to set up when no model can draw (or edit photos).
-        const picked = await chatImageModel(Boolean(bill.key), editing);
+        // The free plan draws with the free model (no fee); paid plans and credits with GPT Image.
+        const free = freeLane(bill, "image");
+        const picked = await chatImageModel(Boolean(bill.key), editing, { free });
         model = picked;
         if (via) send({ type: "route", ...shown(picked.provider, picked.id, "image"), image: true });
-        const models = await maryxMediaModels("image", Boolean(bill.key), editing);
+        const models = await maryxMediaModels("image", Boolean(bill.key), editing, { free });
         let made: ModelInfo;
         ({ files, cost, model: made } = await generateChatImage(
           userId,

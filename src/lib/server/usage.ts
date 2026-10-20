@@ -1,5 +1,5 @@
 import { and, eq, sql } from "drizzle-orm";
-import { USAGE_KINDS, type PaidBy, type UsageKind, type UsageSummary } from "@/lib/types";
+import { USAGE_KINDS, type PaidBy, type PlanId, type UsageKind, type UsageSummary } from "@/lib/types";
 import { isAdmin, type SessionUser } from "./auth";
 import {
   creditBalance,
@@ -12,7 +12,7 @@ import {
   takeCredits,
 } from "./billing/credits";
 import { currentPlan, planLimit } from "./billing/plans";
-import { maryxOnly } from "./config";
+import { freePlanFreeImages, maryxOnly } from "./config";
 import { sellablePacks } from "./billing/packs";
 import { getDb, schema } from "./db";
 import {
@@ -177,7 +177,13 @@ const OWN_KEY_DAILY = 3000;
 
 const budgeted = (kind: UsageKind) => BUDGETED.includes(kind);
 
-export async function charge(user: SessionUser, kind: UsageKind, ownKey?: string): Promise<Charge | { denied: Denial }> {
+/** `creditsOnly`: past the plan's quota, straight to credits (a free-plan photo edit, which the free model can't do). */
+export async function charge(
+  user: SessionUser,
+  kind: UsageKind,
+  ownKey?: string,
+  opts: { creditsOnly?: boolean } = {},
+): Promise<Charge | { denied: Denial }> {
   const base = { id: crypto.randomUUID(), userId: user.id, kind, held: 0, day: today() };
   if (ownKey) {
     return (await bump(user.id, "byok", OWN_KEY_DAILY)) ? { ...base, paidBy: "byok", key: ownKey } : { denied: "ownKey" };
@@ -187,13 +193,16 @@ export async function charge(user: SessionUser, kind: UsageKind, ownKey?: string
     return { ...base, paidBy: "admin" };
   }
   const { plan } = await currentPlan(user.id);
+  // The free plan's pictures come from the free model: no budget of the site's to spend.
+  const costless = kind === "image" && plan === "free" && freePlanFreeImages();
   const budget = budgeted(kind) ? planDailyUsd(plan) : null;
   let denied: Denial;
-  if (budget !== null && (await userSpendToday(user.id)) >= budget) {
+  if (opts.creditsOnly) denied = "limit";
+  else if (budget !== null && (await userSpendToday(user.id)) >= budget) {
     // What's held for the user's running requests comes back when they end: wait for them, not for midnight.
     if (budget - (await userSpendToday(user.id, undefined, { settled: true })) >= 0.001) return { denied: "busy" };
     denied = "spend";
-  } else if (plan === "free" && (await siteBudgetSpent())) denied = "budget";
+  } else if (plan === "free" && !costless && (await siteBudgetSpent())) denied = "budget";
   else if (await bump(user.id, kind, planLimit(plan, kind))) return { ...base, paidBy: plan };
   else denied = "limit";
 
@@ -236,6 +245,8 @@ export async function reserve(
   const least = Math.min(most, clean(l));
   const expected = Math.min(most, Math.max(least, clean(e)));
   const row = { id: c.id, userId: c.userId, kind: c.kind, provider: call.provider, model: call.model };
+  // Free to make (the free plan's free model): nothing to hold against the plan's budgets.
+  if (most === 0 && c.paidBy !== "credits") return null;
 
   if (c.paidBy !== "credits") {
     const verdict = await reservePlan(c.paidBy, { ...row, expected, most, least }, c);
@@ -289,7 +300,7 @@ export async function reserve(
  * site budget, one free request at a time), so parallel ones see each other.
  */
 async function reservePlan(
-  plan: "free" | "pro",
+  plan: PlanId,
   row: { id: string; userId: string; kind: UsageKind; provider: string; model: string; expected: number; most: number; least: number },
   c: Charge,
 ): Promise<Denial | null> {
@@ -400,8 +411,8 @@ export async function deniedResponse(
   user: SessionUser,
   kind: UsageKind,
   denied: Denial,
-  /** `expensive`: what to say when the request costs more than the budget has left (instead of the chat's wording). */
-  opts: { ownKey?: boolean; charge?: Charge; expensive?: string } = {},
+  /** `expensive`: what to say when the request costs more than the budget has left (instead of the chat's wording); `reason`: why the plan doesn't cover it. */
+  opts: { ownKey?: boolean; charge?: Charge; expensive?: string; reason?: string } = {},
 ): Promise<Response> {
   if (denied === "ownKey") {
     return Response.json(
@@ -469,6 +480,8 @@ export async function deniedResponse(
         : `Не хватает кредитов: этот запрос стоит около ${need ?? "?"}, а у вас ${balance}. Пополните кредиты или ${simpler}.`;
   } else if (denied === "budget") {
     error = `Бесплатные запросы на сегодня закончились: сайт исчерпал дневной бюджет. Попробуйте после полуночи по UTC. ${hint}`;
+  } else if (opts.reason) {
+    error = `${opts.reason} ${hint}`;
   } else {
     const limit = (await dailyLimit(user, kind)) ?? 0;
     error =

@@ -380,6 +380,16 @@ export function MediaStudio({ kind }: { kind: MediaKind }) {
           <div className="hero-capabilities"><span>{kind === "image" ? <ImageIcon size={12} /> : <Clapperboard size={12} />}{kind === "image" ? "Генерация и обработка" : "Сцены и движение камеры"}</span><span><Sparkles size={12} />Ваше творческое пространство</span></div>
         </CreativeHero>
 
+        {kind === "image" && me?.freeImages && !noProviders && (
+          <p className="studio-free-note">
+            <Sparkles size={14} />
+            <span>
+              Бесплатный тариф: картинки рисует бесплатная нейросеть — кредиты не тратятся. На платном тарифе — GPT Image: выше качество и
+              обработка ваших фото. <Link href="/pricing">Тарифы →</Link>
+            </span>
+          </p>
+        )}
+
         {kind === "image" && editable && !noProviders && characters && (
           <details
             className="studio-character-disclosure"

@@ -2,7 +2,9 @@ import { PROVIDERS } from "@/lib/catalog";
 import { getAuth, vercelHosts } from "@/lib/server/auth";
 import { isConfigured, maryxOnly } from "@/lib/server/config";
 import { sellablePacks } from "@/lib/server/billing/packs";
-import { proPriceSetting, stripeConfigured, stripeCreditsConfigured } from "@/lib/server/billing/stripe";
+import { planEnv, planPriceSetting } from "@/lib/server/billing/plans";
+import { stripeConfigured, stripeCreditsConfigured, stripeSells } from "@/lib/server/billing/stripe";
+import { PAID_PLANS, PLAN_NAMES } from "@/lib/plans";
 import { yookassaConfigured } from "@/lib/server/billing/yookassa";
 import { getDb, schema } from "@/lib/server/db";
 import { siteDailyBudget } from "@/lib/server/spend";
@@ -120,14 +122,18 @@ export async function GET(request: Request) {
   const stripeKey = process.env.STRIPE_SECRET_KEY?.trim();
   if (stripeCreditsConfigured()) {
     const test = stripeKey?.startsWith("sk_test_") || stripeKey?.startsWith("rk_test_") ? " (тестовый режим: настоящие деньги не списываются)" : "";
-    const price = proPriceSetting();
-    const pro = process.env.STRIPE_PRICE_PRO?.trim() ? "Pro (цена из Stripe)" : `Pro $${price.usd.toFixed(2)}/мес`;
-    const creditsOnly = price.invalid ? "Stripe: только кредиты" : "Stripe: только кредиты (Pro выключен: PRO_PRICE_USD=0)";
-    payments.push(`${stripeConfigured() ? `Stripe: ${pro} и кредиты` : creditsOnly}${test}`);
-    if (price.invalid && !process.env.STRIPE_PRICE_PRO?.trim()) {
-      payments.push(`PRO_PRICE_USD="${price.invalid}" — не цена (нужно, например, 9.99 и не меньше 0.50), поэтому Pro через Stripe не продаётся`);
+    const fromStripe = (p: (typeof PAID_PLANS)[number]) => Boolean(process.env[`STRIPE_PRICE_${planEnv(p)}`]?.trim());
+    const sold = PAID_PLANS.filter(stripeSells).map((p) =>
+      fromStripe(p) ? `${PLAN_NAMES[p]} (цена из Stripe)` : `${PLAN_NAMES[p]} $${planPriceSetting(p).usd.toFixed(2)}/мес`,
+    );
+    payments.push(`${stripeConfigured() ? `Stripe: ${sold.join(", ")} и кредиты` : "Stripe: только кредиты (цены тарифов = 0)"}${test}`);
+    const invalid = PAID_PLANS.filter((p) => !fromStripe(p) && planPriceSetting(p).invalid);
+    for (const p of invalid) {
+      payments.push(
+        `${planEnv(p)}_PRICE_USD="${planPriceSetting(p).invalid}" — не цена (нужно, например, 9.99 и не меньше 0.50), поэтому ${PLAN_NAMES[p]} через Stripe не продаётся`,
+      );
     }
-    if (test || price.invalid) paymentsWarn = true;
+    if (test || invalid.length) paymentsWarn = true;
   } else if (stripeKey) {
     paymentsWarn = true;
     payments.push(

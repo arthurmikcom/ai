@@ -2,32 +2,29 @@ import Stripe from "stripe";
 import { eq, or } from "drizzle-orm";
 import type { SessionUser } from "../auth";
 import { getDb, schema } from "../db";
+import { isPaidPlan, PAID_PLANS, PLAN_NAMES } from "@/lib/plans";
+import type { PaidPlanId } from "@/lib/types";
 import { grantCredits, type PackDef } from "./credits";
-import { getSubscription, hasLiveStripe, isEntitled, isLiveStripe } from "./plans";
+import { getSubscription, hasLiveStripe, isEntitled, isLiveStripe, planEnv, planPriceSetting, subscriptionPlan } from "./plans";
 
 /**
- * The monthly Pro price for Stripe: a price created in Stripe (STRIPE_PRICE_PRO),
- * else PRO_PRICE_USD (default $9.99), so nothing has to be set up there by hand.
- * PRO_PRICE_USD=0 sells only credits through Stripe. A value that isn't a
- * price Stripe takes ("9.99" or "9,99", at least $0.50) is `invalid`: Pro then
- * isn't sold rather than at a wrong amount, and the setup check says so.
+ * A plan's price created in Stripe (STRIPE_PRICE_PLUS, STRIPE_PRICE_PRO,
+ * STRIPE_PRICE_ULTRA), if any; otherwise its *_PRICE_USD is charged, so
+ * nothing has to be set up in Stripe by hand.
  */
-export function proPriceSetting(): { usd: number; invalid?: string } {
-  const raw = process.env.PRO_PRICE_USD?.trim();
-  if (!raw) return { usd: 9.99 };
-  const text = raw.replace(",", ".");
-  const value = Number(text);
-  if (!/^\d+(\.\d{1,2})?$/.test(text) || (value > 0 && value < 0.5)) return { usd: 0, invalid: raw };
-  return { usd: value };
+function stripePriceId(plan: PaidPlanId): string | undefined {
+  return process.env[`STRIPE_PRICE_${planEnv(plan)}`]?.trim() || undefined;
 }
 
-export function proPriceUsd(): number {
-  return proPriceSetting().usd;
+/** Whether Stripe sells the plan (a price in Stripe, or a valid *_PRICE_USD above 0). */
+export function stripeSells(plan: PaidPlanId): boolean {
+  return Boolean(stripePriceId(plan) || planPriceSetting(plan).usd > 0);
 }
 
+/** Stripe takes subscriptions: keys, a webhook and at least one plan on sale. */
 export function stripeConfigured(): boolean {
   const env = process.env;
-  return Boolean(env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET && (env.STRIPE_PRICE_PRO || proPriceUsd() > 0));
+  return Boolean(env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET && PAID_PLANS.some(stripeSells));
 }
 
 /** Credit packs need no price in Stripe: each checkout names its own amount. */
@@ -57,34 +54,64 @@ function stripe(): Stripe {
   return client;
 }
 
-let priceCache: { at: number; price: { amount: number; currency: string } } | null = null;
+const priceCache = new Map<PaidPlanId, { at: number; price: { amount: number; currency: string } }>();
 
-/** The monthly Pro price as configured in Stripe or by PRO_PRICE_USD (cached for 10 minutes). */
-export async function stripeProPrice(): Promise<{ amount: number; currency: string }> {
-  if (priceCache && Date.now() - priceCache.at < 10 * 60 * 1000) return priceCache.price;
-  const priceId = process.env.STRIPE_PRICE_PRO;
+/** A plan's monthly price as configured in Stripe or by its *_PRICE_USD (cached for 10 minutes). */
+export async function stripePlanPrice(plan: PaidPlanId): Promise<{ amount: number; currency: string }> {
+  const cached = priceCache.get(plan);
+  if (cached && Date.now() - cached.at < 10 * 60 * 1000) return cached.price;
+  const priceId = stripePriceId(plan);
   const raw = priceId
     ? await stripe().prices.retrieve(priceId)
-    : { unit_amount: Math.round(proPriceUsd() * 100), currency: "usd" };
+    : { unit_amount: Math.round(planPriceSetting(plan).usd * 100), currency: "usd" };
   const price = { amount: (raw.unit_amount ?? 0) / 100, currency: raw.currency.toUpperCase() };
-  priceCache = { at: Date.now(), price };
+  priceCache.set(plan, { at: Date.now(), price });
   return price;
 }
 
-/** "12,00 $" — the Pro price for the pricing page. */
-export async function stripePriceLabel(): Promise<string> {
-  const { amount, currency } = await stripeProPrice();
+/** "12,00 $" — a plan's price for the pricing page. */
+export async function stripePriceLabel(plan: PaidPlanId): Promise<string> {
+  const { amount, currency } = await stripePlanPrice(plan);
   return new Intl.NumberFormat("ru-RU", { style: "currency", currency }).format(amount);
 }
 
-/** Starts a Stripe Checkout for the Pro subscription and returns its URL. */
-export async function startStripeCheckout(user: SessionUser, origin: string): Promise<string> {
+/** A plan's monthly price as Stripe takes it inline (no price set up in Stripe). */
+function inlinePrice(plan: PaidPlanId) {
+  return { currency: "usd", unit_amount: Math.round(planPriceSetting(plan).usd * 100), recurring: { interval: "month" as const } };
+}
+
+/**
+ * Moves a live Stripe subscription to another plan: the price changes now and
+ * Stripe settles the difference on the next invoice (proration).
+ */
+export async function changeStripePlan(userId: string, plan: PaidPlanId): Promise<void> {
+  const sub = await getSubscription(userId);
+  if (!sub?.stripeSubscriptionId || !hasLiveStripe(sub)) throw new Error("Подписка Stripe не найдена");
+  if (subscriptionPlan(sub) === plan && isEntitled(sub)) throw new Error(`У вас уже ${PLAN_NAMES[plan]}`);
+  const live = await stripe().subscriptions.retrieve(sub.stripeSubscriptionId);
+  const item = live.items.data[0];
+  const product = idOf(item?.price.product);
+  if (!item || !product) throw new Error("Подписка Stripe без позиции — откройте «Управлять подпиской»");
+  const id = stripePriceId(plan);
+  await stripe().subscriptions.update(live.id, {
+    items: [{ id: item.id, ...(id ? { price: id } : { price_data: { ...inlinePrice(plan), product } }) }],
+    metadata: { ...live.metadata, userId, plan },
+    // A plan switched back from «cancel at period end» renews again.
+    cancel_at_period_end: false,
+    proration_behavior: "create_prorations",
+  });
+  await syncSubscription(live.id, userId);
+}
+
+/** Starts a Stripe Checkout for a plan's subscription and returns its URL. */
+export async function startStripeCheckout(user: SessionUser, origin: string, plan: PaidPlanId = "pro"): Promise<string> {
+  if (!stripeSells(plan)) throw new Error(`${PLAN_NAMES[plan]} сейчас не продаётся`);
   const sub = await getSubscription(user.id);
   if (hasLiveStripe(sub)) {
-    throw new Error("У вас уже есть подписка Stripe — управляйте ею в настройках («Управлять подпиской»)");
+    throw new Error("У вас уже есть подписка Stripe — смените тариф на странице тарифов или в настройках («Управлять подпиской»)");
   }
   const promo = isEntitled(sub) && sub?.provider === "promo";
-  if (isEntitled(sub) && !promo) throw new Error("У вас уже есть Pro");
+  if (sub && isEntitled(sub) && !promo) throw new Error(`У вас уже есть ${PLAN_NAMES[subscriptionPlan(sub)]}`);
   // Promo days aren't lost: billing starts when they end (Stripe needs ≥ 48 h).
   const trialEnd =
     promo && sub && sub.currentPeriodEnd.getTime() > Date.now() + 49 * 60 * 60 * 1000
@@ -103,7 +130,7 @@ export async function startStripeCheckout(user: SessionUser, origin: string): Pr
       .insert(schema.subscription)
       .values({
         userId: user.id,
-        plan: "pro",
+        plan,
         provider: "stripe",
         status: "incomplete",
         currentPeriodEnd: new Date(0),
@@ -126,22 +153,14 @@ export async function startStripeCheckout(user: SessionUser, origin: string): Pr
   const session = await stripe().checkout.sessions.create({
     mode: "subscription",
     line_items: [
-      process.env.STRIPE_PRICE_PRO
-        ? { price: process.env.STRIPE_PRICE_PRO, quantity: 1 }
-        : {
-            price_data: {
-              currency: "usd",
-              unit_amount: Math.round(proPriceUsd() * 100),
-              recurring: { interval: "month" },
-              product_data: { name: "MARYX Ai Pro" },
-            },
-            quantity: 1,
-          },
+      stripePriceId(plan)
+        ? { price: stripePriceId(plan), quantity: 1 }
+        : { price_data: { ...inlinePrice(plan), product_data: { name: `MARYX Ai ${PLAN_NAMES[plan]}` } }, quantity: 1 },
     ],
     customer: customerId,
     client_reference_id: user.id,
-    metadata: { userId: user.id },
-    subscription_data: { metadata: { userId: user.id }, ...(trialEnd ? { trial_end: trialEnd } : {}) },
+    metadata: { userId: user.id, plan },
+    subscription_data: { metadata: { userId: user.id, plan }, ...(trialEnd ? { trial_end: trialEnd } : {}) },
     allow_promotion_codes: true,
     success_url: `${origin}/settings?billing=stripe`,
     cancel_url: `${origin}/pricing`,
@@ -275,7 +294,7 @@ async function syncSubscription(subscriptionId: string, userIdHint?: string | nu
 
   const periodEnd = sub.items.data[0]?.current_period_end;
   const values = {
-    plan: "pro" as const,
+    plan: stripeSubscriptionPlan(sub),
     provider: "stripe" as const,
     status: sub.status,
     currentPeriodEnd: new Date((periodEnd ?? 0) * 1000),
@@ -293,6 +312,17 @@ async function syncSubscription(subscriptionId: string, userIdHint?: string | nu
     // The account may have been deleted in the meantime (foreign key).
     console.error("[stripe] failed to save subscription", sub.id, err);
   }
+}
+
+/**
+ * Which plan a Stripe subscription is for: its metadata (set at checkout and
+ * on a plan change), else its price (a STRIPE_PRICE_* one), else Pro (the
+ * only plan sold before Plus and Ultra).
+ */
+function stripeSubscriptionPlan(sub: Stripe.Subscription): PaidPlanId {
+  if (isPaidPlan(sub.metadata.plan)) return sub.metadata.plan;
+  const price = sub.items.data[0]?.price.id;
+  return PAID_PLANS.find((p) => price && stripePriceId(p) === price) ?? "pro";
 }
 
 /** Verifies and applies a Stripe webhook. Returns an HTTP status. */

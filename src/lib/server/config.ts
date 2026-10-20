@@ -52,6 +52,9 @@ export function apiKey(provider: ProviderId): string | undefined {
     case "comfy":
       // ComfyUI itself has no keys; a token only when it sits behind a proxy that asks for one.
       return env("COMFYUI_TOKEN");
+    case "pollinations":
+      // Works without one; a token (from pollinations.ai) only raises its limits.
+      return env("POLLINATIONS_TOKEN");
     case "ollama":
     case "maryx":
     case "browser":
@@ -63,6 +66,8 @@ export function isConfigured(provider: ProviderId): boolean {
   if (provider === "ollama") return Boolean(env("OLLAMA_BASE_URL"));
   if (provider === "custom") return Boolean(env("CUSTOM_LLM_BASE_URL"));
   if (provider === "comfy") return Boolean(env("COMFYUI_URL"));
+  // Keyless: on unless turned off.
+  if (provider === "pollinations") return env("POLLINATIONS_URL")?.toLowerCase() !== "off";
   return Boolean(apiKey(provider));
 }
 
@@ -100,6 +105,20 @@ export function motionResolution(): "480p" | "720p" | "1080p" {
 /** The site's own GPU server running ComfyUI (COMFYUI_URL), e.g. a home PC behind a tunnel or a rented GPU. */
 export function comfyBase(): string {
   return (env("COMFYUI_URL") ?? "").replace(/\/+$/, "");
+}
+
+/** Pollinations' public image endpoint (POLLINATIONS_URL points it elsewhere, e.g. a local mock in tests). */
+export function pollinationsBase(): string {
+  return (env("POLLINATIONS_URL") ?? "https://image.pollinations.ai").replace(/\/+$/, "");
+}
+
+/**
+ * What the free plan draws with (FREE_PLAN_IMAGES): "free" — the free open
+ * models (the site's own GPU, else Pollinations), no fee per picture, and
+ * credits never spent on them; "gpt" — GPT Image within the plan's budget.
+ */
+export function freePlanFreeImages(): boolean {
+  return env("FREE_PLAN_IMAGES")?.toLowerCase() !== "gpt";
 }
 
 /** Higgsfield's API (HIGGSFIELD_BASE_URL points it elsewhere, e.g. a local mock in tests). */

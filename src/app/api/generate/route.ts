@@ -1,7 +1,7 @@
 import { isAdmin } from "@/lib/server/auth";
 import { describeAiError, maryxOnly } from "@/lib/server/brand";
 import { characterPhotos } from "@/lib/server/characters";
-import { maryxMediaModel, maryxMediaModels } from "@/lib/server/chat/image";
+import { FREE_PLAN_PHOTOS, freeLane, maryxMediaModel, maryxMediaModels } from "@/lib/server/chat/image";
 import { isConfigured } from "@/lib/server/config";
 import { StorageUnavailableError } from "@/lib/server/errors";
 import { jsonError, requireUser, storageUnavailable } from "@/lib/server/http";
@@ -86,24 +86,8 @@ export async function POST(request: Request) {
   if (req.motion) {
     models = [{ provider: "higgsfield", id: MOTION_MODEL, label: "Genjutsu", capability: "video", featured: false }];
   } else if (req.provider === "maryx") {
-    try {
-      // Says what to set up when there's no model for it.
-      const first = await maryxMediaModel(req.kind, key !== undefined, photos.length > 0);
-      models = await maryxMediaModels(req.kind, key !== undefined, photos.length > 0);
-      // A transition between two frames: only models that end on a given picture.
-      if (transition) {
-        models = models.filter((m) => m.lastFrame);
-        if (!models.length) return jsonError(NO_TRANSITION, 400);
-      }
-      req = { ...req, provider: (models[0] ?? first).provider, model: (models[0] ?? first).id };
-    } catch (err) {
-      return jsonError(
-        photos.length && maryxOnly()
-          ? `MARYX пока не умеет ${req.kind === "image" ? "обрабатывать" : "оживлять"} фото — попробуйте позже.`
-          : describeAiError(err),
-        503,
-      );
-    }
+    // Picked once it's known who pays (below): the free plan's pictures come from the free model.
+    models = [];
   } else {
     if (photos.length) {
       const { models: offered } = await listModels(req.kind, { ownKey: key !== undefined });
@@ -117,8 +101,40 @@ export async function POST(request: Request) {
   }
 
   const hasKey = async () => key !== undefined || Boolean(await ownKeyInfo(user.id));
-  const paid = await charge(user, req.kind, key);
+  let paid = await charge(user, req.kind, key);
   if ("denied" in paid) return deniedResponse(user, req.kind, paid.denied, { ownKey: await hasKey() });
+  if (req.provider === "maryx" && !req.motion) {
+    // The free model can't edit photos: on the free plan, credits pay for that (with GPT Image).
+    if (freeLane(paid, req.kind) && photos.length) {
+      await refundCharge(paid);
+      const credits = await charge(user, req.kind, key, { creditsOnly: true });
+      if ("denied" in credits) {
+        return deniedResponse(user, req.kind, credits.denied, { ownKey: await hasKey(), ...(credits.denied === "busy" ? {} : { reason: FREE_PLAN_PHOTOS }) });
+      }
+      paid = credits;
+    }
+    try {
+      const free = freeLane(paid, req.kind);
+      // Says what to set up when there's no model for it.
+      const first = await maryxMediaModel(req.kind, key !== undefined, photos.length > 0, { free });
+      models = await maryxMediaModels(req.kind, key !== undefined, photos.length > 0, { free });
+      // A transition between two frames: only models that end on a given picture.
+      if (transition) models = models.filter((m) => m.lastFrame);
+      if (!models.length && transition) {
+        await refundCharge(paid);
+        return jsonError(NO_TRANSITION, 400);
+      }
+      req = { ...req, provider: (models[0] ?? first).provider, model: (models[0] ?? first).id };
+    } catch (err) {
+      await refundCharge(paid);
+      return jsonError(
+        photos.length && maryxOnly()
+          ? `MARYX пока не умеет ${req.kind === "image" ? "обрабатывать" : "оживлять"} фото — попробуйте позже.`
+          : describeAiError(err),
+        503,
+      );
+    }
+  }
   // Its price is known up front: held against the budgets and credits until it's done.
   let refused;
   try {

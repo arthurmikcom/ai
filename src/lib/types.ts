@@ -19,6 +19,8 @@ export type ProviderId =
   | "higgsfield"
   /** The site's own GPU running ComfyUI: free open models (FLUX, Wan) for pictures and video. */
   | "comfy"
+  /** Pollinations' public image endpoint: open models (FLUX), no key and no fee — the free plan's pictures. */
+  | "pollinations"
   /** Our own AI: picks the best real model for each message. */
   | "maryx";
 
@@ -374,14 +376,17 @@ export const USAGE_KINDS: UsageKind[] = ["chat", "image", "video", "voice"];
 /** Today's usage; `limit: null` means unlimited. */
 export type UsageSummary = Record<UsageKind, { used: number; limit: number | null }>;
 
-export type PlanId = "free" | "pro";
+export type PlanId = "free" | "plus" | "pro" | "ultra";
+
+/** The plans one pays for (a subscription). */
+export type PaidPlanId = Exclude<PlanId, "free">;
 
 /**
  * How a request is paid for: the daily limits of the user's plan (or an
  * admin's unlimited use), prepaid credits once those are used up, or the
  * user's own OpenRouter key (BYOK).
  */
-export type PaidBy = "free" | "pro" | "admin" | "credits" | "byok";
+export type PaidBy = PlanId | "admin" | "credits" | "byok";
 
 /** What a recorded AI cost was for; "background" is MARYX's own small jobs (titles, follow-ups, memory). */
 export type CostKind = UsageKind | "background";
@@ -433,6 +438,8 @@ export interface MeResponse {
   voice: { transcribe: boolean };
   /** Users get only our own AI, MARYX: no model choice, no names of the models behind it (SHOW_ALL_MODELS unset). */
   maryxOnly: boolean;
+  /** Pictures within the plan come from the free model (the free plan); paid plans and credits draw with GPT Image. */
+  freeImages: boolean;
 }
 
 /** What /api/billing/plans tells the pricing page. */
@@ -440,15 +447,19 @@ export interface BillingOptions {
   limits: Record<PlanId, Record<UsageKind, number | null>>;
   /** Each plan's daily AI budget for chat and dictation, in US dollars (null: none). */
   budget: Record<PlanId, number | null>;
+  /** About how many pictures (GPT Image) or clips a plan's monthly budget for them pays for (null: no cap). */
+  media: Record<PlanId, { images: number; videos: number } | null>;
+  /** The free plan draws with the free model (no credits, no photo edits). */
+  freeImages: boolean;
   /** Credit packs on sale (empty without a payment method) and the least a request takes. */
   credits: { packs: CreditPack[]; min: Record<UsageKind, number> };
-  /** Payment methods configured on this server, with the Pro price for each. */
+  /** Payment methods configured on this server: Stripe's price for each plan it sells; ЮKassa sells Pro. */
   methods: {
     yookassa: { price: string } | null;
-    stripe: { price: string } | null;
+    stripe: { prices: Partial<Record<PaidPlanId, string>> } | null;
   };
-  /** The Pro price to show while no payment method is set up yet (null: not set). */
-  proPrice: string | null;
+  /** Each paid plan's monthly price to show, also before a payment method is set up (null: not on sale). */
+  prices: Record<PaidPlanId, string | null>;
 }
 
 /** Personal instructions for every chat (settings page). */

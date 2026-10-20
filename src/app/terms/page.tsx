@@ -35,13 +35,13 @@ async function Content() {
   await connection();
   const info = legalInfo();
   const prices = await publicPrices();
-  const pro = [prices.proStripe && money(prices.proStripe.amount, prices.proStripe.currency), prices.proRub !== undefined && money(prices.proRub, "RUB")]
-    .filter(Boolean)
-    .join(" или ");
+  const price = (p: (typeof prices.plans)[number]) =>
+    [p.stripe && money(p.stripe.amount, p.stripe.currency), p.rub !== undefined && money(p.rub, "RUB")].filter(Boolean).join(" или ");
+  const englishPlans = prices.plans.filter((p) => p.stripe);
   const packPrice = (p: { usd: number; rub: number }) => [p.usd > 0 && money(p.usd, "USD"), p.rub > 0 && money(p.rub, "RUB")].filter(Boolean).join(" или ");
   const englishPacks = prices.packs.filter((p) => p.usd > 0);
   return (
-    <LegalPage title="Условия использования" updated="18 октября 2026" info={info}>
+    <LegalPage title="Условия использования" updated="20 октября 2026" info={info}>
       <p>
         Эти условия регулируют использование сервиса MARYX Ai (далее — «Сервис»), который предоставляет {info.name}. Регистрируясь или
         оплачивая Сервис, вы соглашаетесь с ними.
@@ -66,9 +66,15 @@ async function Content() {
         <li>
           <b>Free</b> — бесплатно: {perDay(prices.free.chat, MESSAGES)}, {perDay(prices.free.image, IMAGES)}.
         </li>
+        {prices.plans.map((p) => (
+          <li key={p.id}>
+            <b>{p.name}</b> — подписка с ежемесячным продлением{price(p) ? ` (${price(p)} в месяц)` : ""}: {perDay(p.chat, MESSAGES)},{" "}
+            {perDay(p.image, IMAGES)}, {perDay(p.video, VIDEOS)}. Точная цена всегда показана перед оплатой.
+          </li>
+        ))}
         <li>
-          <b>Pro</b> — подписка с ежемесячным продлением{pro ? ` (${pro} в месяц)` : ""}: {perDay(prices.pro.chat, MESSAGES)},{" "}
-          {perDay(prices.pro.image, IMAGES)}, {perDay(prices.pro.video, VIDEOS)}. Точная цена всегда показана перед оплатой.
+          Тариф можно сменить в любой момент: при переходе на другой платный тариф разница за оставшиеся дни пересчитывается в следующем
+          счёте.
         </li>
         {prices.packs.length > 0 && (
           <li>
@@ -134,10 +140,11 @@ async function Content() {
       <h2>Terms of Service (summary in English)</h2>
       <p>
         MARYX Ai is an AI assistant service (text answers, documents, image and video generation) provided by {info.name}. AI output may be
-        inaccurate and is not professional advice. Paid features are for users aged 18+. Free plan: free with daily limits. Pro: a monthly
-        subscription
-        {prices.proStripe ? ` at ${money(prices.proStripe.amount, prices.proStripe.currency)} per month` : ""} that renews automatically until
-        cancelled; you can cancel any time in Settings → Subscription and keep Pro until the end of the paid month.
+        inaccurate and is not professional advice. Paid features are for users aged 18+. Free plan: free with daily limits. Plus, Pro and Ultra:
+        monthly subscriptions
+        {englishPlans.length ? ` (${englishPlans.map((p) => `${p.name} ${money(p.stripe!.amount, p.stripe!.currency)}`).join(", ")} per month)` : ""} that
+        renew automatically until cancelled; you can switch plans (the difference is prorated) or cancel any time in Settings → Subscription
+        and keep the plan until the end of the paid month.
         {englishPacks.length > 0 &&
           ` Credits are one-time purchases (${englishPacks.map((p) => `${p.credits} credits for ${money(p.usd, "USD")}`).join(", ")}) for usage beyond daily limits; they don't expire and aren't redeemable for cash except as described in Cancellation & refunds.`}{" "}
         {prices.providers.length > 0 && `Payments are processed by ${prices.providers.join(" and ")}; we never see or store card details. `}

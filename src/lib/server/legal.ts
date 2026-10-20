@@ -3,11 +3,13 @@
 // (LEGAL_NAME, LEGAL_ADDRESS, LEGAL_EMAIL), so none are kept in the code.
 // Payment providers (Stripe, ЮKassa) check these pages before they activate an account.
 
+import { PAID_PLANS, PLAN_NAMES } from "@/lib/plans";
+import type { PaidPlanId } from "@/lib/types";
 import type { PackDef } from "./billing/credits";
 import { sellablePacks } from "./billing/packs";
 import { planLimit, proPriceRub } from "./billing/plans";
 import { planDailyUsd } from "./spend";
-import { stripeConfigured, stripeCreditsConfigured, stripeProPrice } from "./billing/stripe";
+import { stripeConfigured, stripeCreditsConfigured, stripePlanPrice, stripeSells } from "./billing/stripe";
 import { yookassaConfigured } from "./billing/yookassa";
 
 export interface LegalInfo {
@@ -25,17 +27,26 @@ export function legalInfo(): LegalInfo {
   return { name: env("LEGAL_NAME") ?? "MARYX Ai", address: env("LEGAL_ADDRESS"), email: env("LEGAL_EMAIL") };
 }
 
+export interface PaidPlanTerms {
+  id: PaidPlanId;
+  name: string;
+  /** Monthly price through Stripe (undefined where it isn't sold there). */
+  stripe?: { amount: number; currency: string };
+  /** Monthly price through ЮKassa, in roubles (Pro only). */
+  rub?: number;
+  chat: number | null;
+  image: number | null;
+  video: number | null;
+}
+
 export interface PublicPrices {
-  /** Monthly Pro price through Stripe (undefined where Pro isn't sold there). */
-  proStripe?: { amount: number; currency: string };
-  /** Monthly Pro price through ЮKassa, in roubles. */
-  proRub?: number;
+  /** The paid plans, each with its prices as sold here. */
+  plans: PaidPlanTerms[];
   /** Packs on sale, priced only in the currencies a payment method takes. */
   packs: PackDef[];
   /** Payment providers that take money on this site. */
   providers: string[];
   free: { chat: number | null; image: number | null };
-  pro: { chat: number | null; image: number | null; video: number | null };
 }
 
 /** Prices and limits exactly as the site sells them, for the terms page (seen without signing in). */
@@ -43,14 +54,22 @@ export async function publicPrices(): Promise<PublicPrices> {
   const usd = stripeCreditsConfigured();
   const rub = yookassaConfigured();
   // A Stripe outage only hides the price; the page still opens.
-  const proStripe = stripeConfigured() ? await stripeProPrice().catch(() => undefined) : undefined;
+  const plans = await Promise.all(
+    PAID_PLANS.map(async (id): Promise<PaidPlanTerms> => ({
+      id,
+      name: PLAN_NAMES[id],
+      stripe: stripeConfigured() && stripeSells(id) ? await stripePlanPrice(id).catch(() => undefined) : undefined,
+      rub: rub && id === "pro" ? proPriceRub() : undefined,
+      chat: planLimit(id, "chat"),
+      image: planLimit(id, "image"),
+      video: planLimit(id, "video"),
+    })),
+  );
   return {
-    proStripe,
-    proRub: rub ? proPriceRub() : undefined,
+    plans,
     packs: sellablePacks().map((p) => ({ ...p, usd: usd ? p.usd : 0, rub: rub ? p.rub : 0 })),
     providers: [...(usd ? ["Stripe"] : []), ...(rub ? ["ЮKassa"] : [])],
     free: { chat: planLimit("free", "chat"), image: planLimit("free", "image") },
-    pro: { chat: planLimit("pro", "chat"), image: planLimit("pro", "image"), video: planLimit("pro", "video") },
   };
 }
 
@@ -61,5 +80,5 @@ export function providersText(providers: string[], none = "платёжные с
 
 /** Whether the plans have a daily AI budget besides their counts (it's mentioned in the terms). */
 export function hasBudgets(): boolean {
-  return planDailyUsd("free") !== null || planDailyUsd("pro") !== null;
+  return planDailyUsd("free") !== null || PAID_PLANS.some((p) => planDailyUsd(p) !== null);
 }

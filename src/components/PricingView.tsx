@@ -2,9 +2,10 @@
 
 import { Check, Coins, CreditCard, Gem, KeyRound, LoaderCircle, Sparkles } from "@/components/MaryxIcons";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { api } from "@/lib/client/api";
-import type { BillingOptions, PlanId, UsageKind } from "@/lib/types";
+import { PLAN_NAMES, PLAN_ORDER, PLAN_TAGLINES, planRank } from "@/lib/plans";
+import type { BillingOptions, PaidPlanId, PlanId, UsageKind } from "@/lib/types";
 import { useApp } from "./AppState";
 import { PromoForm } from "./PromoForm";
 import { LegalLinks } from "./LegalPage";
@@ -27,7 +28,7 @@ function plural(n: number, [one, few, many]: [string, string, string]): string {
 
 function limitText(limit: number | null, kind: UsageKind): string {
   if (limit === null) return `Без лимита: ${KIND_WORDS[kind][2]}`;
-  if (limit === 0) return kind === "video" ? "Видео — в Pro или за кредиты" : `${KIND_WORDS[kind][2]}: нет`;
+  if (limit === 0) return kind === "video" ? "Видео — на платных тарифах или за кредиты" : `${KIND_WORDS[kind][2]}: нет`;
   return `${limit.toLocaleString("ru-RU")} ${plural(limit, KIND_WORDS[kind])} в день`;
 }
 
@@ -64,49 +65,138 @@ export function PricingView() {
     }
   };
 
-  const checkout = async (method: "yookassa" | "stripe") => {
-    setBusy(method);
+  const [notice, setNotice] = useState<string | null>(null);
+  const checkout = async (method: "yookassa" | "stripe", plan: PaidPlanId) => {
+    setBusy(`${method}:${plan}`);
     setError(null);
+    setNotice(null);
     try {
-      const { url } = await api<{ url: string }>("/api/billing/checkout", {
+      const res = await api<{ url?: string; changed?: PaidPlanId }>("/api/billing/checkout", {
         method: "POST",
-        body: JSON.stringify({ method, consent }),
+        body: JSON.stringify({ method, plan, consent }),
       });
-      window.location.assign(url);
+      if (res.url) {
+        window.location.assign(res.url);
+        return;
+      }
+      // A Stripe subscription moved to the other plan: the difference comes on the next invoice.
+      setNotice(`Готово: теперь у вас ${PLAN_NAMES[res.changed ?? plan]}. Разница за оставшиеся дни пересчитается в следующем счёте.`);
+      refreshMe();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-      setBusy(null);
     }
+    setBusy(null);
   };
 
   const current: PlanId = me?.plan.id ?? "free";
-  // Pro from a promo code can be extended by subscribing, and a YooKassa period
+  // A promo period can be extended by subscribing, and a YooKassa period
   // that won't renew by itself can be paid again; paid time starts after it.
-  // While a Stripe subscription still exists (even unpaid) it's managed in Stripe, not bought again.
   const repay = Boolean(me?.plan.repay);
-  const canBuy = !me?.plan.stripeLive && (current === "free" || me?.plan.provider === "promo" || repay);
+  // A live Stripe subscription switches plan in place (with proration).
+  const switching = Boolean(me?.plan.stripeLive);
+  const canBuy = !switching && (current === "free" || me?.plan.provider === "promo" || repay);
   // Stripe can't start after a YooKassa period without double-charging it.
-  const stripeMethod = repay ? null : options?.methods.stripe;
-  const anyMethod = Boolean(options?.methods.yookassa || stripeMethod);
+  const stripe = repay ? null : (options?.methods.stripe ?? null);
+  const yookassa = options?.methods.yookassa ?? null;
+  const anyMethod = Boolean(yookassa || stripe);
 
-  const plans: { id: PlanId; name: string; tagline: string; price: string }[] = [
-    { id: "free", name: "Бесплатный", tagline: "Чтобы попробовать", price: "Бесплатно" },
-    {
-      id: "pro",
-      name: "Pro",
-      tagline: "Для тех, кто работает с ИИ каждый день",
-      // International first: the card price (Stripe), roubles only where they're the one way set up.
-      price: options?.methods.stripe?.price ?? options?.proPrice ?? options?.methods.yookassa?.price ?? "—",
-    },
-  ];
+  const feature = (text: ReactNode, muted = false) => (
+    <li className={`flex items-start gap-2 ${muted ? "text-zinc-500" : ""}`}>
+      <Check className={`mt-0.5 size-4 shrink-0 ${muted ? "text-zinc-600" : "text-emerald-400"}`} />
+      <span>{text}</span>
+    </li>
+  );
+
+  /** What a plan gives, in the order people compare plans. */
+  const features = (plan: PlanId, o: BillingOptions) => {
+    const limits = o.limits[plan];
+    const media = o.media[plan];
+    const free = plan === "free";
+    return (
+      <>
+        {feature(limitText(limits.chat, "chat"))}
+        {free && o.freeImages
+          ? feature(`Картинки: бесплатная нейросеть — ${limits.image === null ? "без лимита" : `${limits.image} в день`}, кредиты не тратятся`)
+          : feature(<><b className="font-medium text-zinc-100">GPT Image</b>: картинки и обработка ваших фото{limits.image !== null ? ` — до ${limits.image} в день` : ""}</>)}
+        {limits.video === 0 ? feature("Видео — на платных тарифах или за кредиты", true) : feature(limitText(limits.video, "video"))}
+        {!free && media && feature(<>В месяц на картинки и видео: ≈ {media.images.toLocaleString("ru-RU")} картинок или ≈ {media.videos.toLocaleString("ru-RU")} видео</>)}
+        {feature(limitText(limits.voice, "voice"))}
+        {feature(maryxOnly ? "MARYX — тексты, картинки и видео" : "Claude, GPT, Gemini и другие модели")}
+        {feature("Плагины и свои ассистенты")}
+        {o.budget[plan] !== null && feature(`${maryxOnly ? "Сложные задачи" : "Дорогие модели"}, «Думать глубже» и большие файлы расходуют дневной лимит быстрее`, true)}
+      </>
+    );
+  };
+
+  /** The way to a paid plan from where the user is now. */
+  const action = (plan: PaidPlanId) => {
+    if (plan === current) {
+      return (
+        <Link href="/settings" className="plan-action plan-action--ghost">
+          Управлять подпиской
+        </Link>
+      );
+    }
+    const stripePrice = stripe?.prices[plan];
+    if (switching) {
+      return stripePrice ? (
+        <button type="button" disabled={busy !== null || !consent} onClick={() => checkout("stripe", plan)} className="plan-action">
+          {busy === `stripe:${plan}` ? <LoaderCircle className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
+          {planRank(plan) > planRank(current) ? "Перейти на" : "Сменить на"} {PLAN_NAMES[plan]}
+        </button>
+      ) : null;
+    }
+    if (!canBuy) {
+      return (
+        <Link href="/settings" className="plan-action plan-action--ghost">
+          Управлять подпиской
+        </Link>
+      );
+    }
+    const rubles = plan === "pro" ? yookassa : null;
+    if (!stripePrice && !rubles) {
+      return (
+        <p className="plan-note">
+          {me?.admin
+            ? anyMethod
+              ? `${PLAN_NAMES[plan]} не продаётся: проверьте ${plan.toUpperCase()}_PRICE_USD.`
+              : "Оплата не подключена: задайте ключи Stripe. Пока можно выдавать Pro промокодами в настройках."
+            : "Онлайн-оплата скоро появится. Если у вас есть промокод — введите его ниже."}
+        </p>
+      );
+    }
+    return (
+      <div className="grid gap-2">
+        {stripePrice && (
+          <button type="button" disabled={busy !== null || !consent} onClick={() => checkout("stripe", plan)} className="plan-action">
+            {busy === `stripe:${plan}` ? <LoaderCircle className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
+            Оформить {PLAN_NAMES[plan]}
+          </button>
+        )}
+        {rubles && (
+          <button
+            type="button"
+            disabled={busy !== null || !consent}
+            onClick={() => checkout("yookassa", plan)}
+            className={stripePrice ? "plan-action plan-action--ghost" : "plan-action"}
+          >
+            {busy === `yookassa:${plan}` ? <LoaderCircle className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
+            В рублях · {rubles.price}
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  const EYEBROW: Record<PlanId, string> = { free: "Первый шаг", plus: "Для старта", pro: "Популярный", ultra: "Максимум" };
 
   return (
     <div className="pricing-page h-full overflow-y-auto">
-      <div className="page-content !max-w-[1000px]">
+      <div className="page-content !max-w-[1240px]">
         <PageHeading number="05" eyebrow="Больше возможностей" title="Тарифы" description={
             maryxOnly
-              ? "Выберите свой масштаб. MARYX доступен на любом тарифе — Pro даёт больше пространства для работы и творчества."
-              : "Выберите свой масштаб. Все модели доступны на любом тарифе — Pro даёт больше пространства для работы и творчества."
+              ? "Выберите свой масштаб. MARYX доступен на любом тарифе — платные дают больше сообщений, картинки GPT Image и видео."
+              : "Выберите свой масштаб. Все модели доступны на любом тарифе — платные дают больше пространства для работы и творчества."
           } />
 
         {!options && !error && (
@@ -115,122 +205,53 @@ export function PricingView() {
           </div>
         )}
 
+        {options && anyMethod && (canBuy || switching) && (
+          <label className="plan-consent">
+            <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
+            <span>
+              Согласен на автоматическое ежемесячное списание стоимости подписки и с{" "}
+              <Link href="/terms" target="_blank">
+                условиями
+              </Link>
+              . Отключить автопродление можно в любой момент в настройках.
+            </span>
+          </label>
+        )}
+        {options && current !== "free" && canBuy && anyMethod && (
+          <p className="plan-consent-note">
+            {repay
+              ? "Подписка сама не продлится. Оплатите заново — новый месяц начнётся после окончания текущего."
+              : "У вас тариф по промокоду. Если оформить подписку сейчас, оплаченный месяц начнётся после окончания промо-периода."}
+          </p>
+        )}
+        {notice && (
+          <p role="status" className="plan-consent-note">
+            {notice}
+          </p>
+        )}
+
         {options && (
-          <div className="mt-8 grid gap-5 lg:grid-cols-2">
-            {plans.map((plan) => {
-              const isCurrent = plan.id === current;
-              const pro = plan.id === "pro";
+          <div className="plans-grid">
+            {PLAN_ORDER.map((plan) => {
+              const isCurrent = plan === current;
+              const price = plan === "free" ? "0 $" : (options.prices[plan] ?? "—");
               return (
-                <div
-                  key={plan.id}
-                  className={`plan-card flex flex-col ${
-                    pro ? "plan-card-pro" : ""
-                  }`}
-                >
-                  <div className="plan-label mb-5"><span className="plan-icon">{pro ? <Gem size={25} /> : <Sparkles size={25} />}</span><div className="section-label">{pro ? "Для больших задач" : "Первый шаг к большему"}</div></div>
+                <div key={plan} className="plan-card flex flex-col" data-plan={plan} data-current={isCurrent || undefined}>
+                  <div className="plan-label mb-4">
+                    <span className="plan-icon">{plan === "free" ? <Sparkles size={22} /> : <Gem size={22} />}</span>
+                    <div className="section-label">{EYEBROW[plan]}</div>
+                  </div>
                   <div className="flex items-center gap-2">
-                    <h2 className="text-xl font-semibold text-zinc-100">{plan.name}</h2>
-                    {isCurrent && (
-                      <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-zinc-300">ваш тариф</span>
-                    )}
+                    <h2 className="text-xl font-semibold text-zinc-100">{PLAN_NAMES[plan]}</h2>
+                    {isCurrent && <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-zinc-300">ваш тариф</span>}
                   </div>
-                  <p className="mt-1 text-sm text-zinc-400">{plan.tagline}</p>
-                  <div className="mt-7 border-b border-white/10 pb-6 text-5xl font-medium tracking-[-0.05em] text-zinc-100">
-                    {plan.price}
-                    {pro && plan.price !== "—" && <span className="text-base font-normal text-zinc-400"> / месяц</span>}
+                  <p className="mt-1 min-h-10 text-sm text-zinc-400">{PLAN_TAGLINES[plan]}</p>
+                  <div className="plan-price">
+                    {price}
+                    {plan !== "free" && price !== "—" && <span> / месяц</span>}
                   </div>
-
-                  <ul className="mt-6 flex-1 space-y-3 text-[13px] text-zinc-300">
-                    {(Object.keys(KIND_WORDS) as UsageKind[]).map((kind) => (
-                      <li key={kind} className="flex items-center gap-2">
-                        <Check className="size-4 shrink-0 text-emerald-400" />
-                        {limitText(options.limits[plan.id][kind], kind)}
-                      </li>
-                    ))}
-                    <li className="flex items-center gap-2">
-                      <Check className="size-4 shrink-0 text-emerald-400" />
-                      {maryxOnly ? "MARYX — тексты, картинки и видео" : "Claude, GPT, Gemini и другие модели"}
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <Check className="size-4 shrink-0 text-emerald-400" />
-                      Свои ассистенты
-                    </li>
-                    {options.budget[plan.id] !== null && (
-                      <li className="flex items-start gap-2 text-zinc-500">
-                        <Check className="mt-0.5 size-4 shrink-0 text-zinc-600" />
-                        {maryxOnly ? "Сложные задачи" : "Дорогие модели"}, «Думать глубже» и большие файлы расходуют дневной лимит быстрее
-                      </li>
-                    )}
-                  </ul>
-
-                  {pro && (
-                    <div className="mt-6 space-y-2">
-                      {!canBuy ? (
-                        <Link
-                          href="/settings"
-                          className="block rounded-xl border border-white/10 py-2.5 text-center text-sm text-zinc-200 hover:bg-white/5"
-                        >
-                          Управлять подпиской
-                        </Link>
-                      ) : (
-                        <>
-                          {current === "pro" && anyMethod && (
-                            <p className="text-xs text-violet-200">
-                              {repay
-                                ? "Подписка сама не продлится. Оплатите заново — новый месяц начнётся после окончания текущего."
-                                : "У вас Pro по промокоду. Если оформить подписку сейчас, оплаченный месяц начнётся после окончания промо-периода."}
-                            </p>
-                          )}
-                          {anyMethod && (
-                            <label className="flex cursor-pointer items-start gap-2 pb-1 text-xs text-zinc-400">
-                              <input
-                                type="checkbox"
-                                checked={consent}
-                                onChange={(e) => setConsent(e.target.checked)}
-                                className="mt-0.5 accent-violet-500"
-                              />
-                              <span>
-                                Согласен на автоматическое ежемесячное списание стоимости подписки и с{" "}
-                                <Link href="/terms" target="_blank" className="text-violet-300 hover:text-violet-200">
-                                  условиями
-                                </Link>
-                                . Отключить автопродление можно в любой момент в настройках.
-                              </span>
-                            </label>
-                          )}
-                          {stripeMethod && (
-                            <button
-                              type="button"
-                              disabled={busy !== null || !consent}
-                              onClick={() => checkout("stripe")}
-                              className="maryx-button flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm"
-                            >
-                              {busy === "stripe" ? <LoaderCircle className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
-                              Оплатить картой · {stripeMethod.price}
-                            </button>
-                          )}
-                          {options.methods.yookassa && (
-                            <button
-                              type="button"
-                              disabled={busy !== null || !consent}
-                              onClick={() => checkout("yookassa")}
-                              className={`flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-sm ${stripeMethod ? "border border-white/15 bg-white/5 font-medium text-zinc-100 hover:bg-white/10 disabled:opacity-50" : "maryx-button py-3"}`}
-                            >
-                              {busy === "yookassa" ? <LoaderCircle className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
-                              Оплата в рублях · {options.methods.yookassa.price}
-                            </button>
-                          )}
-                          {!anyMethod && (
-                            <p className="rounded-xl bg-black/30 p-3 text-center text-xs text-zinc-400">
-                              {me?.admin
-                                ? "Оплата не подключена: задайте ключи Stripe. Пока можно выдавать Pro промокодами в настройках."
-                                : "Онлайн-оплата скоро появится. Если у вас есть промокод — введите его ниже."}
-                            </p>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  )}
+                  <div className="plan-actions">{plan !== "free" && action(plan)}</div>
+                  <ul className="mt-5 flex-1 space-y-3 text-[13px] text-zinc-300">{features(plan, options)}</ul>
                 </div>
               );
             })}

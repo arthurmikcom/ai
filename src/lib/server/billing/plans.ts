@@ -1,20 +1,26 @@
 import { eq } from "drizzle-orm";
-import type { PlanId, UsageKind } from "@/lib/types";
+import { isPaidPlan } from "@/lib/plans";
+import type { PaidPlanId, PlanId, UsageKind } from "@/lib/types";
 import { getDb, schema } from "../db";
 
 export type SubscriptionRow = typeof schema.subscription.$inferSelect;
 
 const DEFAULT_LIMITS: Record<PlanId, Record<UsageKind, number>> = {
-  // Video costs dollars per clip, so by default it's a Pro feature (or paid with credits).
+  // Video costs dollars per clip, so by default it's for paid plans (or paid with credits).
   free: { chat: 20, image: 3, video: 0, voice: 20 },
+  plus: { chat: 150, image: 30, video: 3, voice: 100 },
   pro: { chat: 500, image: 100, video: 10, voice: 300 },
+  ultra: { chat: 2000, image: 300, video: 30, voice: 1000 },
 };
 
-const ENV_PREFIX: Record<PlanId, string> = { free: "FREE_DAILY_", pro: "PRO_DAILY_" };
+/** "FREE", "PLUS", "PRO", "ULTRA": the start of a plan's settings (FREE_DAILY_CHAT, ULTRA_PRICE_USD…). */
+export function planEnv(plan: PlanId): string {
+  return plan.toUpperCase();
+}
 
 /** Daily limit of a plan from env (FREE_DAILY_CHAT, PRO_DAILY_IMAGE…); null = unlimited. */
 export function planLimit(plan: PlanId, kind: UsageKind): number | null {
-  const raw = process.env[`${ENV_PREFIX[plan]}${kind.toUpperCase()}`]?.trim();
+  const raw = process.env[`${planEnv(plan)}_DAILY_${kind.toUpperCase()}`]?.trim();
   if (raw === "unlimited") return null;
   const value = raw ? Number.parseInt(raw, 10) : NaN;
   return Number.isFinite(value) && value >= 0 ? value : DEFAULT_LIMITS[plan][kind];
@@ -26,7 +32,30 @@ export function proPriceRub(): number {
   return Number.isFinite(value) && value > 0 ? value : 990;
 }
 
-/** Whether a subscription currently grants Pro. */
+/** Monthly prices in US dollars by default (PLUS_PRICE_USD, PRO_PRICE_USD, ULTRA_PRICE_USD). */
+const DEFAULT_PRICE_USD: Record<PaidPlanId, number> = { plus: 4.99, pro: 9.99, ultra: 24.99 };
+
+/**
+ * A plan's monthly price in US dollars (its *_PRICE_USD). 0 doesn't sell it.
+ * A value that isn't a price Stripe takes ("9.99" or "9,99", at least $0.50)
+ * is `invalid`: the plan then isn't sold rather than at a wrong amount, and
+ * the setup check says so.
+ */
+export function planPriceSetting(plan: PaidPlanId): { usd: number; invalid?: string } {
+  const raw = process.env[`${planEnv(plan)}_PRICE_USD`]?.trim();
+  if (!raw) return { usd: DEFAULT_PRICE_USD[plan] };
+  const text = raw.replace(",", ".");
+  const value = Number(text);
+  if (!/^\d+(\.\d{1,2})?$/.test(text) || (value > 0 && value < 0.5)) return { usd: 0, invalid: raw };
+  return { usd: value };
+}
+
+/** The plan a subscription row is for (rows from before Plus and Ultra are Pro). */
+export function subscriptionPlan(sub: Pick<SubscriptionRow, "plan">): PaidPlanId {
+  return isPaidPlan(sub.plan) ? sub.plan : "pro";
+}
+
+/** Whether a subscription currently grants its paid plan. */
 export function isEntitled(sub: SubscriptionRow | undefined, now = new Date()): boolean {
   if (!sub || sub.currentPeriodEnd <= now) return false;
   // Stripe tells us when a payment failed; our own subscriptions just run to the period end.
@@ -41,7 +70,7 @@ export async function getSubscription(userId: string): Promise<SubscriptionRow |
 
 export async function currentPlan(userId: string): Promise<{ plan: PlanId; sub?: SubscriptionRow }> {
   const sub = await getSubscription(userId);
-  return { plan: isEntitled(sub) ? "pro" : "free", sub };
+  return { plan: sub && isEntitled(sub) ? subscriptionPlan(sub) : "free", sub };
 }
 
 /**

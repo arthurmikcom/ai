@@ -4,6 +4,7 @@ import { checkComfy, comfyDownloadHeaders, startComfy } from "./comfy";
 import { checkGoogleVideo, generateGoogleImage, startGoogleVideo } from "./google";
 import { checkMotionTransfer, startMotionTransfer } from "./higgsfield";
 import { generateOpenAIImage } from "./openai";
+import { generatePollinationsImage } from "./pollinations";
 import { checkOpenRouterVideo, generateOpenRouterImage, startOpenRouterVideo, type OpenRouterCall } from "./openrouter";
 import { checkReplicate, startReplicate } from "./replicate";
 
@@ -17,6 +18,12 @@ export async function startGeneration(req: GenerateRequest, call: OpenRouterCall
   }
   // The site's own GPU: open models, no fee per request.
   if (req.provider === "comfy") return startComfy(req);
+  // The free plan's pictures: an open model, no key, no fee.
+  if (req.provider === "pollinations") {
+    return req.kind === "image" && !req.images?.length
+      ? generatePollinationsImage(req)
+      : { status: "failed", error: "Бесплатная нейросеть рисует только по описанию, без фото." };
+  }
   // Only OpenRouter's media APIs take the user's photo; the others would make something new.
   if (req.images?.length && req.provider !== "openrouter") {
     return {

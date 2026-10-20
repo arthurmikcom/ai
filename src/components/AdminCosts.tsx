@@ -25,7 +25,9 @@ const KIND: Record<CostKind, string> = {
 
 const PAYER: Record<PaidBy, string> = {
   free: "Бесплатный тариф",
+  plus: "Plus",
   pro: "Pro",
+  ultra: "Ultra",
   admin: "Администраторы",
   credits: "Кредиты",
   byok: "Свои ключи (не за счёт сайта)",

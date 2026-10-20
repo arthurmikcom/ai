@@ -4,6 +4,7 @@ import { Coins, Copy, LoaderCircle, Sparkles, Trash2, TriangleAlert } from "@/co
 import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
 import { api } from "@/lib/client/api";
+import { PLAN_NAMES } from "@/lib/plans";
 import type { PromoCode } from "@/lib/types";
 import { useApp } from "./AppState";
 import { PromoForm } from "./PromoForm";
@@ -31,16 +32,16 @@ export function BillingSection() {
       body: JSON.stringify({ method, sessionId }),
     })
       .then(({ status, credits }) => {
-        const what = credits ? "кредиты" : "Pro";
+        const what = credits ? "кредиты" : "тариф";
         // Still processing: the provider confirms within a minute or so; look again a few times.
         if (status === "pending") {
           for (const delay of [10_000, 25_000, 50_000]) setTimeout(refreshMe, delay);
         }
         setMessage(
           status === "succeeded"
-            ? { ok: true, text: credits ? "Оплата прошла — кредиты зачислены. Спасибо!" : "Оплата прошла — Pro активирован. Спасибо!" }
+            ? { ok: true, text: credits ? "Оплата прошла — кредиты зачислены. Спасибо!" : "Оплата прошла — тариф активирован. Спасибо!" }
             : status === "pending"
-              ? { ok: true, text: `Платёж обрабатывается. ${credits ? "Кредиты появятся" : "Pro включится"} автоматически через минуту.` }
+              ? { ok: true, text: `Платёж обрабатывается. ${credits ? "Кредиты появятся" : "Тариф включится"} автоматически через минуту.` }
               : { ok: false, text: `Платёж не прошёл, ${what} не ${credits ? "зачислены" : "активирован"}. Попробуйте ещё раз.` },
         );
         refreshMe();
@@ -50,6 +51,7 @@ export function BillingSection() {
 
   if (!me) return null;
   const { plan } = me;
+  const paid = plan.id !== "free";
 
   const call = async (path: string, redirect = false) => {
     setBusy(true);
@@ -72,13 +74,13 @@ export function BillingSection() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2 font-medium text-zinc-100">
-            {plan.id === "pro" && <Sparkles className="size-4 text-violet-300" />}
-            {plan.id === "pro" ? "Pro" : "Бесплатный тариф"}
+            {paid && <Sparkles className="size-4 text-violet-300" />}
+            {paid ? PLAN_NAMES[plan.id] : "Бесплатный тариф"}
           </div>
           <div className="mt-1 text-sm text-zinc-400">
-            {plan.id === "free" && "Больше сообщений, картинок и видео — на тарифе Pro."}
-            {plan.id === "pro" && plan.provider === "promo" && plan.periodEnd && `По промокоду до ${date(plan.periodEnd)}`}
-            {plan.id === "pro" && plan.provider !== "promo" && plan.periodEnd &&
+            {plan.id === "free" && "Больше сообщений, картинок GPT Image и видео — на тарифах Plus, Pro и Ultra."}
+            {paid && plan.provider === "promo" && plan.periodEnd && `По промокоду до ${date(plan.periodEnd)}`}
+            {paid && plan.provider !== "promo" && plan.periodEnd &&
               (plan.endsAtPeriodEnd || !plan.renewsAt
                 ? `Автопродление отключено. Доступ до ${date(plan.periodEnd)}`
                 : `Доступ до ${date(plan.periodEnd)}. Следующее списание — ${date(plan.renewsAt)}`)}
@@ -91,7 +93,12 @@ export function BillingSection() {
               href="/pricing"
               className="rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 px-4 py-2 text-sm font-medium text-[#fff] hover:brightness-110"
             >
-              Перейти на Pro
+              Выбрать тариф
+            </Link>
+          )}
+          {paid && plan.provider === "stripe" && plan.stripeLive && (
+            <Link href="/pricing" className="rounded-xl border border-white/10 px-3 py-2 text-sm text-zinc-200 hover:bg-white/5">
+              Сменить тариф
             </Link>
           )}
           {plan.provider === "stripe" && plan.stripeLive && (
@@ -104,7 +111,7 @@ export function BillingSection() {
               Управлять подпиской
             </button>
           )}
-          {plan.id === "pro" && plan.repay && (
+          {paid && plan.repay && (
             <Link
               href="/pricing"
               className="rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 px-4 py-2 text-sm font-medium text-[#fff] hover:brightness-110"
@@ -112,7 +119,7 @@ export function BillingSection() {
               Оплатить заново
             </Link>
           )}
-          {plan.id === "pro" && plan.provider === "yookassa" &&
+          {paid && plan.provider === "yookassa" &&
             (plan.endsAtPeriodEnd ? (
               // Without a saved card there's nothing to resume: paying again saves a new one.
               plan.cardSaved && (
@@ -130,7 +137,7 @@ export function BillingSection() {
                 type="button"
                 disabled={busy}
                 onClick={() => {
-                  if (confirm("Отключить автопродление? Pro останется до конца оплаченного периода.")) {
+                  if (confirm(`Отключить автопродление? ${PLAN_NAMES[plan.id]} останется до конца оплаченного периода.`)) {
                     void call("/api/billing/cancel");
                   }
                 }}

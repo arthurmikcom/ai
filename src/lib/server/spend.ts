@@ -4,6 +4,7 @@
 
 import { and, eq, gte, inArray, ne, or, sql } from "drizzle-orm";
 import type { ChatRequest, ChatUsage, CostKind, CostReport, PaidBy, PlanId, ProviderId } from "@/lib/types";
+import { PLAN_ORDER } from "@/lib/plans";
 import { getDb, schema, type DB } from "./db";
 import { chatCost, tokensOf } from "./pricing";
 
@@ -223,7 +224,7 @@ export async function userSpendToday(userId: string, conn?: Conn, opts: { settle
       and(
         eq(schema.aiCost.userId, userId),
         gte(schema.aiCost.at, startOfDay()),
-        inArray(schema.aiCost.paidBy, ["free", "pro", "admin"]),
+        inArray(schema.aiCost.paidBy, [...PLAN_ORDER, "admin"]),
         inArray(schema.aiCost.kind, BUDGETED),
         counted(opts),
       ),
@@ -248,7 +249,7 @@ export async function userMediaSpendThisMonth(userId: string, conn?: Conn, opts:
       and(
         eq(schema.aiCost.userId, userId),
         gte(schema.aiCost.at, new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))),
-        inArray(schema.aiCost.paidBy, ["free", "pro"]),
+        inArray(schema.aiCost.paidBy, PLAN_ORDER),
         inArray(schema.aiCost.kind, MEDIA),
         counted(opts),
       ),
@@ -256,26 +257,29 @@ export async function userMediaSpendThisMonth(userId: string, conn?: Conn, opts:
   return Number(row?.usd ?? 0);
 }
 
-/**
- * Monthly budget per user in USD for pictures and video (FREE_MONTHLY_MEDIA_USD,
- * PRO_MONTHLY_MEDIA_USD; "unlimited" = none). By default $1 on Free and $6 on
- * Pro: well under what Pro costs, so a subscription always pays for itself.
- */
-export function planMonthlyMediaUsd(plan: PlanId): number | null {
-  const raw = process.env[plan === "free" ? "FREE_MONTHLY_MEDIA_USD" : "PRO_MONTHLY_MEDIA_USD"]?.trim();
+/** By default, well under what each plan costs, so a subscription always pays for itself. */
+const MONTHLY_MEDIA_USD: Record<PlanId, number> = { free: 1, plus: 3, pro: 6, ultra: 15 };
+const DAILY_USD: Record<PlanId, number> = { free: 0.2, plus: 0.4, pro: 1, ultra: 2.5 };
+
+function planUsd(name: string, fallback: number): number | null {
+  const raw = process.env[name]?.trim();
   if (raw === "unlimited") return null;
   const value = raw ? Number.parseFloat(raw) : NaN;
-  if (Number.isFinite(value) && value >= 0) return value;
-  return plan === "free" ? 1 : 6;
+  return Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
-/** Daily AI budget per user in USD for chat and dictation (FREE_DAILY_USD, PRO_DAILY_USD); null = none. */
+/**
+ * Monthly budget per user in USD for pictures and video (FREE_MONTHLY_MEDIA_USD,
+ * PLUS_…, PRO_…, ULTRA_MONTHLY_MEDIA_USD; "unlimited" = none). By default $1 on
+ * Free, $3 on Plus, $6 on Pro and $15 on Ultra.
+ */
+export function planMonthlyMediaUsd(plan: PlanId): number | null {
+  return planUsd(`${plan.toUpperCase()}_MONTHLY_MEDIA_USD`, MONTHLY_MEDIA_USD[plan]);
+}
+
+/** Daily AI budget per user in USD for chat and dictation (FREE_DAILY_USD, PLUS_…, PRO_…, ULTRA_DAILY_USD); null = none. */
 export function planDailyUsd(plan: PlanId): number | null {
-  const raw = process.env[plan === "free" ? "FREE_DAILY_USD" : "PRO_DAILY_USD"]?.trim();
-  if (raw === "unlimited") return null;
-  const value = raw ? Number.parseFloat(raw) : NaN;
-  if (Number.isFinite(value) && value >= 0) return value;
-  return plan === "free" ? 0.2 : 1;
+  return planUsd(`${plan.toUpperCase()}_DAILY_USD`, DAILY_USD[plan]);
 }
 
 /** Site-wide daily budget for free-plan requests (AI_DAILY_BUDGET_USD); null = none. */

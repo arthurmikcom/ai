@@ -1,7 +1,7 @@
 import { isAdmin, socialProviders } from "@/lib/server/auth";
 import { creditBalance } from "@/lib/server/billing/credits";
 import { planInfo } from "@/lib/server/billing/info";
-import { maryxOnly } from "@/lib/server/config";
+import { freePlanFreeImages, maryxOnly } from "@/lib/server/config";
 import { requireUser } from "@/lib/server/http";
 import { ownKeyInfo } from "@/lib/server/own-key";
 import { planDailyUsd, userSpendToday } from "@/lib/server/spend";
@@ -31,6 +31,7 @@ export async function GET(request: Request) {
     social: socialProviders(),
     voice: { transcribe: transcriptionAvailable(Boolean(ownKey)) },
     maryxOnly: maryxOnly(),
+    freeImages: plan.id === "free" && !isAdmin(user) && freePlanFreeImages(),
   };
   return Response.json(body, { headers: { "Cache-Control": "no-store" } });
 }

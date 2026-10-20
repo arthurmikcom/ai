@@ -104,6 +104,14 @@ export const PROVIDERS: ProviderDef[] = [
     note: "Бесплатные открытые модели на вашей видеокарте: FLUX.1 schnell (картинки) и Wan 2.2 (видео) — без оплаты за запрос",
   },
   {
+    id: "pollinations",
+    name: "Pollinations (бесплатно)",
+    envVar: "POLLINATIONS_TOKEN",
+    signupUrl: "https://pollinations.ai/",
+    capabilities: ["image"],
+    note: "Картинки бесплатного тарифа: открытая модель FLUX без ключа и без оплаты. Работает сразу; POLLINATIONS_URL=off выключает",
+  },
+  {
     id: "higgsfield",
     name: "Higgsfield",
     envVar: "HF_API_KEY_ID",

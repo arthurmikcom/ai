@@ -4,6 +4,7 @@ import {
   Bot,
   ArrowUpRight,
   Clapperboard,
+  Coins,
   Download,
   Gem,
   Image as ImageIcon,
@@ -31,6 +32,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "@/lib/client/api";
+import { PLAN_NAMES } from "@/lib/plans";
 import type { Task } from "@/lib/types";
 import { useAppearance, useApplyAppearance } from "@/lib/client/appearance";
 import { installApp, useInstall } from "@/lib/client/install";
@@ -77,9 +79,9 @@ function UserMenu() {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 truncate text-sm text-zinc-200">
             <span className="truncate">{me.user.name || me.user.email}</span>
-            {me.plan.id === "pro" && (
+            {me.plan.id !== "free" && (
               <span className="shrink-0 rounded-md bg-violet-500/20 px-1.5 py-px text-[10px] font-semibold uppercase text-violet-200">
-                Pro
+                {PLAN_NAMES[me.plan.id]}
               </span>
             )}
           </div>
@@ -455,6 +457,14 @@ export function AppShell({ children }: { children: ReactNode }) {
         <header className="workspace-topbar">
           <div className="workspace-breadcrumb"><span className="hidden items-center gap-2 md:flex"><LockKeyhole size={12} />Личное пространство<ChevronRight size={13} /></span><Link href="/" className="flex items-center gap-2 md:hidden"><BrandMark className="!size-7 !rounded-lg" /><BrandName className="!text-base" /></Link><strong className="hidden md:block">{NAV.find(n => n.href === pathname || (n.href !== "/" && pathname.startsWith(`${n.href}/`)))?.label || "MARYX Ai"}</strong></div>
         <div className="workspace-topbar-actions">
+          {me && (
+            // Credits and a top-up, like other AI studios' token counter.
+            <Link href="/pricing#credits" className="workspace-credits" title="AI-кредиты: на запросы сверх лимитов тарифа" aria-label={`Кредиты: ${me.credits}. Пополнить`}>
+              <Coins size={13} />
+              <strong>{me.credits.toLocaleString("ru-RU")}</strong>
+              <span>Пополнить</span>
+            </Link>
+          )}
           {me?.plan.id === "free" && <Link href="/pricing" className="workspace-plan-link"><Sparkles size={13} /><span>Возможности Pro</span></Link>}
         <button
           type="button"

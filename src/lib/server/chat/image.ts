@@ -3,8 +3,8 @@
 // stores it as the answer's attachment. Also how MARYX picks its media models.
 
 import { BRUSH_PREFIX } from "@/lib/effects";
-import type { GenerateRequest, GenerateResult, InlineImage, MediaKind, ModelInfo } from "@/lib/types";
-import { NotConfiguredError } from "../config";
+import type { GenerateRequest, GenerateResult, InlineImage, MediaKind, ModelInfo, PaidBy } from "@/lib/types";
+import { freePlanFreeImages, NotConfiguredError } from "../config";
 import type { StoredFile } from "../db/schema";
 import { statusOf } from "../errors";
 import { checkGeneration, downloadOutput, startGeneration, type OpenRouterCall } from "../media";
@@ -39,8 +39,17 @@ export async function canFilmInChat(ownKey = false, photos = false): Promise<boo
  * configured providers, then the rest. With `photos`, only models that edit
  * the user's photo.
  */
-export async function maryxMediaModels(kind: MediaKind, ownKey = false, photos = false): Promise<ModelInfo[]> {
+export async function maryxMediaModels(kind: MediaKind, ownKey = false, photos = false, opts: { free?: boolean } = {}): Promise<ModelInfo[]> {
   const models = await mediaModels(kind, ownKey, photos);
+  if (kind === "image") {
+    // The free plan: the free open models only (the site's own GPU first), no fee per picture.
+    const free = [...models.filter((m) => m.provider === "comfy"), ...models.filter((m) => m.provider === "pollinations")];
+    if (opts.free) return free;
+    // Paid plans and credits: GPT Image (the others only when it isn't set up).
+    const paid = models.filter((m) => m.provider !== "comfy" && m.provider !== "pollinations");
+    const gpt = paid.filter((m) => GPT_IMAGE.test(m.id));
+    return gpt.length ? [...gpt.filter((m) => m.featured), ...gpt.filter((m) => !m.featured)] : paid.length ? paid : free;
+  }
   // The site's own GPU first: open models with no fee per request.
   const ordered = [
     ...models.filter((m) => m.provider === "comfy"),
@@ -53,6 +62,21 @@ export async function maryxMediaModels(kind: MediaKind, ownKey = false, photos =
     : ordered;
 }
 
+/** OpenAI's GPT Image, what MARYX draws with on paid plans (and for credits). */
+const GPT_IMAGE = /(^|\/)(gpt-image|chatgpt-image)/i;
+
+/**
+ * Whether a picture is the free plan's: drawn with the free model, within the
+ * plan's daily limit (past it, credits pay for GPT Image).
+ */
+export function freeLane(c: { paidBy: PaidBy }, kind: MediaKind): boolean {
+  return kind === "image" && c.paidBy === "free" && freePlanFreeImages();
+}
+
+/** The free model draws from words only: a photo edit on the free plan is for credits (GPT Image). */
+export const FREE_PLAN_PHOTOS =
+  "На бесплатном тарифе картинки рисует бесплатная нейросеть — она не умеет менять фото. Обработка фото — на платном тарифе или за кредиты.";
+
 /** Video models that won't start from a photo of a real person ("…may contain real person"). */
 const REFUSES_REAL_PEOPLE = /seedance/i;
 
@@ -63,8 +87,8 @@ export function refusedRealPerson(err: unknown): boolean {
 }
 
 /** The first of maryxMediaModels, or an error saying what to set up. */
-export async function maryxMediaModel(kind: MediaKind, ownKey = false, photos = false): Promise<ModelInfo> {
-  const pick = (await maryxMediaModels(kind, ownKey, photos))[0];
+export async function maryxMediaModel(kind: MediaKind, ownKey = false, photos = false, opts: { free?: boolean } = {}): Promise<ModelInfo> {
+  const pick = (await maryxMediaModels(kind, ownKey, photos, opts))[0];
   if (!pick) {
     throw new NotConfiguredError(
       photos
@@ -80,8 +104,8 @@ export async function maryxMediaModel(kind: MediaKind, ownKey = false, photos = 
 }
 
 /** The image model a chat draws with (or edits the attached photos with). */
-export function chatImageModel(ownKey = false, photos = false): Promise<ModelInfo> {
-  return maryxMediaModel("image", ownKey, photos);
+export function chatImageModel(ownKey = false, photos = false, opts: { free?: boolean } = {}): Promise<ModelInfo> {
+  return maryxMediaModel("image", ownKey, photos, opts);
 }
 
 /**

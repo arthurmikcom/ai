@@ -244,6 +244,8 @@ export function answerLimits(
 const IMAGE_PRICES: [RegExp, number][] = [
   // The site's own GPU: only its time (about a cent of a rented card's hour).
   [/^comfy\//, 0.002],
+  // The free plan's free model: nothing per picture.
+  [/^pollinations\//, 0],
   [/schnell/, 0.003],
   [/gpt-image-1-mini|image-1-mini/, 0.011],
   [/gemini-3-pro-image|nano-banana-pro|imagen-4.*ultra/, 0.134],

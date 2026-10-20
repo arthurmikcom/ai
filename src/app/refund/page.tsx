@@ -25,21 +25,21 @@ async function Content() {
     "нам по контактам внизу страницы"
   );
   return (
-    <LegalPage title="Отмена и возврат" updated="18 октября 2026" info={info}>
+    <LegalPage title="Отмена и возврат" updated="20 октября 2026" info={info}>
       <h2>Отмена подписки</h2>
       <ul>
         <li>
-          Отменить подписку Pro можно в любой момент: <b>Настройки → Подписка</b> → «Отменить автопродление» (для оплаты через Stripe —
+          Отменить подписку (Plus, Pro или Ultra) можно в любой момент: <b>Настройки → Подписка</b> → «Отменить автопродление» (для оплаты через Stripe —
           «Управлять подпиской»).
         </li>
-        <li>После отмены новых списаний не будет, а Pro остаётся до конца уже оплаченного месяца.</li>
+        <li>После отмены новых списаний не будет, а тариф остаётся до конца уже оплаченного месяца.</li>
       </ul>
 
       <h2>Возврат денег</h2>
       <ul>
         <li>
-          <b>Подписка Pro.</b> Если вы передумали, напишите нам в течение 14 дней после оплаты: мы вернём деньги за этот месяц полностью,
-          если за него вы почти не пользовались Pro (не больше дневного лимита бесплатного тарифа в сумме), иначе — за оставшиеся дни.
+          <b>Подписка.</b> Если вы передумали, напишите нам в течение 14 дней после оплаты: мы вернём деньги за этот месяц полностью,
+          если за него вы почти не пользовались платным тарифом (не больше дневного лимита бесплатного тарифа в сумме), иначе — за оставшиеся дни.
         </li>
         <li>
           <b>Кредиты.</b> Неиспользованные кредиты из пакета можно вернуть в течение 14 дней после покупки; потраченные кредиты не
@@ -55,9 +55,9 @@ async function Content() {
 
       <h2>Cancellation &amp; refunds (English)</h2>
       <p>
-        You can cancel your Pro subscription at any time in Settings → Subscription (“Manage subscription” for Stripe payments). After
-        cancelling you won’t be charged again and keep Pro until the end of the paid month. Within 14 days of a payment you can ask for a
-        refund: a full refund if you barely used Pro that month, otherwise a pro-rated one. Unused credits can be refunded within 14 days of
+        You can cancel your subscription (Plus, Pro or Ultra) at any time in Settings → Subscription (“Manage subscription” for Stripe payments). After
+        cancelling you won’t be charged again and keep the plan until the end of the paid month. Within 14 days of a payment you can ask for a
+        refund: a full refund if you barely used the paid plan that month, otherwise a pro-rated one. Unused credits can be refunded within 14 days of
         purchase. Double charges and features that failed on our side are always refunded. Refunds go back to the original payment method,
         usually within 5–10 business days; refunded credits are removed from the balance and a refunded subscription stops renewing. To request one, email {info.email ?? "us (see contacts below)"} from your account’s email address.
       </p>

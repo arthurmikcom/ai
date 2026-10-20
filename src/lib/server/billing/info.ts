@@ -25,6 +25,6 @@ export async function planInfo(userId: string): Promise<PlanInfo> {
     status: sub.status,
     stripeLive: hasLiveStripe(sub),
     cardSaved: sub.provider === "yookassa" && Boolean(sub.yookassaPaymentMethodId),
-    repay: plan === "pro" && needsYooKassaRepay(sub),
+    repay: plan !== "free" && needsYooKassaRepay(sub),
   };
 }
