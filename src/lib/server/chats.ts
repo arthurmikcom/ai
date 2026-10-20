@@ -55,8 +55,22 @@ function toMessage(row: MessageRow): ChatMessage {
     via: row.via ?? undefined,
     suggestions: row.suggestions ?? undefined,
     mediaId: row.mediaId ?? undefined,
+    ...(row.rating === 1 || row.rating === -1 ? { rating: row.rating } : {}),
+    ...(row.ratingReason ? { ratingReason: row.ratingReason } : {}),
     createdAt: row.createdAt.getTime(),
   };
+}
+
+/** 👍 (1), 👎 (-1, with what was wrong) or no verdict (0) on one of the user's answers. */
+export async function rateMessage(userId: string, chatId: string, messageId: string, rating: -1 | 0 | 1, reason?: string): Promise<boolean> {
+  if (!(await findChat(userId, chatId))) return false;
+  const db = await getDb();
+  const rows = await db
+    .update(schema.message)
+    .set({ rating: rating || null, ratingReason: rating === -1 ? (reason ?? null) : null, ratedAt: rating ? new Date() : null })
+    .where(and(eq(schema.message.id, messageId), eq(schema.message.chatId, chatId), eq(schema.message.role, "assistant")))
+    .returning({ id: schema.message.id });
+  return rows.length > 0;
 }
 
 export function toAssistant(row: AssistantRow): Assistant {

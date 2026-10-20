@@ -6,6 +6,7 @@ import { authClient } from "@/lib/client/auth";
 import { useModels } from "@/lib/client/useModels";
 import type { Capability, UsageKind } from "@/lib/types";
 import { AdminCosts } from "./AdminCosts";
+import { AdminQuality } from "./AdminQuality";
 import { useApp } from "./AppState";
 import { BillingSection, PromoAdmin } from "./BillingSection";
 import { InstructionsSection } from "./InstructionsSection";
@@ -288,6 +289,10 @@ export function SettingsView() {
               Расходы на ИИ <span className="normal-case tracking-normal">(видят только администраторы)</span>
             </h2>
             <AdminCosts />
+            <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wider text-zinc-500">
+              Качество ответов <span className="normal-case tracking-normal">(видят только администраторы)</span>
+            </h2>
+            <AdminQuality />
             <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wider text-zinc-500">
               Промокоды <span className="normal-case tracking-normal">(видят только администраторы)</span>
             </h2>

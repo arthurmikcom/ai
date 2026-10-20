@@ -81,6 +81,8 @@ interface AppState {
   editLast: (chatId: string, text: string, options: SendOptions) => void;
   stop: (chatId: string) => void;
   isStreaming: (chatId: string) => boolean;
+  /** 👍 (1), 👎 (-1, with what was wrong) or taking it back (0) on an answer. */
+  rate: (chatId: string, messageId: string, rating: -1 | 0 | 1, reason?: string) => void;
 
   assistants: Assistant[];
   saveAssistant: (a: Assistant) => Promise<void>;
@@ -639,6 +641,16 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     [update],
   );
 
+  const rate = useCallback(
+    (chatId: string, messageId: string, rating: -1 | 0 | 1, reason?: string) => {
+      patchMessage(chatId, messageId, { rating: rating || undefined, ratingReason: rating === -1 ? reason : undefined });
+      api(`/api/chats/${chatId}/rating`, { method: "PUT", body: JSON.stringify({ messageId, rating, ...(reason ? { reason } : {}) }) }).catch((e) =>
+        console.error(e),
+      );
+    },
+    [patchMessage],
+  );
+
   const setChatModel = useCallback(
     (id: string, choice: ModelChoice) => {
       update(id, (c) => ({ ...c, ...choice }));
@@ -748,6 +760,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       editLast,
       stop,
       isStreaming: (id) => streaming.has(id),
+      rate,
       assistants,
       saveAssistant,
       deleteAssistant,
@@ -776,6 +789,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       editLast,
       stop,
       streaming,
+      rate,
       assistants,
       saveAssistant,
       deleteAssistant,

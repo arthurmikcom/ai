@@ -8,6 +8,7 @@ import {
   pgTable,
   primaryKey,
   serial,
+  smallint,
   text,
   timestamp,
 } from "drizzle-orm/pg-core";
@@ -121,6 +122,10 @@ export const chat = pgTable(
     assistantId: text("assistant_id"),
     /** «Временный чат»: not in the history or MARYX's memory; deleted when left (or after a day). */
     temporary: boolean("temporary").default(false).notNull(),
+    /** A long chat's start, retold by MARYX for itself once it no longer fits the context. */
+    summary: text("summary"),
+    /** The last message (its seq) the summary covers. */
+    summarySeq: integer("summary_seq"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
@@ -152,9 +157,14 @@ export const message = pgTable(
     suggestions: jsonb("suggestions").$type<string[]>(),
     /** A video answer: its gallery item (made in the background, also shown in the video studio). */
     mediaId: text("media_id"),
+    /** The user's verdict on an answer: 1 👍, -1 👎. */
+    rating: smallint("rating"),
+    /** What was wrong, for a 👎 (one of RATING_REASONS). */
+    ratingReason: text("rating_reason"),
+    ratedAt: timestamp("rated_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  (t) => [index("message_chat_seq_idx").on(t.chatId, t.seq)],
+  (t) => [index("message_chat_seq_idx").on(t.chatId, t.seq), index("message_rated_idx").on(t.ratedAt)],
 );
 
 /** A page made in the chat (a game, a site) shared by a public link: /s/<id>. */

@@ -2207,3 +2207,31 @@ a.vs-reel-button { text-decoration: none; }
 .plugin-showcase[data-plugin="travel"] { background: radial-gradient(ellipse at 10% 0%, #4fc3ff77, transparent 60%), radial-gradient(ellipse at 100% 100%, #ffb34755, transparent 55%), linear-gradient(140deg, #0f2140, #1b1240); }
 .plugin-showcase[data-plugin="music"] { background: radial-gradient(ellipse at 10% 0%, #ff6b9a77, transparent 60%), radial-gradient(ellipse at 100% 100%, #7c5cff55, transparent 55%), linear-gradient(140deg, #2a0f24, #120d2a); }
 .plugin-showcase[data-plugin="sports"] { background: radial-gradient(ellipse at 10% 0%, #5fe08a66, transparent 60%), radial-gradient(ellipse at 100% 100%, #3b82f655, transparent 55%), linear-gradient(140deg, #0c2418, #0d1630); }
+
+/* 👎 on an answer: what was wrong, and «Ответить лучше». */
+.answer-feedback { display: grid; gap: 8px; margin-top: 8px; padding: 12px 14px; border: 1px solid var(--line-strong); border-radius: 14px; background: color-mix(in oklab, var(--color-white) 3%, transparent); }
+.answer-feedback p { color: var(--color-zinc-200); font-size: 13px; font-weight: 500; }
+.answer-feedback-reasons { display: flex; flex-wrap: wrap; gap: 6px; }
+.answer-feedback-reasons button { padding: 4px 11px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--color-zinc-300); font-size: 12px; transition: border-color 160ms, background 160ms; }
+.answer-feedback-reasons button:hover { border-color: color-mix(in oklab, var(--color-violet-300) 45%, transparent); }
+.answer-feedback-reasons button[aria-pressed="true"] { border-color: transparent; background: color-mix(in oklab, var(--color-violet-500) 25%, transparent); color: var(--color-violet-100); }
+.answer-feedback-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.answer-feedback-better { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; background: linear-gradient(120deg, #a46bff, #6e3cf0); color: #fff; font-size: 12.5px; font-weight: 600; }
+.answer-feedback-close { padding: 6px 12px; border-radius: 999px; color: var(--color-zinc-400); font-size: 12.5px; }
+.answer-feedback-close:hover { color: var(--color-zinc-100); }
+.answer-feedback small { color: var(--color-zinc-500); font-size: 11.5px; line-height: 1.5; }
+.admin-quality-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.admin-quality-totals > div { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; }
+.admin-quality-totals strong { display: flex; align-items: center; gap: 6px; color: var(--color-zinc-100); font-size: 18px; font-weight: 600; }
+.admin-quality-totals small { color: var(--color-zinc-500); font-size: 12px; }
+.admin-quality-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.admin-quality-table th { padding: 6px 8px; border-bottom: 1px solid var(--line-strong); color: var(--color-zinc-500); font-weight: 500; text-align: left; }
+.admin-quality-table td { padding: 6px 8px; border-bottom: 1px solid var(--line); color: var(--color-zinc-200); }
+.admin-quality-table td:first-child { word-break: break-all; }
+.admin-quality-reasons { display: flex; flex-wrap: wrap; gap: 6px; }
+.admin-quality-reasons li { padding: 4px 10px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--color-zinc-300); font-size: 12px; }
+.admin-quality-reasons span { margin-left: 4px; color: var(--color-zinc-100); font-weight: 600; }
+.admin-quality-latest { display: grid; gap: 8px; }
+.admin-quality-latest li { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; font-size: 12.5px; line-height: 1.5; color: var(--color-zinc-300); }
+.admin-quality-meta { color: var(--color-zinc-500); font-size: 11.5px; }
+.admin-quality-latest b { color: var(--color-zinc-200); font-weight: 600; }

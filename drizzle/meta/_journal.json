@@ -120,6 +120,13 @@
       "when": 1792439434338,
       "tag": "0016_plugins",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1792482047082,
+      "tag": "0017_chat_summary_ratings",
+      "breakpoints": true
     }
   ]
 }

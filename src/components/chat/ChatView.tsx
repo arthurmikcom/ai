@@ -458,6 +458,7 @@ export function ChatView() {
                       }
                 }
                 onRegenerate={localBlocked ? undefined : () => app.regenerate(chat.id, sendOptions(answerMode(m)))}
+                onRate={m.role === "assistant" && !chat.temporary && !localBlocked ? (rating, reason) => app.rate(chat.id, m.id, rating, reason) : undefined}
                 onBetter={
                   // MARYX on the server, and a text answer (a picture or a clip is redone as it was).
                   !localBlocked && current?.provider === "maryx" && !current.local && !answerMode(m).image && !answerMode(m).video

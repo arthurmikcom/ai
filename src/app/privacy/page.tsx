@@ -19,7 +19,7 @@ async function Content() {
   const info = legalInfo();
   const { providers } = await publicPrices();
   return (
-    <LegalPage title="Политика конфиденциальности" updated="18 октября 2026" info={info}>
+    <LegalPage title="Политика конфиденциальности" updated="20 октября 2026" info={info}>
       <p>Здесь описано, какие данные собирает MARYX Ai, зачем и как ими управлять. Оператор данных — {info.name}.</p>
 
       <h2>Какие данные мы храним</h2>
@@ -36,6 +36,10 @@ async function Content() {
         <li>Чтобы Сервис работал: отвечал на ваши запросы, хранил историю и настройки.</li>
         <li>Чтобы принимать оплату и учитывать лимиты.</li>
         <li>Чтобы защищать Сервис и пользователей от мошенничества и злоупотреблений.</li>
+        <li>
+          Чтобы улучшать ответы: если вы поставите ответу 👎, администратор Сервиса может прочитать этот вопрос и ответ (без вашего имени и
+          почты), чтобы понять, что исправить. Оценки во временных чатах не ставятся.
+        </li>
       </ul>
       <p>Мы не продаём ваши данные и не показываем рекламу.</p>
 
@@ -68,7 +72,8 @@ async function Content() {
       <p>
         {info.name} stores your account (name, email, hashed password), your chats, files, generated media, assistants and preferences,
         your plan and payment history (card details are handled by {providers.length ? providers.join(" and ") : "the payment provider"}, never by us) and technical data (IP, browser) for security
-        and performance statistics. Data is used only to provide the service, take payments and prevent abuse; it is never sold and there are
+        and performance statistics. Data is used only to provide the service, take payments and prevent abuse, and — when you rate an answer 👎 — the
+        site's administrator may read that question and answer (without your name or email) to improve the service; it is never sold and there are
         no ads. Request content is sent to AI model providers to generate answers, with a pseudonymous id instead of your email; these processors may be located outside your country. Only
         essential sign-in cookies are used. Data is kept while your account exists; deleting the account in Settings deletes it. Contact us to
         get a copy of your data or correct it.

@@ -132,6 +132,9 @@ export interface ChatMessage {
   suggestions?: string[];
   /** A video answer: its gallery item, made in the background. */
   mediaId?: string;
+  /** The user's 👍 (1) or 👎 (-1) on this answer, and what was wrong (a RATING_REASONS id). */
+  rating?: 1 | -1;
+  ratingReason?: string;
   /** Browser only: the server refused this message, so it was never saved. */
   unsent?: boolean;
   /** Browser only: what the pending answer is busy with (drawing, filming, searching). */
@@ -444,6 +447,21 @@ export interface MeResponse {
   maryxOnly: boolean;
   /** Pictures within the plan come from the free model (the free plan); paid plans and credits draw with GPT Image. */
   freeImages: boolean;
+}
+
+/** Admins: how users rate MARYX's answers (👍/👎), for the last `days`. */
+export interface QualityReport {
+  days: number;
+  /** Answers given in the period, and how many got a 👍 or a 👎. */
+  answers: number;
+  up: number;
+  down: number;
+  /** By the model that actually wrote the answer, most 👎 first. */
+  byModel: { model: string; up: number; down: number }[];
+  /** What the 👎 said was wrong (RATING_REASONS ids; "" — no reason given). */
+  reasons: { reason: string; count: number }[];
+  /** The latest 👎, to read: the question, the start of the answer. */
+  latest: { at: number; model: string; reason?: string; question: string; answer: string }[];
 }
 
 /** What /api/billing/plans tells the pricing page. */

@@ -19,6 +19,8 @@ import { EffectSymbol,
   Play,
   RefreshCw,
   Square,
+  ThumbsDown,
+  ThumbsUp,
   TriangleAlert,
   Volume2,
   WandSparkles,
@@ -29,6 +31,7 @@ import { speak, stopSpeaking, useSpeaking, useVoiceSupport } from "@/lib/client/
 import { isDocumentAttachment } from "@/lib/client/util";
 import Link from "next/link";
 import { useState } from "react";
+import { RATING_REASONS } from "@/lib/ratings";
 import { PHOTO_EFFECTS } from "@/lib/effects";
 import type { ChatMessage, ModelInfo } from "@/lib/types";
 import { Markdown } from "./Markdown";
@@ -42,6 +45,8 @@ interface Props {
   onRegenerate?: () => void;
   /** «Ответить лучше»: the answer again from a stronger model (MARYX). */
   onBetter?: () => void;
+  /** 👍 (1), 👎 (-1, with what was wrong) or taking it back (0). */
+  onRate?: (rating: -1 | 0 | 1, reason?: string) => void;
   /** Sends one of MARYX's follow-up suggestions as the next message. */
   onSuggest?: (text: string) => void;
   /** Only MARYX is offered: answers don't name the model behind it. */
@@ -283,6 +288,7 @@ export function MessageView({
   isLast,
   onRegenerate,
   onBetter,
+  onRate,
   onSuggest,
   maryxOnly,
   onEditPicture,
@@ -293,6 +299,8 @@ export function MessageView({
   onOpenDocument,
 }: Props) {
   const [copied, setCopied] = useState(false);
+  // After a 👎: what was wrong (and «Ответить лучше»).
+  const [why, setWhy] = useState(false);
   const [editing, setEditing] = useState(false);
   const [comparing, setComparing] = useState(false);
   const speaking = useSpeaking() === message.id;
@@ -611,6 +619,41 @@ export function MessageView({
               {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
             </button>
           )}
+          {onRate && message.content && !message.error && (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setWhy(false);
+                  onRate(message.rating === 1 ? 0 : 1);
+                }}
+                title="Хороший ответ"
+                aria-label="Хороший ответ"
+                aria-pressed={message.rating === 1}
+                className={`rounded-lg p-1.5 hover:bg-white/5 hover:text-zinc-200 ${message.rating === 1 ? "text-emerald-300" : ""}`}
+              >
+                <ThumbsUp className="size-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (message.rating === -1) {
+                    setWhy(false);
+                    onRate(0);
+                  } else {
+                    setWhy(true);
+                    onRate(-1);
+                  }
+                }}
+                title="Плохой ответ"
+                aria-label="Плохой ответ"
+                aria-pressed={message.rating === -1}
+                className={`rounded-lg p-1.5 hover:bg-white/5 hover:text-zinc-200 ${message.rating === -1 ? "text-red-300" : ""}`}
+              >
+                <ThumbsDown className="size-4" />
+              </button>
+            </>
+          )}
           {onOpenDocument && (
             <button
               type="button"
@@ -633,6 +676,42 @@ export function MessageView({
             </button>
           )}
           {modelLabel && <span className="ml-1 text-xs">{modelLabel}</span>}
+        </div>
+      )}
+
+      {why && onRate && message.rating === -1 && (
+        <div role="group" aria-label="Что не так с ответом" className="answer-feedback">
+          <p>Что не так?</p>
+          <div className="answer-feedback-reasons">
+            {RATING_REASONS.map((r) => (
+              <button
+                key={r.id}
+                type="button"
+                aria-pressed={message.ratingReason === r.id}
+                onClick={() => onRate(-1, r.id)}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
+          <div className="answer-feedback-actions">
+            {onBetter && (
+              <button
+                type="button"
+                className="answer-feedback-better"
+                onClick={() => {
+                  setWhy(false);
+                  onBetter();
+                }}
+              >
+                <WandSparkles className="size-3.5" /> Ответить лучше
+              </button>
+            )}
+            <button type="button" className="answer-feedback-close" onClick={() => setWhy(false)}>
+              Готово
+            </button>
+          </div>
+          <small>Спасибо! Оценки помогают улучшать MARYX: администратор сайта увидит этот вопрос и ответ.</small>
         </div>
       )}
 

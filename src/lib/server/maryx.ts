@@ -729,6 +729,40 @@ export async function rememberFrom(userId: string, userText: string, meter: Mete
 // ---------- Titles and follow-ups ----------
 
 /** A short name for a new chat from its first message, or null if the model gave none. */
+// ---------- A long chat's memory ----------
+
+const SUMMARY_PROMPT =
+  "Ты сжимаешь начало длинного разговора пользователя с ассистентом MARYX в выжимку, по которой MARYX продолжит " +
+  "разговор, не видя этих сообщений. Сохрани: цель и задачу пользователя; важные факты, имена, цифры, даты; принятые " +
+  "решения и договорённости; что уже сделано и что осталось; предпочтения и требования пользователя; ключевые части " +
+  "кода или текста, к которым могут вернуться (кратко). Если дана прежняя выжимка — объедини её с новыми сообщениями " +
+  "в одну. Пиши пунктами на языке разговора, до 350 слов, только по сообщениям — ничего не выдумывай. Верни только выжимку.";
+
+/** Words of the turns that no longer fit the context, each kept short enough that all of them fit one call. */
+export function turnsForSummary(turns: { role: string; content: string }[], budget = 48_000): string {
+  const each = Math.max(400, Math.floor(budget / Math.max(1, turns.length)));
+  return turns
+    .map((t) => {
+      const text = t.content.trim();
+      return `${t.role === "user" ? "Пользователь" : "MARYX"}: ${text.length > each ? `${text.slice(0, each)}…` : text}`;
+    })
+    .join("\n\n");
+}
+
+/**
+ * Retells the start of a long chat (with the previous retelling, if any) so
+ * MARYX keeps it in mind once those messages no longer fit the context.
+ */
+export async function summarizeChat(previous: string | null, turns: { role: string; content: string }[], meter: Meter): Promise<string> {
+  const out = await quickText(
+    SUMMARY_PROMPT,
+    `${previous ? `Прежняя выжимка:\n${previous}\n\n` : ""}Сообщения:\n${turnsForSummary(turns)}`,
+    45_000,
+    meter,
+  );
+  return out.trim().slice(0, 6000);
+}
+
 export async function suggestTitle(text: string, fileNames: string[], meter: Meter): Promise<string | null> {
   const out = await quickText(
     "Придумай короткое название чата (2–6 слов) по первому сообщению пользователя. " +

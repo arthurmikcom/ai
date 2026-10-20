@@ -44,6 +44,7 @@ import {
   rememberFrom,
   suggestFollowUps,
   suggestTitle,
+  summarizeChat,
   userPrefs,
   wantsImage,
   wantsAnimate,
@@ -553,14 +554,22 @@ export async function POST(request: Request) {
     const assistant = chat.assistantId ? await findAssistant(user.id, chat.assistantId) : undefined;
     const prefs = await userPrefs(user.id);
     // The chat's first question usually sets the task: it stays in view even when its turn doesn't fit.
-    const opening = first > 0 ? kept.slice(0, first).find((m) => m.role === "user" && m.content.trim()) : undefined;
+    const left = kept.slice(0, first);
+    const opening = first > 0 ? left.find((m) => m.role === "user" && m.content.trim()) : undefined;
+    // …and what MARYX retold of the turns left out (see summarizeChat below).
+    const retold = first > 0 && chat.summary ? chat.summary : "";
     const omitted =
       first > 0
         ? [
             `Начало этого диалога (${first} сообщ.) не поместилось в контекст и здесь не показано.`,
             ...(opening ? [`С чего пользователь начал этот диалог (учитывай как контекст задачи): «${shorten(opening.content, 2000)}»`] : []),
+            ...(retold ? [`Краткое содержание той части разговора (помни его, отвечая):\n${retold}`] : []),
           ]
         : [];
+    // Turns left out that the retelling doesn't cover yet: once there are enough, it's redone after the answer.
+    const retoldThrough = chat.summarySeq ?? -1;
+    const unretold = left.filter((m) => m.seq > retoldThrough && m.content.trim());
+    const retell = first > 0 && unretold.length > 0 && (!chat.summary || unretold.reduce((n, m) => n + m.content.length, 0) > 6000);
 
     // MARYX: pick the real model for this message, then speak as MARYX with its memory.
     let route: MaryxPlan | undefined;
@@ -737,6 +746,22 @@ export async function POST(request: Request) {
         });
     };
     if (wantTitle) after(() => titleJob);
+
+    // A long chat: MARYX retells the turns that no longer fit, for the next answers (after this one, off its path).
+    if (retell) {
+      const through = unretold[unretold.length - 1].seq;
+      after(() =>
+        answered
+          ? summarizeChat(retold || null, unretold, meter)
+              .then((summary) =>
+                summary
+                  ? db.update(schema.chat).set({ summary, summarySeq: through }).where(eq(schema.chat.id, chatId))
+                  : undefined,
+              )
+              .catch((err) => console.error("[chat] summary failed", err))
+          : undefined,
+      );
+    }
 
     const encoder = new TextEncoder();
     const body = new ReadableStream<Uint8Array>({
