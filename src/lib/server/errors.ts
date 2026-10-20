@@ -82,3 +82,18 @@ export function describeError(err: unknown, provider?: ProviderId, ownKey = fals
       return detail || "Неизвестная ошибка";
   }
 }
+
+/**
+ * A failure as admins see it (never sent to users): the status and the
+ * provider's own words, with anything that looks like a key cut out.
+ */
+export function errorDetail(err: unknown): string {
+  const status = statusOf(err);
+  const message = err instanceof Error ? err.message : String(err);
+  const more = err instanceof HttpError && err.detail && !message.includes(err.detail) ? ` — ${err.detail}` : "";
+  const text = `${message}${more}`
+    .replace(/\b(sk|rk|pk|r8)([-_][A-Za-z0-9]+)?[-_][A-Za-z0-9_-]{12,}/g, "$1-…")
+    .replace(/\s+/g, " ")
+    .trim();
+  return (status && !text.startsWith(String(status)) ? `${status} ${text}` : text).slice(0, 500);
+}

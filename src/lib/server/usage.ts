@@ -192,13 +192,16 @@ export async function charge(
     await bump(user.id, kind, null);
     return { ...base, paidBy: "admin" };
   }
+  // Today's spending is read alongside the plan (it doesn't depend on it).
+  const spentToday = budgeted(kind) && !opts.creditsOnly ? userSpendToday(user.id) : undefined;
+  spentToday?.catch(() => {});
   const { plan } = await currentPlan(user.id);
   // The free plan's pictures come from the free model: no budget of the site's to spend.
   const costless = kind === "image" && plan === "free" && freePlanFreeImages();
   const budget = budgeted(kind) ? planDailyUsd(plan) : null;
   let denied: Denial;
   if (opts.creditsOnly) denied = "limit";
-  else if (budget !== null && (await userSpendToday(user.id)) >= budget) {
+  else if (budget !== null && (await (spentToday ?? userSpendToday(user.id))) >= budget) {
     // What's held for the user's running requests comes back when they end: wait for them, not for midnight.
     if (budget - (await userSpendToday(user.id, undefined, { settled: true })) >= 0.001) return { denied: "busy" };
     denied = "spend";

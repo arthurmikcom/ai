@@ -148,6 +148,8 @@ export const message = pgTable(
     provider: text("provider").$type<ProviderId>(),
     model: text("model"),
     error: text("error"),
+    /** The provider's own reason for a failure, shown to admins only (users see `error`). */
+    errorDetail: text("error_detail"),
     notice: text("notice"),
     /** Web pages the answer cites (web search). */
     sources: jsonb("sources").$type<Source[]>(),

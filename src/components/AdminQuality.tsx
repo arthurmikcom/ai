@@ -4,12 +4,16 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/client/api";
 import { RATING_REASONS } from "@/lib/ratings";
 import type { QualityReport } from "@/lib/types";
-import { LoaderCircle, ThumbsDown, ThumbsUp } from "./MaryxIcons";
+import { LoaderCircle, ThumbsDown, ThumbsUp, TriangleAlert } from "./MaryxIcons";
 
 const reasonLabel = (id: string) => RATING_REASONS.find((r) => r.id === id)?.label ?? "Без причины";
 const share = (part: number, whole: number) => (whole ? `${Math.round((part / whole) * 100)}%` : "—");
+const when = (at: number) => new Date(at).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
-/** Admin-only: how users rate MARYX's answers (👍/👎) — per model, why, and the latest 👎 to read. */
+/**
+ * Admin-only: how users rate MARYX's answers (👍/👎) — per model, why, and the
+ * latest 👎 to read — and which answers failed, in the provider's own words.
+ */
 export function AdminQuality() {
   const [report, setReport] = useState<QualityReport | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +52,12 @@ export function AdminQuality() {
             <ThumbsDown size={15} /> {report.down}
           </strong>
           <small>{share(report.down, rated)} оценок</small>
+        </div>
+        <div>
+          <strong className={report.errors.total ? "text-amber-300" : undefined}>
+            <TriangleAlert size={15} /> {report.errors.total}
+          </strong>
+          <small>{share(report.errors.total, report.answers)} ответов с ошибкой</small>
         </div>
       </div>
       {rated === 0 ? (
@@ -93,7 +103,7 @@ export function AdminQuality() {
                 {report.latest.map((l, i) => (
                   <li key={i}>
                     <div className="admin-quality-meta">
-                      {new Date(l.at).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} · {l.model}
+                      {when(l.at)} · {l.model}
                       {l.reason && <> · {reasonLabel(l.reason)}</>}
                     </div>
                     <p>
@@ -109,6 +119,29 @@ export function AdminQuality() {
           )}
         </>
       )}
+      <div className="admin-quality-errors">
+        <h3 className="mb-2 text-sm font-medium text-zinc-300">Ошибки ответов</h3>
+        {report.errors.causes.length === 0 ? (
+          <p className="text-sm text-zinc-500">Все ответы получились.</p>
+        ) : (
+          <>
+            <p className="mb-2 text-sm text-zinc-400">
+              Настоящие причины — словами провайдера. Пользователи их не видят: им MARYX пишет, что попробует позже.
+            </p>
+            <ul className="admin-quality-latest">
+              {report.errors.causes.map((c, i) => (
+                <li key={i}>
+                  <div className="admin-quality-meta">
+                    {c.count} × · {c.model} · последняя {when(c.last)}
+                  </div>
+                  <p className="admin-quality-cause">{c.cause || "—"}</p>
+                  {c.hint && <p className="admin-quality-hint">{c.hint}</p>}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </div>
     </section>
   );
 }

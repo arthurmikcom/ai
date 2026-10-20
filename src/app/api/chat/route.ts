@@ -16,7 +16,7 @@ import { chatMessages, findAssistant, findChat, storedKeys, titleFrom } from "@/
 import { getDb, schema } from "@/lib/server/db";
 import type { StoredFile } from "@/lib/server/db/schema";
 import { describeAiError, maryxOnly, publicNotice } from "@/lib/server/brand";
-import { StorageUnavailableError, statusOf } from "@/lib/server/errors";
+import { errorDetail, StorageUnavailableError, statusOf } from "@/lib/server/errors";
 import { loadOpenRouterChatModels } from "@/lib/server/models";
 import { jsonError, requireUser, storageUnavailable } from "@/lib/server/http";
 import { IMAGE_STYLES, withStyle } from "@/lib/effects";
@@ -151,7 +151,14 @@ export async function POST(request: Request) {
   if (req.message?.attachments?.some((a) => a.key && !isOwnVideoKey(user.id, a.key))) return jsonError("Неверное вложение", 400);
 
   const db = await getDb();
-  let chat = await findChat(user.id, req.chatId);
+  const maryx = req.provider === "maryx";
+  // The chat and the user's own key are read at once (two round trips to the database, not one after the other).
+  const [found, savedKey] = await Promise.all([
+    findChat(user.id, req.chatId),
+    // With their own OpenRouter key, the user's OpenRouter requests (MARYX picks only those) go out with it.
+    req.provider === "openrouter" || maryx || req.image || req.video ? ownKey(user.id) : undefined,
+  ]);
+  let chat = found;
   if (!chat && (!req.create || !req.message)) return jsonError("Чат не найден", 404);
 
   // A corrected question replaces the chat's last one. Its pictures go along again (as if attached
@@ -171,9 +178,7 @@ export async function POST(request: Request) {
     replacing = { rows: existing.slice(i), documents: files.filter((f) => !f.mime.startsWith("image/")), first: i === 0 };
   }
 
-  const maryx = req.provider === "maryx";
-  // With their own OpenRouter key, the user's OpenRouter requests (MARYX picks only those) go out with it.
-  const key = req.provider === "openrouter" || maryx || req.image || req.video ? await ownKey(user.id) : undefined;
+  const key = savedKey;
   const text = req.message?.content ?? "";
   // "Оживи фото": a video that starts from the picture (attached, or the one just made).
   const animate = req.message !== undefined && wantsAnimate(text);
@@ -551,8 +556,49 @@ export async function POST(request: Request) {
     });
     const messages = mergeTurns(history);
 
-    const assistant = chat.assistantId ? await findAssistant(user.id, chat.assistantId) : undefined;
-    const prefs = await userPrefs(user.id);
+    // MARYX: pick the real model for this message, then speak as MARYX with its memory.
+    // Deep research: searches run first (in the answer's stream), and the report is written from them.
+    const researching = maryx && req.research === true;
+    let researchText = "";
+    // Консилиум: strong models answer first (in the answer's stream), and the answer combines them.
+    // Experts read only words, so a question with pictures is answered the usual way.
+    const consulting = maryx && !researching && req.council === true && loaded[loaded.length - 1].images.length === 0;
+    let councilText = "";
+    let pluginText = "";
+    const last = loaded[loaded.length - 1];
+    const previous = recent.findLast((m) => m.role === "assistant");
+    // What the answer needs from the database, and its model, at once rather than one after another
+    // (each is a round trip to the database; the facts are read even if memory turns out to be off).
+    const [assistant, prefs, plugins, storedFacts, routed] = await Promise.all([
+      chat.assistantId ? findAssistant(user.id, chat.assistantId) : undefined,
+      userPrefs(user.id),
+      // «Плагины»: fresh data (weather, rates, news…) from the user's plugins, when the message calls for it.
+      maryx && !researching ? installedPlugins(user.id) : [],
+      // A temporary chat stays out of MARYX's memory (neither read nor learned from).
+      maryx && !chat.temporary ? listFacts(user.id) : [],
+      maryx
+        ? planRoute({
+            research: researching,
+            strong: consulting,
+            // «Ответить лучше» redoes `replaced` with a stronger model.
+            better: req.better && replaced ? { provider: replaced.provider ?? undefined, model: replaced.model ?? undefined } : undefined,
+            text: last.m.content,
+            hasImages: last.images.length > 0,
+            hasDocuments: loaded.some((l) => l.docs.some((d) => d.max > 0)),
+            deepThinking: req.deepThinking ?? false,
+            webSearch: req.webSearch ?? false,
+            previous: previous && {
+              provider: previous.provider ?? undefined,
+              model: previous.model ?? undefined,
+              content: previous.content,
+            },
+            ownKey: Boolean(bill.key),
+          }).then(
+            (plan) => ({ plan }),
+            (error: unknown) => ({ error }),
+          )
+        : undefined,
+    ]);
     // The chat's first question usually sets the task: it stays in view even when its turn doesn't fit.
     const left = kept.slice(0, first);
     const opening = first > 0 ? left.find((m) => m.role === "user" && m.content.trim()) : undefined;
@@ -571,50 +617,14 @@ export async function POST(request: Request) {
     const unretold = left.filter((m) => m.seq > retoldThrough && m.content.trim());
     const retell = first > 0 && unretold.length > 0 && (!chat.summary || unretold.reduce((n, m) => n + m.content.length, 0) > 6000);
 
-    // MARYX: pick the real model for this message, then speak as MARYX with its memory.
-    let route: MaryxPlan | undefined;
-    // Deep research: searches run first (in the answer's stream), and the report is written from them.
-    const researching = maryx && req.research === true;
-    let researchText = "";
-    // Консилиум: strong models answer first (in the answer's stream), and the answer combines them.
-    // Experts read only words, so a question with pictures is answered the usual way.
-    const consulting = maryx && !researching && req.council === true && loaded[loaded.length - 1].images.length === 0;
-    let councilText = "";
-    // «Плагины»: fresh data (weather, rates, news…) from the user's plugins, when the message calls for it.
-    const plugins = maryx && !researching ? await installedPlugins(user.id) : [];
-    let pluginText = "";
     // Stored facts go into every MARYX answer (regenerations too); new ones are learned from new messages.
-    // A temporary chat stays out of MARYX's memory (neither read nor learned from).
     const memoryOn = maryx && prefs.memory && !chat.temporary;
-    let facts: string[] = [];
-    const last = loaded[loaded.length - 1];
-    if (maryx) {
-      const previous = recent.findLast((m) => m.role === "assistant");
-      try {
-        route = await planRoute({
-          research: researching,
-          strong: consulting,
-          // «Ответить лучше» redoes `replaced` with a stronger model.
-          better: req.better && replaced ? { provider: replaced.provider ?? undefined, model: replaced.model ?? undefined } : undefined,
-          text: last.m.content,
-          hasImages: last.images.length > 0,
-          hasDocuments: loaded.some((l) => l.docs.some((d) => d.max > 0)),
-          deepThinking: req.deepThinking ?? false,
-          webSearch: req.webSearch ?? false,
-          previous: previous && {
-            provider: previous.provider ?? undefined,
-            model: previous.model ?? undefined,
-            content: previous.content,
-          },
-          ownKey: Boolean(bill.key),
-        });
-      } catch (err) {
-        await refundCharge(bill);
-        return jsonError(describeAiError(err), 503);
-      }
-      facts = memoryOn ? (await listFacts(user.id)).map((f) => f.text) : [];
+    const facts: string[] = memoryOn ? storedFacts.map((f) => f.text) : [];
+    if (routed && "error" in routed) {
+      await refundCharge(bill);
+      return jsonError(describeAiError(routed.error), 503);
     }
-    const plan = route;
+    const plan: MaryxPlan | undefined = routed?.plan;
     // How hard an OpenRouter model thinks depends on its listed settings (MARYX has loaded them already).
     if (!plan && req.provider === "openrouter") await loadOpenRouterChatModels(Boolean(bill.key));
     const endUser = endUserId(user.id);
@@ -779,6 +789,8 @@ export async function POST(request: Request) {
         let notices: string[] = [];
         const sources: Source[] = [];
         let error: string | undefined;
+        /** What really went wrong, for admins. */
+        let detail: string | undefined;
 
         // Models MARYX tried that failed, and when it started (a fallback must still fit maxDuration).
         const failed: string[] = [];
@@ -918,6 +930,7 @@ export async function POST(request: Request) {
           } else {
             console.error("[chat]", provider, model, err);
             error = describeAiError(err, provider, Boolean(bill.key));
+            detail = errorDetail(err) + (failed.length > 1 ? ` (не ответили: ${failed.join(", ")})` : "");
             if (!text && failed.length > 1 && !maryxOnly()) {
               // Not "X answered instead": nobody did. The browser resets the notice on "retry".
               notices = [`Не ответила ни одна из моделей: ${failed.join(", ")}.`];
@@ -947,6 +960,7 @@ export async function POST(request: Request) {
             notice: notices.length ? notices.join("\n") : null,
             sources: sources.length ? sources.slice(0, 20) : null,
             error: error ?? null,
+            errorDetail: error ? (detail ?? null) : null,
             provider,
             model,
             via: plan ? "maryx" : null,
@@ -1116,6 +1130,7 @@ function filmInChat(
       let item: MediaItem | undefined;
       let text = "";
       let error: string | undefined;
+      let detail: string | undefined;
       // Once the job is handed the charge, the gallery item settles (or refunds) it.
       let handed = false;
       if (opts.attached) send(opts.attached);
@@ -1158,6 +1173,7 @@ function filmInChat(
         if (!handed) await refundCharge(bill);
         console.error("[chat:video]", model?.provider, model?.id, err);
         error = describeAiError(err, model?.provider, Boolean(bill.key));
+        detail = errorDetail(err);
       } finally {
         try {
           await db.insert(schema.message).values({
@@ -1166,6 +1182,7 @@ function filmInChat(
             role: "assistant",
             content: text,
             error: error ?? null,
+            errorDetail: detail ?? null,
             mediaId: item?.id ?? null,
             provider: model?.provider ?? null,
             model: model?.id ?? null,
@@ -1248,6 +1265,7 @@ function drawInChat(
       let model: { provider: ChatRequest["provider"]; id: string } | undefined;
       let text = "";
       let error: string | undefined;
+      let detail: string | undefined;
       let notice: string | undefined;
       // Which model made (or last tried) the picture, also when it fails.
       const tried: { model?: ModelInfo } = {};
@@ -1288,6 +1306,7 @@ function drawInChat(
         } else {
           console.error("[chat:image]", model?.provider, model?.id, err);
           error = describeAiError(err, model?.provider, Boolean(bill.key));
+          detail = errorDetail(err);
         }
       } finally {
         try {
@@ -1307,6 +1326,7 @@ function drawInChat(
             attachments: files.length ? files : null,
             notice: notice ?? null,
             error: error ?? null,
+            errorDetail: detail ?? null,
             provider: model?.provider ?? null,
             model: model?.id ?? null,
             via: via ?? null,

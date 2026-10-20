@@ -462,6 +462,19 @@ export interface QualityReport {
   reasons: { reason: string; count: number }[];
   /** The latest 👎, to read: the question, the start of the answer. */
   latest: { at: number; model: string; reason?: string; question: string; answer: string }[];
+  /** Answers that failed in the period: how many, and by cause (most first). */
+  errors: {
+    total: number;
+    causes: {
+      model: string;
+      /** The provider's own reason (admins only), or what the user was told for older answers. */
+      cause: string;
+      /** What to do about it, when the cause is known (e.g. top up the provider's balance). */
+      hint?: string;
+      count: number;
+      last: number;
+    }[];
+  };
 }
 
 /** What /api/billing/plans tells the pricing page. */

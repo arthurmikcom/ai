@@ -127,6 +127,13 @@
       "when": 1792482047082,
       "tag": "0017_chat_summary_ratings",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1792483708753,
+      "tag": "0018_message_error_detail",
+      "breakpoints": true
     }
   ]
 }
