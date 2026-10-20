@@ -1,6 +1,6 @@
 "use client";
 
-import { UserRound, Palette, Gem, Brain, Circle, CircleCheck, ExternalLink, LogOut, Trash2 } from "@/components/MaryxIcons";
+import { UserRound, Palette, Gem, Brain, Circle, CircleCheck, ExternalLink, KeyRound, LogOut, Trash2 } from "@/components/MaryxIcons";
 import { useEffect, useState } from "react";
 import { authClient } from "@/lib/client/auth";
 import { useModels } from "@/lib/client/useModels";
@@ -106,6 +106,76 @@ function BudgetMeter({ used, limit, maryxOnly }: { used: number; limit: number; 
         <div className={`h-full rounded-full ${share >= 100 ? "bg-red-400" : "bg-violet-400"}`} style={{ width: `${share}%` }} />
       </div>
     </div>
+  );
+}
+
+/** A new password; every other device signed in with the old one is signed out. */
+function ChangePassword() {
+  const [open, setOpen] = useState(false);
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const change = async () => {
+    setBusy(true);
+    setMessage(null);
+    const result = await authClient.changePassword({ currentPassword: current, newPassword: next, revokeOtherSessions: true });
+    setBusy(false);
+    if (result.error) {
+      const code = result.error.code ?? "";
+      setMessage({
+        ok: false,
+        text:
+          code === "INVALID_PASSWORD"
+            ? "Текущий пароль неверный."
+            : code === "PASSWORD_TOO_SHORT"
+              ? "Новый пароль — не короче 8 символов."
+              : code === "CREDENTIAL_ACCOUNT_NOT_FOUND"
+                ? "Вы входите через Google или VK — пароля у аккаунта нет."
+                : (result.error.message ?? "Не удалось сменить пароль."),
+      });
+      return;
+    }
+    setCurrent("");
+    setNext("");
+    setMessage({ ok: true, text: "Пароль изменён. На всех других устройствах аккаунт закрыт — там нужно войти с новым паролем." });
+  };
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="flex items-center gap-2 rounded-xl border border-white/10 px-3 py-1.5 text-sm text-zinc-200 hover:bg-white/5"
+      >
+        <KeyRound className="size-4" /> Сменить пароль
+      </button>
+    );
+  }
+  const field = "w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-zinc-100 outline-none";
+  return (
+    <form
+      className="w-full space-y-2 rounded-xl border border-white/10 bg-black/15 p-3 text-sm"
+      aria-label="Смена пароля"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void change();
+      }}
+    >
+      <p className="text-zinc-300">После смены пароля аккаунт закроется на всех других устройствах.</p>
+      <input type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} placeholder="Текущий пароль" aria-label="Текущий пароль" className={field} />
+      <input type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} placeholder="Новый пароль (от 8 символов)" aria-label="Новый пароль" className={field} />
+      {message && <p className={message.ok ? "text-emerald-300" : "text-red-300"}>{message.text}</p>}
+      <div className="flex gap-2">
+        <button type="submit" disabled={busy || !current || next.length < 8} className="rounded-lg bg-zinc-100 px-3 py-1.5 font-medium text-zinc-900 hover:bg-white disabled:opacity-50">
+          {busy ? "Меняем…" : "Сменить пароль"}
+        </button>
+        <button type="button" onClick={() => setOpen(false)} className="rounded-lg px-3 py-1.5 text-zinc-400 hover:text-zinc-200">
+          Закрыть
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -254,7 +324,8 @@ export function SettingsView() {
                 </p>
               )}
 
-              <div className="mt-6">
+              <div className="mt-6 flex flex-wrap items-start gap-3">
+                <ChangePassword />
                 <DeleteAccount />
               </div>
             </>
