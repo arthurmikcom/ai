@@ -2245,6 +2245,9 @@ a.vs-reel-button { text-decoration: none; }
 .lx-vendor--maryx svg { width: 100%; height: 100%; }
 .lx-model-vendor { padding: 1px 7px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--color-zinc-400); font-size: 10.5px; font-style: normal; font-weight: 500; }
 .lx-model-cost { flex-shrink: 0; color: var(--color-zinc-300); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Not the row's text column: the maker's tile and the price keep their own size. */
+.lx-row > .lx-vendor { display: inline-grid; flex: 0 0 auto; gap: 0; }
+.lx-row > .lx-model-cost { display: inline; flex: 0 0 auto; }
 .lx-models .lx-row[aria-checked="true"] { background: color-mix(in oklab, var(--color-violet-500) 14%, transparent); }
 .lx-models-note { margin: 8px 8px 2px; color: var(--color-zinc-500); font-size: 11.5px; line-height: 1.45; }
 @media (max-width: 640px) {

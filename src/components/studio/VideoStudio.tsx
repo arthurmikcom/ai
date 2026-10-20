@@ -117,11 +117,12 @@ function Pill({
 }) {
   const box = useRef<HTMLDivElement>(null);
   const pop = useRef<HTMLDivElement>(null);
-  // The panel opens upwards: it never reaches past the top of the screen (a tall composer on a phone).
+  // The panel opens upwards: it never reaches under the site's top bar (a tall composer on a phone).
   useLayoutEffect(() => {
     const el = pop.current;
     if (!open || !el) return;
-    el.style.maxHeight = `min(520px, 62vh, ${Math.max(160, Math.floor(el.getBoundingClientRect().bottom - 12))}px)`;
+    const top = Math.max(0, document.querySelector(".workspace-topbar")?.getBoundingClientRect().bottom ?? 0) + 8;
+    el.style.maxHeight = `min(520px, 62vh, ${Math.max(160, Math.floor(el.getBoundingClientRect().bottom - top))}px)`;
   }, [open]);
   useEffect(() => {
     if (!open) return;
