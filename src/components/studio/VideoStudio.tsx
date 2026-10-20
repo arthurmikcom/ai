@@ -792,7 +792,7 @@ export function VideoStudio() {
                                   <span>
                                     <strong>
                                       {m.label}
-                                      {m.provider === "maryx" ? <em className="lx-badge">Сам выбирает</em> : m.vendor && <em className="lx-model-vendor">{m.vendor}</em>}
+                                      {m.provider === "maryx" ? <em className="lx-badge">Рекомендуем</em> : m.vendor && <em className="lx-model-vendor">{m.vendor}</em>}
                                     </strong>
                                     <small>
                                       {m.description ?? "Видео по описанию"}
@@ -813,9 +813,6 @@ export function VideoStudio() {
                         );
                       })}
                     </div>
-                    <p className="lx-models-note">
-                      MARYX Ai Video сам выбирает нейросеть под запрос и, если она не справилась, пробует другую. Модель, выбранная вручную, снимает сама.
-                    </p>
                   </Pill>
                 )}
                 <Pill

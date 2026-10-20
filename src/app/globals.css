@@ -2249,7 +2249,6 @@ a.vs-reel-button { text-decoration: none; }
 .lx-row > .lx-vendor { display: inline-grid; flex: 0 0 auto; gap: 0; }
 .lx-row > .lx-model-cost { display: inline; flex: 0 0 auto; }
 .lx-models .lx-row[aria-checked="true"] { background: color-mix(in oklab, var(--color-violet-500) 14%, transparent); }
-.lx-models-note { margin: 8px 8px 2px; color: var(--color-zinc-500); font-size: 11.5px; line-height: 1.45; }
 @media (max-width: 640px) {
   .lx-model .lx-model-vendor { display: none; }
 }

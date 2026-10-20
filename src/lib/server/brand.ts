@@ -60,7 +60,7 @@ export function describeAiError(err: unknown, provider?: ProviderId, ownKey = fa
   if (!maryxOnly()) return describeError(err, provider, ownKey);
   if (err instanceof NotConfiguredError) return "MARYX временно недоступен. Попробуйте позже.";
   if (/PrivacyInformation|may contain real person/i.test(`${(err as { message?: string })?.message ?? ""} ${(err as { detail?: string })?.detail ?? ""}`)) {
-    return "Видеомодель не приняла фото с реальным человеком. Попробуйте ещё раз — MARYX возьмёт другую модель.";
+    return "Не получилось оживить это фото с человеком. Попробуйте ещё раз или возьмите другое фото.";
   }
   switch (statusOf(err)) {
     case 400:

@@ -128,7 +128,7 @@ export const MARYX_IMAGE_MODEL: ModelInfo = {
   provider: "maryx",
   id: "maryx-image",
   label: "MARYX",
-  description: "Наш ИИ сам подбирает лучший способ нарисовать",
+  description: "Наша нейросеть для картинок и фото",
   capability: "image",
   featured: true,
 };
@@ -137,7 +137,7 @@ export const MARYX_VIDEO_MODEL: ModelInfo = {
   provider: "maryx",
   id: "maryx-video",
   label: "MARYX Ai Video",
-  description: "Наша модель: сама выбирает лучшую нейросеть под ваш запрос",
+  description: "Наша видеонейросеть: реалистичное видео по тексту и фото",
   capability: "video",
   featured: true,
 };
@@ -146,7 +146,7 @@ export const MARYX_MODEL: ModelInfo = {
   provider: "maryx",
   id: "maryx",
   label: "MARYX",
-  description: "Наш ИИ: сам выбирает лучшую модель под каждую задачу",
+  description: "Наш ИИ для любых задач",
   capability: "chat",
   featured: true,
   vision: true,
