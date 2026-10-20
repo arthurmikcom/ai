@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
   Camera,
   Check,
@@ -33,8 +33,9 @@ import { useModels } from "@/lib/client/useModels";
 import { useStoredJson } from "@/lib/client/useStored";
 import { imageToAttachment, MAX_TOTAL_BASE64, nearestRatio } from "@/lib/client/util";
 import { TREND_CATEGORIES, VIDEO_TRENDS, type VideoTrend } from "@/lib/video-trends";
-import type { AspectRatio, MediaFile, MediaItem } from "@/lib/types";
+import type { AspectRatio, MediaFile, MediaItem, ModelInfo } from "@/lib/types";
 import { useApp, type ModelChoice } from "../AppState";
+import { BrandMark } from "../Design";
 import { findModel } from "../ModelPicker";
 import { PresetArt } from "./PresetArt";
 import { PromptGallery } from "./PromptGallery";
@@ -44,7 +45,7 @@ import { VideoGallery } from "./VideoGallery";
 
 type Mode = "text" | "photo" | "frames" | "effects";
 type Tab = "create" | "trends" | "effects";
-type Popover = "mode" | "camera" | "effect" | "ratio" | "duration" | null;
+type Popover = "model" | "mode" | "camera" | "effect" | "ratio" | "duration" | null;
 
 const MODES: { id: Mode; label: string; Icon: typeof ScriptVideo; hint: string; badge?: string }[] = [
   { id: "text", label: "Текст в видео", Icon: ScriptVideo, hint: "Опишите сцену — MARYX снимет её", badge: "Рекомендуем" },
@@ -74,6 +75,23 @@ async function frameFrom(file: MediaFile): Promise<Frame> {
 }
 
 const src = (f: Frame) => `data:${f.mime};base64,${f.data}`;
+
+/** What one clip of a model costs in credits, for its length. */
+function clipCredits(model: ModelInfo | undefined, seconds: number): number | undefined {
+  return model?.credits && Math.max(model.credits.least, Math.ceil(model.credits.perSecond * seconds));
+}
+
+/** A model's maker as a little tile: MARYX's mark, or the maker's first letter. */
+function VendorTile({ model }: { model: ModelInfo }) {
+  if (model.provider === "maryx") return <BrandMark className="lx-vendor lx-vendor--maryx" />;
+  const name = model.vendor ?? model.label;
+  const hue = [...name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
+  return (
+    <span className="lx-vendor" style={{ "--vendor-hue": hue } as CSSProperties} aria-hidden="true">
+      {name.charAt(0).toUpperCase()}
+    </span>
+  );
+}
 
 /** A pill of the composer's bottom row and the panel it opens (upwards, above the composer). */
 function Pill({
@@ -217,7 +235,7 @@ function TrendSheet({ trend, onClose, onMake }: { trend: VideoTrend; onClose: ()
  * the finished clips above the composer.
  */
 export function VideoStudio() {
-  const { me, maryxOnly } = useApp();
+  const { me } = useApp();
   const router = useRouter();
   const { data } = useModels("video");
   const models = useMemo(() => data?.models ?? [], [data]);
@@ -253,22 +271,23 @@ export function VideoStudio() {
   const photoOk = models.some((m) => m.photoEdit);
   const lastFrameOk = models.some((m) => m.photoEdit && m.lastFrame);
   const noProviders = data !== null && models.length === 0;
+  // MARYX Ai Video (first in the list) unless the user picked a model by hand.
   const fallback = models.find((m) => m.featured) ?? models[0];
-  const target: ModelChoice | null = maryxOnly
-    ? fallback
-      ? { provider: fallback.provider, model: fallback.id }
-      : null
-    : findModel(models, saved) || !fallback
-      ? saved
-      : { provider: fallback.provider, model: fallback.id };
+  const target: ModelChoice | null = saved && findModel(models, saved) ? saved : fallback ? { provider: fallback.provider, model: fallback.id } : null;
   const targetModel = target ? findModel(models, target) : undefined;
+  const ours = models.filter((m) => m.provider === "maryx");
+  const theirs = models.filter((m) => m.provider !== "maryx");
+  const price = clipCredits(targetModel, duration);
+  /** What a clip was made with: its model's name, or MARYX Ai Video. */
+  const labelOf = (item: MediaItem) =>
+    item.provider === "maryx" ? (ours[0]?.label ?? "MARYX Ai Video") : (findModel(models, { provider: item.provider, model: item.model })?.label ?? item.model);
 
   const frames = mode === "text" ? [] : mode === "frames" ? [start, end].filter((f): f is Frame => Boolean(f)) : start ? [start] : [];
   const withPhoto = frames.length > 0;
   const ready =
     Boolean(me && target && !reading) &&
     (mode === "text" ? prompt.trim().length > 0 : mode === "photo" ? Boolean(start) : mode === "frames" ? Boolean(start && end) : Boolean(effect && (start || prompt.trim())));
-  const modelCant = withPhoto && targetModel && !maryxOnly && !targetModel.photoEdit;
+  const modelCant = withPhoto && targetModel && (!targetModel.photoEdit || (mode === "frames" && !targetModel.lastFrame));
   const usage = me?.usage.video;
   const left = usage && usage.limit !== null ? Math.max(0, usage.limit - usage.used) : null;
   const current = MODES.find((m) => m.id === mode)!;
@@ -399,6 +418,9 @@ export function VideoStudio() {
     setEffect(item.effect ?? null);
     setDuration(item.duration && DURATIONS.includes(item.duration) ? item.duration : 5);
     if (RATIOS.includes(item.aspectRatio)) setRatio(item.aspectRatio);
+    // The same model, while it's offered (a clip MARYX made: MARYX Ai Video).
+    const same = item.provider === "maryx" ? ours[0] : findModel(models, { provider: item.provider, model: item.model });
+    if (same) setSaved({ provider: same.provider, model: same.id });
     setContinuing(null);
     const inputs = item.inputs ?? [];
     setMode(item.effect ? "effects" : inputs.length > 1 ? "frames" : inputs.length ? "photo" : "text");
@@ -588,7 +610,7 @@ export function VideoStudio() {
         <>
           <div className="lx-body">
             {items.length ? (
-              <VideoGallery items={items} onReuse={reuse} onContinue={continueFrom} onFrame={takeFrame} onDelete={(id) => void removeMedia(id)} />
+              <VideoGallery items={items} labelOf={labelOf} onReuse={reuse} onContinue={continueFrom} onFrame={takeFrame} onDelete={(id) => void removeMedia(id)} />
             ) : (
               <section className="lx-start" aria-label="Как создать видео">
                 <h1>Создайте первое видео</h1>
@@ -719,6 +741,75 @@ export function VideoStudio() {
               </div>
 
               <div className="lx-controls">
+                {targetModel && (
+                  <Pill
+                    title={`Модель: ${targetModel.label}`}
+                    icon={<VendorTile model={targetModel} />}
+                    label={targetModel.label}
+                    open={pop === "model"}
+                    onOpen={() => { setPop("model"); setSearch(""); }}
+                    onClose={() => setPop(null)}
+                    wide
+                  >
+                    {models.length > 6 && (
+                      <label className="lx-pop-search">
+                        <Search size={15} />
+                        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск моделей" aria-label="Поиск моделей" autoFocus />
+                      </label>
+                    )}
+                    <div className="lx-pop-list lx-models" role="radiogroup" aria-label="Модель">
+                      {[
+                        { title: "Наша модель", list: ours },
+                        { title: "Провайдеры", list: theirs },
+                      ].map(({ title, list }) => {
+                        const shown = list.filter((m) => matches(m.label, `${m.vendor ?? ""} ${m.id}`));
+                        if (!shown.length) return null;
+                        return (
+                          <div key={title} className="contents">
+                            <h3>{title}</h3>
+                            {shown.map((m) => {
+                              const on = target?.model === m.id && target.provider === m.provider;
+                              const cost = clipCredits(m, duration);
+                              const can = [m.photoEdit && "фото → видео", m.lastFrame && "начало и конец", m.motion && "повтор движений"].filter(Boolean).join(" · ");
+                              return (
+                                <button
+                                  key={`${m.provider}:${m.id}`}
+                                  type="button"
+                                  role="radio"
+                                  aria-checked={on}
+                                  className="lx-row lx-model"
+                                  onClick={() => { setSaved({ provider: m.provider, model: m.id }); setPop(null); setError(null); }}
+                                >
+                                  <VendorTile model={m} />
+                                  <span>
+                                    <strong>
+                                      {m.label}
+                                      {m.provider === "maryx" ? <em className="lx-badge">Сам выбирает</em> : m.vendor && <em className="lx-model-vendor">{m.vendor}</em>}
+                                    </strong>
+                                    <small>
+                                      {m.description ?? "Видео по описанию"}
+                                      {can && <> · {can}</>}
+                                    </small>
+                                  </span>
+                                  {cost !== undefined && (
+                                    <span className="lx-model-cost" title={`Цена ролика ${duration} с за кредиты. По тарифу — 1 видео из лимита; дорогие модели быстрее расходуют месячный бюджет тарифа на видео.`}>
+                                      {m.provider === "maryx" ? "от " : "≈ "}
+                                      {cost.toLocaleString("ru-RU")} кр.
+                                    </span>
+                                  )}
+                                  {on && <Check size={15} />}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p className="lx-models-note">
+                      MARYX Ai Video сам выбирает нейросеть под запрос и, если она не справилась, пробует другую. Модель, выбранная вручную, снимает сама.
+                    </p>
+                  </Pill>
+                )}
                 <Pill
                   title={`Режим: ${current.label}`}
                   icon={<current.Icon size={15} />}
@@ -763,21 +854,6 @@ export function VideoStudio() {
                               <small>Готовые тренды из одного фото и повтор вашего ролика</small>
                             </span>
                           </button>
-                        )}
-                        {!maryxOnly && models.length > 0 && (
-                          <>
-                            <h3>Модели</h3>
-                            {models.filter((m) => matches(m.label, m.id)).map((m) => (
-                              <button key={`${m.provider}:${m.id}`} type="button" className="lx-row" aria-pressed={target?.model === m.id && target.provider === m.provider} onClick={() => { setSaved({ provider: m.provider, model: m.id }); setPop(null); }}>
-                                <Clapperboard size={18} />
-                                <span>
-                                  <strong>{m.label}</strong>
-                                  <small>{m.photoEdit ? "Текст и фото" : "Только текст"}</small>
-                                </span>
-                                {target?.model === m.id && target.provider === m.provider && <Check size={15} />}
-                              </button>
-                            ))}
-                          </>
                         )}
                       </>
                     ) : (
@@ -865,7 +941,11 @@ export function VideoStudio() {
                   </button>
                 </div>
               </div>
-              {modelCant && <p className="vs-error">Эта модель не умеет начинать видео с фото — выберите другую.</p>}
+              {modelCant && (
+                <p className="vs-error">
+                  {targetModel?.photoEdit ? "Эта модель не умеет переход между двумя кадрами" : "Эта модель не умеет начинать видео с фото"} — выберите другую.
+                </p>
+              )}
               {error && (
                 <p role="alert" className="vs-error">
                   {error}
@@ -884,7 +964,9 @@ export function VideoStudio() {
               />
             </div>
             <p className="lx-dock-note">
-              {count > 1 ? `${count} видео из лимита` : "1 видео из лимита"} · {duration} с · готово за 1–5 минут, можно уйти со страницы
+              {targetModel && `${targetModel.label} · `}
+              {count > 1 ? `${count} видео из лимита` : "1 видео из лимита"}
+              {price !== undefined && ` или ${targetModel?.provider === "maryx" ? "от " : "≈ "}${(price * count).toLocaleString("ru-RU")} кр.`} · {duration} с · готово за 1–5 минут, можно уйти со страницы
             </p>
           </div>
         </>

@@ -161,7 +161,8 @@ export function parseGenerateRequest(body: unknown): GenerateRequest | string {
   const { kind, provider, model, prompt, aspectRatio, images, camera, effect, duration, style, character, recast, consent, cast, motion } = body;
   if (kind !== "image" && kind !== "video") return "Неизвестный тип генерации";
   if (!isProvider(provider) || provider === "browser") return "Неизвестный провайдер";
-  if (maryxOnly() && provider !== "maryx") return ONLY_MARYX;
+  // The video section also names its models: a clip may be made with one picked by hand.
+  if (maryxOnly() && provider !== "maryx" && kind !== "video") return ONLY_MARYX;
   if (typeof model !== "string" || !model || model.length > 200) return "Не выбрана модель";
   const photos = images === undefined ? undefined : parsePhotos(images);
   if (typeof photos === "string") return photos;

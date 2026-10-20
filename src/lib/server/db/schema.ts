@@ -265,6 +265,8 @@ export const media = pgTable(
     error: text("error"),
     /** The provider's own reason for a failure, shown to admins only (users see `error`). */
     errorDetail: text("error_detail"),
+    /** The user picked the model by hand (the video section's list): it's shown by its name, not as MARYX's. */
+    chosen: boolean("chosen").default(false).notNull(),
     files: jsonb("files").$type<StoredFile[]>().default([]).notNull(),
     /** The user's photos it was made from (photo editing); deleted with the item. */
     inputs: jsonb("inputs").$type<StoredFile[]>(),

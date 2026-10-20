@@ -1,0 +1,1 @@
+ALTER TABLE "media" ADD COLUMN "chosen" boolean DEFAULT false NOT NULL;

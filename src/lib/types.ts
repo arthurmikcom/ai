@@ -50,6 +50,13 @@ export interface ModelInfo {
   lastFrame?: boolean;
   /** MARYX video: can repeat a whole video's movement with someone else in it (motion transfer, «Тренд»). */
   motion?: boolean;
+  /** Video models in the video section: the company that made the model (Google, Kling AI…). */
+  vendor?: string;
+  /**
+   * Video models in the video section: what a clip costs in credits — per second, and the
+   * least one takes. For MARYX Ai Video, which picks the model itself: its usual pick.
+   */
+  credits?: { perSecond: number; least: number };
 }
 
 export interface ProviderStatus {

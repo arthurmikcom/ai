@@ -136,8 +136,8 @@ export const MARYX_IMAGE_MODEL: ModelInfo = {
 export const MARYX_VIDEO_MODEL: ModelInfo = {
   provider: "maryx",
   id: "maryx-video",
-  label: "MARYX",
-  description: "Наш ИИ сам подбирает лучший способ снять видео",
+  label: "MARYX Ai Video",
+  description: "Наша модель: сама выбирает лучшую нейросеть под ваш запрос",
   capability: "video",
   featured: true,
 };

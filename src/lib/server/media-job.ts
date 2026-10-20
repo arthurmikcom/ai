@@ -27,8 +27,11 @@ export async function startMediaJob(
   req: GenerateRequest,
   paid: Charge,
   models: ModelInfo[],
-  /** `stop`: when the request must have answered by (a recast's check and second try only run while they fit). */
-  opts: { until: number; admin: boolean; stop?: number },
+  /**
+   * `stop`: when the request must have answered by (a recast's check and second try only run while they fit).
+   * `chosen`: the user picked the model by hand (the video section), so it's shown by its name.
+   */
+  opts: { until: number; admin: boolean; stop?: number; chosen?: boolean },
 ): Promise<MediaItem> {
   // A character's photos are already stored with the character (a recast keeps only the video's frame, a move-for-move trend nothing).
   const photos = req.recast ? (req.images ?? []).slice(0, 1) : req.character || req.motion ? [] : (req.images ?? []);
@@ -41,7 +44,7 @@ export async function startMediaJob(
       await putFile(fileKey, Buffer.from(photo.data, "base64"), photo.mime);
       inputs.push({ key: fileKey, mime: photo.mime });
     }
-    row = await createMedia(user, req, paid, inputs);
+    row = await createMedia(user, req, paid, inputs, opts.chosen);
   } catch (err) {
     await deleteFiles(inputs.map((f) => f.key)).catch(() => {});
     await refundCharge(paid);

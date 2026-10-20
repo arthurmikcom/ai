@@ -81,6 +81,8 @@ export async function POST(request: Request) {
 
   // OpenRouter models (and MARYX, which picks them) go out with the user's own key when they saved one.
   const key = req.provider === "openrouter" || req.provider === "maryx" ? await ownKey(user.id) : undefined;
+  // A model picked by hand (the video section) is shown by its name in the gallery.
+  const chosen = req.provider !== "maryx" && !req.motion;
   // MARYX picks the real model itself (and the next ones, should it refuse); the gallery shows it as MARYX's.
   let models: ModelInfo[];
   if (req.motion) {
@@ -89,14 +91,14 @@ export async function POST(request: Request) {
     // Picked once it's known who pays (below): the free plan's pictures come from the free model.
     models = [];
   } else {
-    if (photos.length) {
-      const { models: offered } = await listModels(req.kind, { ownKey: key !== undefined });
-      const chosen = offered.find((m) => m.provider === req.provider && m.id === req.model && m.photoEdit);
-      if (!chosen) {
-        return jsonError(`Эта модель не умеет ${req.kind === "image" ? "обрабатывать" : "оживлять"} фото — выберите другую.`, 400);
-      }
-      if (transition && !chosen.lastFrame) return jsonError(NO_TRANSITION, 400);
+    // Only a model this user is offered (and is priced as such).
+    const { models: offered } = await listModels(req.kind, { ownKey: key !== undefined });
+    const picked = offered.find((m) => m.provider === req.provider && m.id === req.model);
+    if (!picked) return jsonError("Эта модель сейчас недоступна — выберите другую.", 400);
+    if (photos.length && !picked.photoEdit) {
+      return jsonError(`Эта модель не умеет ${req.kind === "image" ? "обрабатывать" : "оживлять"} фото — выберите другую.`, 400);
     }
+    if (transition && !picked.lastFrame) return jsonError(NO_TRANSITION, 400);
     models = [{ provider: req.provider, id: req.model, label: req.model, capability: req.kind, featured: false }];
   }
 
@@ -153,7 +155,7 @@ export async function POST(request: Request) {
 
   try {
     return Response.json(
-      await startMediaJob(user, req, paid, models, { until: started + FALLBACK_WINDOW_MS, stop: started + (maxDuration - 10) * 1000, admin: isAdmin(user) }),
+      await startMediaJob(user, req, paid, models, { until: started + FALLBACK_WINDOW_MS, stop: started + (maxDuration - 10) * 1000, admin: isAdmin(user), chosen }),
     );
   } catch (err) {
     if (err instanceof StorageUnavailableError) return storageUnavailable(user, err.message);

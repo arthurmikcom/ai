@@ -22,11 +22,12 @@ const GIVE_UP_AFTER_MS = 2 * 60 * 60 * 1000;
 
 /**
  * A gallery item as the browser sees it: in MARYX-only mode, MARYX's (the
- * real model stays stored for polling and costs). Admins also see the
- * provider's own reason for a failure.
+ * real model stays stored for polling and costs) — unless the user picked the
+ * model by hand in the video section. Admins also see the provider's own
+ * reason for a failure.
  */
 function toItem(row: MediaRow, admin = false): MediaItem {
-  const masked = maryxOnly();
+  const masked = maryxOnly() && !row.chosen;
   const error = row.error ? publicError(row.error) : undefined;
   return {
     id: row.id,
@@ -85,8 +86,8 @@ function costOf(row: MediaRow, reported?: number): CostEntry {
   };
 }
 
-/** `inputs`: the user's photos it is made from, already stored. */
-export async function createMedia(user: SessionUser, req: GenerateRequest, paid: Charge, inputs?: StoredFile[]): Promise<MediaRow> {
+/** `inputs`: the user's photos it is made from, already stored. `chosen`: the user picked the model by hand. */
+export async function createMedia(user: SessionUser, req: GenerateRequest, paid: Charge, inputs?: StoredFile[], chosen = false): Promise<MediaRow> {
   const db = await getDb();
   const [row] = await db
     .insert(schema.media)
@@ -113,6 +114,7 @@ export async function createMedia(user: SessionUser, req: GenerateRequest, paid:
           : null,
       provider: req.provider,
       model: req.model,
+      chosen,
       aspectRatio: req.aspectRatio,
       status: "pending",
       paidBy: paid.paidBy,

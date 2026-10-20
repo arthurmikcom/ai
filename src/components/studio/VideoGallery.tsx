@@ -42,9 +42,10 @@ function Elapsed({ since }: { since: number }) {
   return <>{`${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`}</>;
 }
 
-/** What it was filmed with, as short tags. */
-function tagsOf(item: MediaItem): string[] {
+/** What it was filmed with, as short tags: the model first. */
+function tagsOf(item: MediaItem, model?: string): string[] {
   return [
+    model,
     VIDEO_EFFECTS.find((e) => e.id === item.effect)?.label,
     CAMERA_MOTIONS.find((m) => m.id === item.camera)?.label,
     item.inputs?.length === 2 ? "Переход" : item.inputs?.length ? "Из фото" : undefined,
@@ -62,10 +63,10 @@ function download(url: string, name: string) {
 const fileName = (item: MediaItem) => `maryx-${item.id.slice(0, 8)}.${item.files[0]?.mime.split("/")[1]?.split(";")[0] ?? "mp4"}`;
 
 /** One clip in the grid: plays on hover (on phones, a tap opens it). */
-function VideoTile({ item, onOpen, onReuse, onDelete }: { item: MediaItem; onOpen: () => void; onReuse: () => void; onDelete: () => void }) {
+function VideoTile({ item, model, onOpen, onReuse, onDelete }: { item: MediaItem; model?: string; onOpen: () => void; onReuse: () => void; onDelete: () => void }) {
   const video = useRef<HTMLVideoElement>(null);
   const url = item.files[0]?.url;
-  const tags = tagsOf(item);
+  const tags = tagsOf(item, model);
   return (
     <article className="video-tile" data-status={item.status}>
       <div className={`video-tile-media ${RATIO_CLASS[item.aspectRatio]}`}>
@@ -145,6 +146,7 @@ function VideoTile({ item, onOpen, onReuse, onDelete }: { item: MediaItem; onOpe
 /** A finished clip, big: watch it, continue it, take a still from it. */
 function VideoPlayer({
   item,
+  model,
   onClose,
   onReuse,
   onContinue,
@@ -152,6 +154,7 @@ function VideoPlayer({
   onDelete,
 }: {
   item: MediaItem;
+  model?: string;
   onClose: () => void;
   onReuse: () => void;
   onContinue: (frame: Frame) => void;
@@ -206,7 +209,7 @@ function VideoPlayer({
           </div>
           <p className="video-player-prompt">{item.prompt}</p>
           <div className="video-tile-tags">
-            {tagsOf(item).map((t) => (
+            {tagsOf(item, model).map((t) => (
               <span key={t}>{t}</span>
             ))}
             <span>{item.aspectRatio}</span>
@@ -267,12 +270,15 @@ function VideoPlayer({
 /** «Мои видео»: the clips, newest first, with the ones being filmed on top. */
 export function VideoGallery({
   items,
+  labelOf,
   onReuse,
   onContinue,
   onFrame,
   onDelete,
 }: {
   items: MediaItem[];
+  /** The model a clip was made with, by name. */
+  labelOf?: (item: MediaItem) => string;
   onReuse: (item: MediaItem) => void;
   onContinue: (frame: Frame, item: MediaItem) => void;
   onFrame: (frame: Frame, to: "video" | "image") => void;
@@ -304,7 +310,7 @@ export function VideoGallery({
       {shown.length ? (
         <div className="vs-grid">
           {shown.map((item) => (
-            <VideoTile key={item.id} item={item} onOpen={() => setOpen(item.id)} onReuse={() => onReuse(item)} onDelete={() => onDelete(item.id)} />
+            <VideoTile key={item.id} item={item} model={labelOf?.(item)} onOpen={() => setOpen(item.id)} onReuse={() => onReuse(item)} onDelete={() => onDelete(item.id)} />
           ))}
         </div>
       ) : (
@@ -320,6 +326,7 @@ export function VideoGallery({
       {playing && (
         <VideoPlayer
           item={playing}
+          model={labelOf?.(playing)}
           onClose={close}
           onReuse={() => {
             close();

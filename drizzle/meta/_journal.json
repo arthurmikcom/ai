@@ -134,6 +134,13 @@
       "when": 1792483708753,
       "tag": "0018_message_error_detail",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1792485275953,
+      "tag": "0019_media_chosen",
+      "breakpoints": true
     }
   ]
 }

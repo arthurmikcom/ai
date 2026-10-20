@@ -1,9 +1,12 @@
 import { MARYX_IMAGE_MODEL, MARYX_VIDEO_MODEL } from "@/lib/catalog";
 import { isAdmin } from "@/lib/server/auth";
+import { creditValueUsd, MIN_CREDITS } from "@/lib/server/billing/credits";
+import { maryxMediaModels } from "@/lib/server/chat/image";
 import { isConfigured, maryxOnly } from "@/lib/server/config";
 import { requireUser } from "@/lib/server/http";
 import { listModels } from "@/lib/server/models";
 import { ownKeyInfo } from "@/lib/server/own-key";
+import { mediaCost } from "@/lib/server/pricing";
 import type { Capability, ModelInfo, ModelsResponse } from "@/lib/types";
 
 const CAPABILITIES = new Set<string>(["chat", "image", "video"]);
@@ -19,7 +22,57 @@ export async function GET(request: Request) {
   const all = await listModels(capability, { ownKey });
   const body: ModelsResponse =
     maryxOnly() && !(capability === null && isAdmin(user)) ? { ...onlyMaryx(all, capability), maryxOnly: true } : all;
+  // The video section names its models: MARYX Ai Video (which picks one itself) first, then each by its maker.
+  if (capability === "video" && body.models.length) {
+    const usual = (await maryxMediaModels("video", ownKey))[0];
+    const real = all.models.filter((m) => m.capability === "video" && m.provider !== "maryx");
+    body.models = [
+      ...body.models.filter((m) => m.provider === "maryx").map((m) => ({ ...m, vendor: "MARYX", credits: clipCredits(usual?.id ?? m.id) })),
+      ...[...real.filter((m) => m.featured), ...real.filter((m) => !m.featured)].map((m) => ({
+        ...m,
+        // OpenRouter names its models "Maker: Model"; the maker is shown apart.
+        label: m.label.replace(/^[^:]{2,30}:\s*/, ""),
+        vendor: vendorOf(m),
+        credits: clipCredits(m.id),
+      })),
+    ];
+  }
   return Response.json(body, { headers: { "Cache-Control": "no-store" } });
+}
+
+/** What a clip of a model costs in credits: per second, and the least a clip takes. */
+function clipCredits(model: string): { perSecond: number; least: number } {
+  const perSecond = mediaCost("video", model, 1) / creditValueUsd();
+  return { perSecond: Math.round(perSecond * 100) / 100, least: MIN_CREDITS.video };
+}
+
+/** Who made a video model, by its id ("google/veo-3.1" → Google). */
+const VENDORS: [RegExp, string][] = [
+  [/veo|^google\//, "Google"],
+  [/kling|kwaivgi/, "Kling AI"],
+  [/seedance|bytedance/, "ByteDance"],
+  [/hailuo|minimax/, "MiniMax"],
+  [/wan|alibaba/, "Alibaba"],
+  [/sora|^openai\//, "OpenAI"],
+  [/luma|ray-/, "Luma"],
+  [/runway|gen-4/, "Runway"],
+  [/pika/, "Pika"],
+  [/ltx|lightricks/, "Lightricks"],
+  [/hunyuan|tencent/, "Tencent"],
+  [/grok|x-ai/, "xAI"],
+];
+
+function vendorOf(m: ModelInfo): string {
+  // The site's own GPU runs open models.
+  if (m.provider === "comfy") return "Сервер MARYX";
+  const id = m.id.toLowerCase();
+  const known = VENDORS.find(([re]) => re.test(id))?.[1];
+  if (known) return known;
+  // OpenRouter names its models "Maker: Model".
+  const named = /^([^:]{2,30}):/.exec(m.label)?.[1];
+  if (named) return named;
+  const prefix = id.split("/")[0];
+  return prefix && prefix !== id ? prefix.charAt(0).toUpperCase() + prefix.slice(1) : m.label;
 }
 
 /**
