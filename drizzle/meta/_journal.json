@@ -141,6 +141,13 @@
       "when": 1792485275953,
       "tag": "0019_media_chosen",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1792496450038,
+      "tag": "0020_paddle_paypal_ton",
+      "breakpoints": true
     }
   ]
 }

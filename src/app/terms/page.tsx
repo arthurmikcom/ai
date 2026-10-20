@@ -36,8 +36,9 @@ async function Content() {
   const info = legalInfo();
   const prices = await publicPrices();
   const price = (p: (typeof prices.plans)[number]) =>
-    [p.stripe && money(p.stripe.amount, p.stripe.currency), p.rub !== undefined && money(p.rub, "RUB")].filter(Boolean).join(" или ");
-  const englishPlans = prices.plans.filter((p) => p.stripe);
+    [p.price && money(p.price.amount, p.price.currency), p.rub !== undefined && money(p.rub, "RUB")].filter(Boolean).join(" или ");
+  const englishPlans = prices.plans.filter((p) => p.price);
+  const once = prices.oneOff.length ? prices.oneOff.join(" или ") : null;
   const packPrice = (p: { usd: number; rub: number }) => [p.usd > 0 && money(p.usd, "USD"), p.rub > 0 && money(p.rub, "RUB")].filter(Boolean).join(" или ");
   const englishPacks = prices.packs.filter((p) => p.usd > 0);
   return (
@@ -76,6 +77,17 @@ async function Content() {
           Тариф можно сменить в любой момент: при переходе на другой платный тариф разница за оставшиеся дни пересчитывается в следующем
           счёте.
         </li>
+        {once && (
+          <li>
+            Месяц тарифа можно также оплатить разово через {once}{" "}
+            {prices.plans.some((p) => p.once) &&
+              `(${prices.plans
+                .filter((p) => p.once)
+                .map((p) => `${p.name} — ${money(p.once!, "USD")}`)
+                .join(", ")})`}
+            , без автопродления. Следующий месяц оплачивается так же; при переходе на другой тариф оставшиеся дни пересчитываются по его цене.
+          </li>
+        )}
         {prices.packs.length > 0 && (
           <li>
             <b>Кредиты</b> — разовая покупка для запросов сверх дневных лимитов:{" "}
@@ -104,6 +116,18 @@ async function Content() {
         <li>
           Платежи принимает {providersText(prices.providers, "платёжная система")}; данные карты Сервис не получает и не хранит.
         </li>
+        {prices.paddle && (
+          <li>
+            При оплате через Paddle заказ оформляет наш онлайн-реселлер Paddle.com: он выступает продавцом (Merchant of Record), рассчитывает
+            налоги и принимает запросы на возврат по своим правилам и нашим правилам «Отмена и возврат».
+          </li>
+        )}
+        {prices.ton && (
+          <li>
+            Оплата в криптовалюте TON — разовый перевод на кошелёк Сервиса с кодом в комментарии. Сумма в TON рассчитывается по курсу к
+            доллару США в момент оплаты и держится 30 минут. Переводы в блокчейне необратимы: проверяйте адрес, сумму и комментарий.
+          </li>
+        )}
       </ul>
 
       <h2>5. Правила использования</h2>
@@ -142,12 +166,15 @@ async function Content() {
         MARYX Ai is an AI assistant service (text answers, documents, image and video generation) provided by {info.name}. AI output may be
         inaccurate and is not professional advice. Paid features are for users aged 18+. Free plan: free with daily limits. Plus, Pro and Ultra:
         monthly subscriptions
-        {englishPlans.length ? ` (${englishPlans.map((p) => `${p.name} ${money(p.stripe!.amount, p.stripe!.currency)}`).join(", ")} per month)` : ""} that
+        {englishPlans.length ? ` (${englishPlans.map((p) => `${p.name} ${money(p.price!.amount, p.price!.currency)}`).join(", ")} per month)` : ""} that
         renew automatically until cancelled; you can switch plans (the difference is prorated) or cancel any time in Settings → Subscription
         and keep the plan until the end of the paid month.
         {englishPacks.length > 0 &&
           ` Credits are one-time purchases (${englishPacks.map((p) => `${p.credits} credits for ${money(p.usd, "USD")}`).join(", ")}) for usage beyond daily limits; they don't expire and aren't redeemable for cash except as described in Cancellation & refunds.`}{" "}
-        {prices.providers.length > 0 && `Payments are processed by ${prices.providers.join(" and ")}; we never see or store card details. `}
+        {once && ` A month of a plan can also be paid once through ${prices.oneOff.join(" or ")}, without automatic renewal.`}{" "}
+        {prices.providers.length > 0 && `Payments are processed by ${prices.providers.join(", ")}; we never see or store card details. `}
+        {prices.paddle && "Our order process is conducted by our online reseller Paddle.com. Paddle.com is the Merchant of Record for all our orders made through Paddle, and handles returns and tax for them. "}
+        {prices.ton && "TON (cryptocurrency) payments are one-time transfers to our wallet at the TON/USD rate at the time of payment; blockchain transfers are irreversible. "}
         Illegal content, abuse, spam, malware and attempts to bypass limits are prohibited. You keep the rights to your input and may use
         generated content lawfully. The service is provided “as is”; liability is limited to the amount you paid in the last three months.
         See also <Link href="/refund">Cancellation &amp; refunds</Link> and <Link href="/privacy">Privacy</Link>.

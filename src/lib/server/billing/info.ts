@@ -1,5 +1,5 @@
 import type { PlanInfo } from "@/lib/types";
-import { currentPlan, hasLiveStripe, needsYooKassaRepay } from "./plans";
+import { currentPlan, hasLivePaddle, hasLiveStripe, isOneOff, needsYooKassaRepay } from "./plans";
 import { nextChargeAt } from "./yookassa";
 
 /** The user's plan as shown in the UI. */
@@ -8,6 +8,7 @@ export async function planInfo(userId: string): Promise<PlanInfo> {
   if (!sub) return { id: plan };
   const endsAtPeriodEnd =
     sub.provider === "promo" ||
+    isOneOff(sub.provider) ||
     sub.cancelAtPeriodEnd ||
     // No saved card (declined for good, or the method couldn't be saved).
     (sub.provider === "yookassa" && !sub.yookassaPaymentMethodId);
@@ -24,6 +25,7 @@ export async function planInfo(userId: string): Promise<PlanInfo> {
         : sub.currentPeriodEnd.getTime(),
     status: sub.status,
     stripeLive: hasLiveStripe(sub),
+    paddleLive: hasLivePaddle(sub),
     cardSaved: sub.provider === "yookassa" && Boolean(sub.yookassaPaymentMethodId),
     repay: plan !== "free" && needsYooKassaRepay(sub),
   };

@@ -1,6 +1,9 @@
 import { PAID_PLANS, PLAN_ORDER } from "@/lib/plans";
 import { creditsFor, MIN_CREDITS } from "@/lib/server/billing/credits";
-import { sellablePacks } from "@/lib/server/billing/packs";
+import { sellablePacks, sellsInUsd } from "@/lib/server/billing/packs";
+import { paddleConfigured, paddleCreditsConfigured, paddlePriceLabel, paddleSandbox, paddleSells } from "@/lib/server/billing/paddle";
+import { paypalConfigured, paypalSandbox } from "@/lib/server/billing/paypal";
+import { tonConfigured } from "@/lib/server/billing/ton";
 import { maryxMediaModel } from "@/lib/server/chat/image";
 import { freePlanFreeImages, maryxOnly } from "@/lib/server/config";
 import { listModels } from "@/lib/server/models";
@@ -41,11 +44,27 @@ export async function GET(request: Request) {
     }
   }
 
+  let paddle: BillingOptions["methods"]["paddle"] = null;
+  if (paddleConfigured()) {
+    try {
+      const sold = PAID_PLANS.filter(paddleSells);
+      const labels = await Promise.all(sold.map((p) => paddlePriceLabel(p)));
+      paddle = { prices: Object.fromEntries(sold.map((p, i) => [p, labels[i]])), sandbox: paddleSandbox() };
+    } catch (err) {
+      console.error("[billing] Paddle price unavailable", err);
+    }
+  }
+
   // Packs are on sale with whichever payment methods are set up.
   const rub = yookassaConfigured();
-  const usd = stripeCreditsConfigured();
+  const usd = stripeCreditsConfigured() || sellsInUsd();
   const money = (value: number, currency: string) =>
     new Intl.NumberFormat("ru-RU", { style: "currency", currency, maximumFractionDigits: currency === "RUB" ? 0 : 2 }).format(value);
+  // A month through PayPal or TON costs the plan's own price in dollars (*_PRICE_USD).
+  const monthly = () =>
+    Object.fromEntries(PAID_PLANS.filter((p) => planPriceSetting(p).usd > 0).map((p) => [p, money(planPriceSetting(p).usd, "USD")])) as Partial<
+      Record<PaidPlanId, string>
+    >;
   const packs =
     rub || usd
       ? sellablePacks().map((p) => ({
@@ -73,13 +92,25 @@ export async function GET(request: Request) {
     freeImages: freePlanFreeImages(),
     credits: {
       packs,
+      methods: (
+        [
+          ["stripe", stripeCreditsConfigured()],
+          ["paddle", paddleCreditsConfigured()],
+          ["paypal", paypalConfigured()],
+          ["ton", tonConfigured()],
+          ["yookassa", rub],
+        ] as const
+      ).flatMap(([m, on]) => (on ? [m] : [])),
       min: { ...MIN_CREDITS, image: images.length ? creditsFor("image", image) : MIN_CREDITS.image, video: videos.length ? creditsFor("video", video) : MIN_CREDITS.video },
     },
     methods: {
       yookassa: yookassaConfigured() ? { price: yookassaPriceLabel() } : null,
       stripe,
+      paddle,
+      paypal: paypalConfigured() ? { prices: monthly(), sandbox: paypalSandbox() } : null,
+      ton: tonConfigured() ? { prices: monthly() } : null,
     },
-    prices: eachPaid((p) => stripe?.prices[p] ?? (planPriceSetting(p).usd > 0 ? money(planPriceSetting(p).usd, "USD") : null)),
+    prices: eachPaid((p) => stripe?.prices[p] ?? paddle?.prices[p] ?? (planPriceSetting(p).usd > 0 ? money(planPriceSetting(p).usd, "USD") : null)),
   };
   return Response.json(body, { headers: { "Cache-Control": "no-store" } });
 }

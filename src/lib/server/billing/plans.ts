@@ -58,8 +58,15 @@ export function subscriptionPlan(sub: Pick<SubscriptionRow, "plan">): PaidPlanId
 /** Whether a subscription currently grants its paid plan. */
 export function isEntitled(sub: SubscriptionRow | undefined, now = new Date()): boolean {
   if (!sub || sub.currentPeriodEnd <= now) return false;
-  // Stripe tells us when a payment failed; our own subscriptions just run to the period end.
-  return sub.provider === "stripe" ? sub.status === "active" || sub.status === "trialing" : sub.status !== "canceled";
+  // Stripe and Paddle tell us when a payment failed; our own periods just run to the period end.
+  return sub.provider === "stripe" || sub.provider === "paddle"
+    ? sub.status === "active" || sub.status === "trialing"
+    : sub.status !== "canceled";
+}
+
+/** PayPal and TON pay for one month at a time: nothing renews by itself. */
+export function isOneOff(provider: string | undefined): provider is "paypal" | "ton" {
+  return provider === "paypal" || provider === "ton";
 }
 
 export async function getSubscription(userId: string): Promise<SubscriptionRow | undefined> {
@@ -110,4 +117,30 @@ export function isLiveStripe(status: string): boolean {
  */
 export function hasLiveStripe(sub: SubscriptionRow | undefined): boolean {
   return sub?.provider === "stripe" && Boolean(sub.stripeSubscriptionId) && isLiveStripe(sub.status);
+}
+
+/** Paddle statuses in which the subscription still exists and may bill. */
+const PADDLE_LIVE = new Set(["active", "trialing", "past_due", "paused"]);
+
+export function isLivePaddle(status: string): boolean {
+  return PADDLE_LIVE.has(status);
+}
+
+/** A Paddle subscription that is still billing: plans change in place, nothing else is started on top. */
+export function hasLivePaddle(sub: SubscriptionRow | undefined): boolean {
+  return sub?.provider === "paddle" && Boolean(sub.paddleSubscriptionId) && isLivePaddle(sub.status);
+}
+
+/**
+ * Why a period that renews by itself (Stripe, Paddle, YooKassa with autopay)
+ * blocks another purchase on top of it, or null when there's none.
+ */
+export function renewingBlock(sub: SubscriptionRow | undefined): string | null {
+  if (hasLiveStripe(sub) || hasLivePaddle(sub)) {
+    return "У вас подписка с автопродлением — сменить тариф можно на странице тарифов, а управлять ею в настройках («Управлять подпиской»)";
+  }
+  if (sub?.provider === "yookassa" && isEntitled(sub) && sub.yookassaPaymentMethodId && !sub.cancelAtPeriodEnd) {
+    return "У вас подписка в рублях с автопродлением — сначала отключите автопродление в настройках";
+  }
+  return null;
 }

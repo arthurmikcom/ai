@@ -2252,3 +2252,38 @@ a.vs-reel-button { text-decoration: none; }
 @media (max-width: 640px) {
   .lx-model .lx-model-vendor { display: none; }
 }
+
+/* Payment pages: Paddle's checkout opens over /pay/paddle; /pay/ton shows what to send where. */
+.pay-page { display: grid; place-items: center; min-height: 100%; padding: 32px 16px; }
+.pay-card { display: grid; justify-items: center; gap: 12px; width: min(440px, 100%); padding: 28px 24px; border-radius: 24px; text-align: center; }
+.pay-card--wide { width: min(640px, 100%); justify-items: stretch; text-align: left; }
+.pay-card h1 { color: var(--color-zinc-100); font-size: 20px; font-weight: 600; }
+.pay-card p { color: var(--color-zinc-400); font-size: 14px; line-height: 1.5; }
+.pay-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 42px; padding: 0 18px; border-radius: 14px; font-size: 14px; font-weight: 500; }
+.pay-button--ghost { border: 1px solid var(--line-strong); color: var(--color-zinc-100); background: color-mix(in oklab, var(--color-white) 4%, transparent); }
+.pay-button--ghost:hover { background: color-mix(in oklab, var(--color-white) 8%, transparent); }
+.pay-back { justify-self: center; color: var(--color-zinc-500); font-size: 13px; }
+.pay-back:hover { color: var(--color-zinc-200); }
+.ton-head { display: flex; align-items: center; gap: 12px; }
+.ton-head p { margin-top: 2px; }
+.ton-body { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 18px; align-items: start; }
+.ton-qr { overflow: hidden; width: 180px; border-radius: 14px; background: #fff; }
+.ton-qr svg { display: block; width: 100%; height: auto; }
+.ton-fields { display: grid; gap: 10px; min-width: 0; }
+.ton-field { display: grid; gap: 4px; }
+.ton-field > span { color: var(--color-zinc-500); font-size: 12px; }
+.ton-field > div { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 12px; background: color-mix(in oklab, var(--color-black) 25%, transparent); }
+.ton-field code { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--color-zinc-100); font-size: 14px; }
+.ton-field button { flex-shrink: 0; color: var(--color-zinc-400); }
+.ton-field button:hover { color: var(--color-zinc-100); }
+.ton-warning { display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; border: 1px solid color-mix(in oklab, var(--color-amber-400) 30%, transparent); border-radius: 12px; background: color-mix(in oklab, var(--color-amber-400) 10%, transparent); }
+.pay-card .ton-warning { color: var(--color-amber-100); font-size: 13px; }
+.ton-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ton-status { display: flex; align-items: center; gap: 8px; }
+.pay-card .ton-note { color: var(--color-zinc-500); font-size: 12px; }
+.ton-done { display: grid; justify-items: center; gap: 10px; padding: 12px 0; text-align: center; }
+.ton-done h2 { color: var(--color-zinc-100); font-size: 18px; font-weight: 600; }
+@media (max-width: 560px) {
+  .ton-body { grid-template-columns: 1fr; justify-items: center; }
+  .ton-fields { width: 100%; }
+}

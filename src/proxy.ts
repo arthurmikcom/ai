@@ -7,7 +7,13 @@ import { NextResponse, type NextRequest } from "next/server";
 // and pages shared by a link (/s/<id>) open for anyone who has it.
 const PUBLIC_PATHS = ["/login", "/api/auth", "/api/health", "/terms", "/refund", "/privacy", "/manifest.webmanifest", "/icons", "/s"];
 /** Called by payment providers and Vercel Cron; each route authenticates itself. */
-const MACHINE_PATHS = ["/api/billing/stripe/webhook", "/api/billing/yookassa/webhook", "/api/cron"];
+const MACHINE_PATHS = [
+  "/api/billing/stripe/webhook",
+  "/api/billing/paddle/webhook",
+  "/api/billing/paypal/webhook",
+  "/api/billing/yookassa/webhook",
+  "/api/cron",
+];
 
 const matches = (pathname: string, paths: string[]) =>
   paths.some((p) => pathname === p || pathname.startsWith(`${p}/`));

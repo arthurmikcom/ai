@@ -1,11 +1,11 @@
 "use client";
 
-import { Check, Coins, CreditCard, Gem, KeyRound, LoaderCircle, Sparkles } from "@/components/MaryxIcons";
+import { Banknote, Check, Coins, CreditCard, Gem, KeyRound, LoaderCircle, Sparkles } from "@/components/MaryxIcons";
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 import { api } from "@/lib/client/api";
 import { PLAN_NAMES, PLAN_ORDER, PLAN_TAGLINES, planRank } from "@/lib/plans";
-import type { BillingOptions, PaidPlanId, PlanId, UsageKind } from "@/lib/types";
+import type { BillingOptions, PaidPlanId, PaymentMethod as Method, PlanId, UsageKind } from "@/lib/types";
 import { useApp } from "./AppState";
 import { PromoForm } from "./PromoForm";
 import { LegalLinks } from "./LegalPage";
@@ -32,6 +32,11 @@ function limitText(limit: number | null, kind: UsageKind): string {
   return `${limit.toLocaleString("ru-RU")} ${plural(limit, KIND_WORDS[kind])} в день`;
 }
 
+/** A month paid once: nothing renews, so no consent to auto-renewal is asked. */
+const ONCE: Method[] = ["paypal", "ton"];
+
+const METHOD_ICON: Record<Method, typeof CreditCard> = { stripe: CreditCard, paddle: CreditCard, yookassa: CreditCard, paypal: Banknote, ton: Coins };
+
 export function PricingView() {
   const { me, refreshMe, maryxOnly } = useApp();
   const [options, setOptions] = useState<BillingOptions | null>(null);
@@ -50,7 +55,7 @@ export function PricingView() {
     if (options && window.location.hash === "#credits") document.getElementById("credits")?.scrollIntoView();
   }, [options]);
 
-  const buyCredits = async (method: "yookassa" | "stripe", pack: string) => {
+  const buyCredits = async (method: Method, pack: string) => {
     setBusy(`${method}:${pack}`);
     setError(null);
     try {
@@ -66,7 +71,7 @@ export function PricingView() {
   };
 
   const [notice, setNotice] = useState<string | null>(null);
-  const checkout = async (method: "yookassa" | "stripe", plan: PaidPlanId) => {
+  const checkout = async (method: Method, plan: PaidPlanId) => {
     setBusy(`${method}:${plan}`);
     setError(null);
     setNotice(null);
@@ -79,8 +84,12 @@ export function PricingView() {
         window.location.assign(res.url);
         return;
       }
-      // A Stripe subscription moved to the other plan: the difference comes on the next invoice.
-      setNotice(`Готово: теперь у вас ${PLAN_NAMES[res.changed ?? plan]}. Разница за оставшиеся дни пересчитается в следующем счёте.`);
+      // A subscription moved to the other plan: Stripe settles the difference on the next invoice, Paddle right away.
+      setNotice(
+        `Готово: теперь у вас ${PLAN_NAMES[res.changed ?? plan]}. ${
+          method === "paddle" ? "Разница за оставшиеся дни уже пересчитана." : "Разница за оставшиеся дни пересчитается в следующем счёте."
+        }`,
+      );
       refreshMe();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -89,16 +98,24 @@ export function PricingView() {
   };
 
   const current: PlanId = me?.plan.id ?? "free";
+  const provider = me?.plan.provider;
   // A promo period can be extended by subscribing, and a YooKassa period
   // that won't renew by itself can be paid again; paid time starts after it.
   const repay = Boolean(me?.plan.repay);
-  // A live Stripe subscription switches plan in place (with proration).
-  const switching = Boolean(me?.plan.stripeLive);
-  const canBuy = !switching && (current === "free" || me?.plan.provider === "promo" || repay);
-  // Stripe can't start after a YooKassa period without double-charging it.
+  // A live Stripe or Paddle subscription switches plan in place (with proration).
+  const switching = Boolean(me?.plan.stripeLive || me?.plan.paddleLive);
+  // A month paid once (PayPal, TON) runs to its end; another month extends it or moves to another plan.
+  const paidOnce = current !== "free" && (provider === "paypal" || provider === "ton");
+  const canSubscribe = !switching && !paidOnce && (current === "free" || provider === "promo" || repay);
+  const canPayOnce = !switching && (canSubscribe || paidOnce);
+  // Stripe and Paddle can't start after a YooKassa period without double-charging it.
   const stripe = repay ? null : (options?.methods.stripe ?? null);
+  const paddle = repay ? null : (options?.methods.paddle ?? null);
   const yookassa = options?.methods.yookassa ?? null;
-  const anyMethod = Boolean(yookassa || stripe);
+  const paypal = options?.methods.paypal ?? null;
+  const ton = options?.methods.ton ?? null;
+  const renewing = Boolean(yookassa || stripe || paddle);
+  const anyMethod = Boolean(renewing || paypal || ton);
 
   const feature = (text: ReactNode, muted = false) => (
     <li className={`flex items-start gap-2 ${muted ? "text-zinc-500" : ""}`}>
@@ -128,64 +145,70 @@ export function PricingView() {
     );
   };
 
+  /** A payment button; the first one shown is the main one. */
+  const payButton = (method: Method, plan: PaidPlanId, label: ReactNode, main: boolean) => {
+    const Icon = METHOD_ICON[method];
+    return (
+      <button
+        key={method}
+        type="button"
+        disabled={busy !== null || (!ONCE.includes(method) && !consent)}
+        onClick={() => checkout(method, plan)}
+        className={main ? "plan-action" : "plan-action plan-action--ghost"}
+      >
+        {busy === `${method}:${plan}` ? <LoaderCircle className="size-4 animate-spin" /> : <Icon className="size-4" />}
+        {label}
+      </button>
+    );
+  };
+
   /** The way to a paid plan from where the user is now. */
   const action = (plan: PaidPlanId) => {
-    if (plan === current) {
+    if (plan === current && !paidOnce) {
       return (
         <Link href="/settings" className="plan-action plan-action--ghost">
           Управлять подпиской
         </Link>
       );
     }
-    const stripePrice = stripe?.prices[plan];
     if (switching) {
-      return stripePrice ? (
-        <button type="button" disabled={busy !== null || !consent} onClick={() => checkout("stripe", plan)} className="plan-action">
-          {busy === `stripe:${plan}` ? <LoaderCircle className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
-          {planRank(plan) > planRank(current) ? "Перейти на" : "Сменить на"} {PLAN_NAMES[plan]}
-        </button>
-      ) : null;
+      const live = me?.plan.paddleLive ? paddle : stripe;
+      return live?.prices[plan]
+        ? payButton(me?.plan.paddleLive ? "paddle" : "stripe", plan, <>{planRank(plan) > planRank(current) ? "Перейти на" : "Сменить на"} {PLAN_NAMES[plan]}</>, true)
+        : null;
     }
-    if (!canBuy) {
+    if (!canSubscribe && !canPayOnce) {
       return (
         <Link href="/settings" className="plan-action plan-action--ghost">
           Управлять подпиской
         </Link>
       );
     }
-    const rubles = plan === "pro" ? yookassa : null;
-    if (!stripePrice && !rubles) {
+    const extend = paidOnce && plan === current;
+    const buttons: { method: Method; label: ReactNode }[] = [];
+    if (canSubscribe) {
+      if (stripe?.prices[plan]) buttons.push({ method: "stripe", label: <>Оформить {PLAN_NAMES[plan]}</> });
+      if (paddle?.prices[plan]) buttons.push({ method: "paddle", label: stripe?.prices[plan] ? "Через Paddle · карта, PayPal" : <>Оформить {PLAN_NAMES[plan]}</> });
+      if (plan === "pro" && yookassa) buttons.push({ method: "yookassa", label: <>В рублях · {yookassa.price}</> });
+    }
+    if (canPayOnce) {
+      if (paypal?.prices[plan]) buttons.push({ method: "paypal", label: extend ? "Продлить · PayPal" : "PayPal · 1 месяц" });
+      if (ton?.prices[plan]) buttons.push({ method: "ton", label: extend ? "Продлить · крипто TON" : "Крипто TON · 1 месяц" });
+    }
+    if (!buttons.length) {
       return (
         <p className="plan-note">
-          {me?.admin
-            ? anyMethod
-              ? `${PLAN_NAMES[plan]} не продаётся: проверьте ${plan.toUpperCase()}_PRICE_USD.`
-              : "Оплата не подключена: задайте ключи Stripe. Пока можно выдавать Pro промокодами в настройках."
-            : "Онлайн-оплата скоро появится. Если у вас есть промокод — введите его ниже."}
+          {paidOnce
+            ? "Оплаченный месяц идёт до конца. Сменить тариф можно после него."
+            : me?.admin
+              ? anyMethod
+                ? `${PLAN_NAMES[plan]} не продаётся: проверьте ${plan.toUpperCase()}_PRICE_USD или цену тарифа в Paddle.`
+                : "Оплата не подключена: задайте ключи Stripe, Paddle, PayPal или кошелёк TON. Пока можно выдавать Pro промокодами в настройках."
+              : "Онлайн-оплата скоро появится. Если у вас есть промокод — введите его ниже."}
         </p>
       );
     }
-    return (
-      <div className="grid gap-2">
-        {stripePrice && (
-          <button type="button" disabled={busy !== null || !consent} onClick={() => checkout("stripe", plan)} className="plan-action">
-            {busy === `stripe:${plan}` ? <LoaderCircle className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
-            Оформить {PLAN_NAMES[plan]}
-          </button>
-        )}
-        {rubles && (
-          <button
-            type="button"
-            disabled={busy !== null || !consent}
-            onClick={() => checkout("yookassa", plan)}
-            className={stripePrice ? "plan-action plan-action--ghost" : "plan-action"}
-          >
-            {busy === `yookassa:${plan}` ? <LoaderCircle className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
-            В рублях · {rubles.price}
-          </button>
-        )}
-      </div>
-    );
+    return <div className="grid gap-2">{buttons.map((b, i) => payButton(b.method, plan, b.label, i === 0))}</div>;
   };
 
   const EYEBROW: Record<PlanId, string> = { free: "Первый шаг", plus: "Для старта", pro: "Популярный", ultra: "Максимум" };
@@ -205,7 +228,7 @@ export function PricingView() {
           </div>
         )}
 
-        {options && anyMethod && (canBuy || switching) && (
+        {options && renewing && (canSubscribe || switching) && (
           <label className="plan-consent">
             <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
             <span>
@@ -217,11 +240,13 @@ export function PricingView() {
             </span>
           </label>
         )}
-        {options && current !== "free" && canBuy && anyMethod && (
+        {options && current !== "free" && (canSubscribe || paidOnce) && anyMethod && (
           <p className="plan-consent-note">
-            {repay
-              ? "Подписка сама не продлится. Оплатите заново — новый месяц начнётся после окончания текущего."
-              : "У вас тариф по промокоду. Если оформить подписку сейчас, оплаченный месяц начнётся после окончания промо-периода."}
+            {paidOnce
+              ? "Месяц оплачен разово. Продлите его ещё на месяц или перейдите на другой тариф — оставшиеся дни пересчитаются по его цене."
+              : repay
+                ? "Подписка сама не продлится. Оплатите заново — новый месяц начнётся после окончания текущего."
+                : "У вас тариф по промокоду. Если оформить подписку сейчас, оплаченный месяц начнётся после окончания промо-периода."}
           </p>
         )}
         {notice && (
@@ -284,28 +309,31 @@ export function PricingView() {
                     </div>
                     <div className="text-sm text-zinc-500">кредитов</div>
                     <div className="mt-5 space-y-2">
-                      {pack.usd && (
-                        <button
-                          type="button"
-                          disabled={busy !== null}
-                          onClick={() => buyCredits("stripe", pack.id)}
-                          className="maryx-button flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-sm"
-                        >
-                          {busy === `stripe:${pack.id}` ? <LoaderCircle className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
-                          {pack.usd} · картой
-                        </button>
-                      )}
-                      {pack.rub && (
-                        <button
-                          type="button"
-                          disabled={busy !== null}
-                          onClick={() => buyCredits("yookassa", pack.id)}
-                          className={`flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-sm ${pack.usd ? "border border-white/15 bg-white/5 font-medium text-zinc-100 hover:bg-white/10 disabled:opacity-50" : "maryx-button"}`}
-                        >
-                          {busy === `yookassa:${pack.id}` ? <LoaderCircle className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
-                          {pack.rub} · в рублях
-                        </button>
-                      )}
+                      {(
+                        [
+                          ["stripe", pack.usd, `${pack.usd} · картой`],
+                          ["paddle", pack.usd, options.credits.methods.includes("stripe") ? `${pack.usd} · через Paddle` : `${pack.usd} · картой`],
+                          ["paypal", pack.usd, `${pack.usd} · PayPal`],
+                          ["ton", pack.usd, `${pack.usd} · в TON`],
+                          ["yookassa", pack.rub, `${pack.rub} · в рублях`],
+                        ] as [Method, string | undefined, string][]
+                      )
+                        .filter(([method, price]) => price && options.credits.methods.includes(method))
+                        .map(([method, , label], i) => {
+                          const Icon = METHOD_ICON[method];
+                          return (
+                            <button
+                              key={method}
+                              type="button"
+                              disabled={busy !== null}
+                              onClick={() => buyCredits(method, pack.id)}
+                              className={`flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-sm ${i ? "border border-white/15 bg-white/5 font-medium text-zinc-100 hover:bg-white/10 disabled:opacity-50" : "maryx-button"}`}
+                            >
+                              {busy === `${method}:${pack.id}` ? <LoaderCircle className="size-4 animate-spin" /> : <Icon className="size-4" />}
+                              {label}
+                            </button>
+                          );
+                        })}
                     </div>
                   </div>
                 ))}
@@ -313,7 +341,7 @@ export function PricingView() {
             ) : (
               <p className="mt-4 rounded-xl bg-black/30 p-3 text-xs text-zinc-400">
                 {me?.admin
-                  ? "Продажа кредитов включится, когда будут заданы ключи Stripe. Пока можно начислять кредиты вручную или промокодами в настройках."
+                  ? "Продажа кредитов включится, когда будет подключена оплата (Stripe, Paddle, PayPal, кошелёк TON или ЮKassa). Пока можно начислять кредиты вручную или промокодами в настройках."
                   : "Покупка кредитов скоро появится. Кредиты также можно получить по промокоду."}
               </p>
             )}
@@ -341,10 +369,19 @@ export function PricingView() {
           <PromoForm />
         </div>
 
-        {anyMethod && (
+        {renewing && (
           <p className="mt-8 text-center text-xs text-zinc-500">
             Подписка продлевается автоматически раз в месяц. Отменить можно в любой момент в настройках —
             доступ сохранится до конца оплаченного периода.
+          </p>
+        )}
+        {(paypal || ton) && (
+          <p className={`${renewing ? "mt-2" : "mt-8"} text-center text-xs text-zinc-500`}>
+            PayPal и TON — разовая оплата на 1 месяц, без автопродления. Оплачивая, вы соглашаетесь с{" "}
+            <Link href="/terms" target="_blank" className="underline">
+              условиями
+            </Link>
+            .
           </p>
         )}
         <LegalLinks className="mt-4" />

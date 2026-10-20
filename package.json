@@ -39,7 +39,8 @@
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
     "stripe": "^23.0.0",
-    "unpdf": "^1.8.1"
+    "unpdf": "^1.8.1",
+    "uqr": "^0.1.2"
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "^4",

@@ -415,10 +415,13 @@ export interface CreditPack {
   usd?: string;
 }
 
+/** Where a paid period comes from: Stripe and Paddle renew themselves; PayPal and TON pay for a month. */
+export type SubscriptionProvider = "stripe" | "paddle" | "yookassa" | "paypal" | "ton" | "promo";
+
 export interface PlanInfo {
   id: PlanId;
   /** Where the paid period came from. */
-  provider?: "stripe" | "yookassa" | "promo";
+  provider?: SubscriptionProvider;
   /** End of the paid period (ms). */
   periodEnd?: number;
   /** True when it won't renew (cancelled, or a promo period). */
@@ -427,6 +430,8 @@ export interface PlanInfo {
   renewsAt?: number;
   /** A Stripe subscription still exists (even with a failed payment): manage it in Stripe's portal. */
   stripeLive?: boolean;
+  /** A Paddle subscription still exists: change plan in place, manage it in Paddle's portal. */
+  paddleLive?: boolean;
   /** YooKassa/Stripe status, e.g. "past_due" after a failed renewal. */
   status?: string;
   /** YooKassa: a card is saved, so auto-renew can be switched back on. */
@@ -484,6 +489,29 @@ export interface QualityReport {
   };
 }
 
+/** A TON payment as its page shows it (/api/billing/ton/[id]). */
+export interface TonPaymentInfo {
+  id: string;
+  status: "pending" | "paid" | "failed" | "expired";
+  /** What is bought, in words. */
+  what: string;
+  usd: string;
+  /** Amount to send, "12.34" TON. */
+  ton: string;
+  address: string;
+  /** The comment the transfer must carry. */
+  code: string;
+  /** Until when the rate is held (ms). */
+  expiresAt: number;
+  /** ton:// for wallets on this device, and Tonkeeper's web link. */
+  links: { ton: string; tonkeeper: string };
+  /** Transfers with this code came in, but for less than asked in all ("12.00" TON). */
+  short?: string;
+}
+
+/** How a purchase is paid: subscriptions that renew (Stripe, Paddle, ЮKassa) or a month at a time (PayPal, TON). */
+export type PaymentMethod = "stripe" | "paddle" | "yookassa" | "paypal" | "ton";
+
 /** What /api/billing/plans tells the pricing page. */
 export interface BillingOptions {
   limits: Record<PlanId, Record<UsageKind, number | null>>;
@@ -493,12 +521,18 @@ export interface BillingOptions {
   media: Record<PlanId, { images: number; videos: number } | null>;
   /** The free plan draws with the free model (no credits, no photo edits). */
   freeImages: boolean;
-  /** Credit packs on sale (empty without a payment method) and the least a request takes. */
-  credits: { packs: CreditPack[]; min: Record<UsageKind, number> };
-  /** Payment methods configured on this server: Stripe's price for each plan it sells; ЮKassa sells Pro. */
+  /** Credit packs on sale (empty without a payment method), the methods that sell them, and the least a request takes. */
+  credits: { packs: CreditPack[]; methods: PaymentMethod[]; min: Record<UsageKind, number> };
+  /**
+   * Payment methods configured on this server, each with the plans it sells (their monthly price):
+   * Stripe and Paddle renew by themselves, ЮKassa sells Pro in roubles, PayPal and TON pay for one month.
+   */
   methods: {
     yookassa: { price: string } | null;
     stripe: { prices: Partial<Record<PaidPlanId, string>> } | null;
+    paddle: { prices: Partial<Record<PaidPlanId, string>>; sandbox: boolean } | null;
+    paypal: { prices: Partial<Record<PaidPlanId, string>>; sandbox: boolean } | null;
+    ton: { prices: Partial<Record<PaidPlanId, string>> } | null;
   };
   /** Each paid plan's monthly price to show, also before a payment method is set up (null: not on sale). */
   prices: Record<PaidPlanId, string | null>;

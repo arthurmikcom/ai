@@ -23,9 +23,14 @@ export function BillingSection() {
     const params = new URLSearchParams(window.location.search);
     const returned = params.get("billing");
     const method =
-      returned === "return" ? "yookassa" : returned === "stripe" ? "stripe" : returned === "stripe-credits" ? "stripe-credits" : null;
+      returned === "return"
+        ? "yookassa"
+        : returned === "stripe" || returned === "stripe-credits" || returned === "paddle" || returned === "paypal"
+          ? returned
+          : null;
     if (!method) return;
-    const sessionId = params.get("session_id") ?? undefined;
+    // Stripe's credits checkout, Paddle's transaction, PayPal's order (PayPal adds it as "token").
+    const sessionId = params.get("session_id") ?? params.get("txn") ?? params.get("token") ?? undefined;
     window.history.replaceState(null, "", window.location.pathname);
     api<{ status: string; credits?: number | boolean }>("/api/billing/sync", {
       method: "POST",
@@ -52,6 +57,9 @@ export function BillingSection() {
   if (!me) return null;
   const { plan } = me;
   const paid = plan.id !== "free";
+  // A month paid once through PayPal or TON: nothing renews, another month is paid the same way.
+  const once = plan.provider === "paypal" || plan.provider === "ton";
+  const live = plan.stripeLive || plan.paddleLive;
 
   const call = async (path: string, redirect = false) => {
     setBusy(true);
@@ -80,7 +88,9 @@ export function BillingSection() {
           <div className="mt-1 text-sm text-zinc-400">
             {plan.id === "free" && "Больше сообщений, картинок GPT Image и видео — на тарифах Plus, Pro и Ultra."}
             {paid && plan.provider === "promo" && plan.periodEnd && `По промокоду до ${date(plan.periodEnd)}`}
-            {paid && plan.provider !== "promo" && plan.periodEnd &&
+            {paid && once && plan.periodEnd &&
+              `Оплачено через ${plan.provider === "ton" ? "TON" : "PayPal"} до ${date(plan.periodEnd)}. Автопродления нет — следующий месяц оплачивается так же.`}
+            {paid && plan.provider !== "promo" && !once && plan.periodEnd &&
               (plan.endsAtPeriodEnd || !plan.renewsAt
                 ? `Автопродление отключено. Доступ до ${date(plan.periodEnd)}`
                 : `Доступ до ${date(plan.periodEnd)}. Следующее списание — ${date(plan.renewsAt)}`)}
@@ -88,7 +98,7 @@ export function BillingSection() {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {plan.id === "free" && !plan.stripeLive && (
+          {plan.id === "free" && !live && (
             <Link
               href="/pricing"
               className="rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 px-4 py-2 text-sm font-medium text-[#fff] hover:brightness-110"
@@ -96,12 +106,20 @@ export function BillingSection() {
               Выбрать тариф
             </Link>
           )}
-          {paid && plan.provider === "stripe" && plan.stripeLive && (
+          {paid && live && (
             <Link href="/pricing" className="rounded-xl border border-white/10 px-3 py-2 text-sm text-zinc-200 hover:bg-white/5">
               Сменить тариф
             </Link>
           )}
-          {plan.provider === "stripe" && plan.stripeLive && (
+          {paid && once && (
+            <Link
+              href="/pricing"
+              className="rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 px-4 py-2 text-sm font-medium text-[#fff] hover:brightness-110"
+            >
+              Продлить на месяц
+            </Link>
+          )}
+          {live && (
             <button
               type="button"
               disabled={busy}
@@ -152,7 +170,7 @@ export function BillingSection() {
       {(plan.status === "past_due" || plan.status === "unpaid") && (
         <div className="mt-3 flex items-start gap-2 rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 text-sm text-amber-100">
           <TriangleAlert className="mt-0.5 size-4 shrink-0" />
-          {plan.provider === "stripe"
+          {plan.provider === "stripe" || plan.provider === "paddle"
             ? "Не удалось списать оплату за продление. Обновите карту в «Управлять подпиской»."
             : plan.cardSaved
               ? "Не удалось списать оплату за продление. Мы попробуем ещё раз, или оплатите заново — новый месяц начнётся после текущего."

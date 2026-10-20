@@ -2,6 +2,9 @@ import { PROVIDERS } from "@/lib/catalog";
 import { getAuth, vercelHosts } from "@/lib/server/auth";
 import { isConfigured, maryxOnly } from "@/lib/server/config";
 import { sellablePacks } from "@/lib/server/billing/packs";
+import { paddleCreditsConfigured, paddleSandbox, paddleSells } from "@/lib/server/billing/paddle";
+import { paypalConfigured, paypalSandbox } from "@/lib/server/billing/paypal";
+import { tonConfigured } from "@/lib/server/billing/ton";
 import { planEnv, planPriceSetting } from "@/lib/server/billing/plans";
 import { stripeConfigured, stripeCreditsConfigured, stripeSells } from "@/lib/server/billing/stripe";
 import { PAID_PLANS, PLAN_NAMES } from "@/lib/plans";
@@ -140,13 +143,32 @@ export async function GET(request: Request) {
       "Stripe: ключ есть, но нет STRIPE_WEBHOOK_SECRET — добавьте вебхук https://<сайт>/api/billing/stripe/webhook в Stripe → Developers → Webhooks и его Signing secret",
     );
   }
+  const paddleKey = process.env.PADDLE_API_KEY?.trim();
+  if (paddleCreditsConfigured()) {
+    const sold = PAID_PLANS.filter(paddleSells).map((p) => PLAN_NAMES[p]);
+    const test = paddleSandbox() ? " (песочница: настоящие деньги не списываются)" : "";
+    payments.push(`Paddle: ${sold.length ? `${sold.join(", ")} и кредиты` : "только кредиты (нет PADDLE_PRICE_PLUS/PRO/ULTRA)"}${test}`);
+    if (test || !sold.length) paymentsWarn = true;
+  } else if (paddleKey) {
+    paymentsWarn = true;
+    payments.push(
+      "Paddle: ключ есть, но не хватает PADDLE_CLIENT_TOKEN или PADDLE_WEBHOOK_SECRET — добавьте уведомления на https://<сайт>/api/billing/paddle/webhook в Paddle → Developer tools → Notifications",
+    );
+  }
+  if (paypalConfigured()) {
+    payments.push(`PayPal: месяц тарифа и кредиты${paypalSandbox() ? " (песочница: настоящие деньги не списываются)" : ""}`);
+    if (paypalSandbox()) paymentsWarn = true;
+  }
+  if (tonConfigured()) {
+    payments.push(`TON: месяц тарифа и кредиты на кошелёк ${process.env.TON_WALLET!.trim().slice(0, 6)}…${process.env.CRON_SECRET?.trim() ? "" : " (без CRON_SECRET переводы засчитываются, только пока открыта страница оплаты)"}`);
+  }
   if (payments.length && !sellablePacks().length) {
     paymentsWarn = true;
     payments.push("в CREDIT_PACKS нет цен для подключённых способов оплаты — кредиты не продаются");
   }
   checks["Оплата"] = payments.length
     ? `${paymentsWarn ? "⚠" : "✓"} ${payments.join("; ")}`
-    : "⚠ не подключена — Pro и кредиты можно выдавать промокодами в Настройках";
+    : "⚠ не подключена (Stripe, Paddle, PayPal, кошелёк TON или ЮKassa) — Pro и кредиты можно выдавать промокодами в Настройках";
 
   // Payment providers check the public terms before they activate an account.
   if (payments.length) {

@@ -5,6 +5,7 @@ import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
 import { getDb, schema, type DB } from "./db";
+import { cancelPaddleForUser, paddleCreditsConfigured } from "./billing/paddle";
 import { cancelStripeForUser, stripeCreditsConfigured } from "./billing/stripe";
 import { deleteUserFiles } from "./storage";
 
@@ -98,9 +99,10 @@ function createAuth(db: DB, secret: string) {
       deleteUser: {
         enabled: true,
         // Rows go with the user (ON DELETE CASCADE); stored files and a
-        // running Stripe subscription don't, so stop them first.
+        // running Stripe or Paddle subscription don't, so stop them first.
         beforeDelete: async (user) => {
           if (stripeCreditsConfigured()) await cancelStripeForUser(user.id);
+          if (paddleCreditsConfigured()) await cancelPaddleForUser(user.id);
           await deleteUserFiles(user.id);
         },
       },
