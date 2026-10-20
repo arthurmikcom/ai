@@ -85,6 +85,8 @@ export function ChatView() {
   const scroller = useRef<HTMLDivElement>(null);
   const thread = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
+  // Where the reader was: only scrolling up stops following the answer.
+  const lastTop = useRef(0);
   // A chat picture put into the composer to be changed.
   const [inject, setInject] = useState<ComposerInject | null>(null);
   // The brush: the picture being painted on (only the painted area changes).
@@ -393,7 +395,11 @@ export function ChatView() {
         ref={scroller}
         onScroll={(e) => {
           const el = e.currentTarget;
-          stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+          // A picture or a clip growing in the answer moves the bottom away without the reader
+          // doing anything: that mustn't stop following it (it did, now and then).
+          if (el.scrollHeight - el.scrollTop - el.clientHeight < 80) stickToBottom.current = true;
+          else if (el.scrollTop < lastTop.current - 1) stickToBottom.current = false;
+          lastTop.current = el.scrollTop;
         }}
         className="min-h-0 flex-1 overflow-y-auto"
       >

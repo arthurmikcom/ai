@@ -1,9 +1,27 @@
 // «Плагины»: what MARYX can look up for an answer from free services with no
 // keys (the browser shows this list; server/plugins.ts does the looking up).
 
-export type PluginId = "weather" | "currency" | "crypto" | "wikipedia" | "news" | "github" | "holidays" | "arxiv" | "time";
+export type PluginId =
+  | "weather"
+  | "currency"
+  | "crypto"
+  | "wikipedia"
+  | "news"
+  | "github"
+  | "holidays"
+  | "arxiv"
+  | "time"
+  | "travel"
+  | "music"
+  | "sports"
+  | "stocks"
+  | "binance"
+  | "science"
+  | "books"
+  | "hackernews"
+  | "packages";
 
-export type PluginCategory = "everyday" | "finance" | "knowledge" | "dev";
+export type PluginCategory = "everyday" | "travel" | "finance" | "knowledge" | "fun" | "dev";
 
 export interface PluginInfo {
   id: PluginId;
@@ -23,8 +41,10 @@ export interface PluginInfo {
 
 export const PLUGIN_CATEGORIES: { id: PluginCategory; label: string }[] = [
   { id: "everyday", label: "На каждый день" },
+  { id: "travel", label: "Путешествия" },
   { id: "finance", label: "Финансы" },
   { id: "knowledge", label: "Знания и наука" },
+  { id: "fun", label: "Музыка и спорт" },
   { id: "dev", label: "Для разработчиков" },
 ];
 
@@ -155,10 +175,140 @@ export const PLUGINS: PluginInfo[] = [
     ],
     source: { name: "GitHub", url: "https://github.com/", terms: "https://docs.github.com/site-policy/github-terms/github-terms-of-service" },
   },
+  {
+    id: "travel",
+    name: "Путешествия",
+    description: "Отели, авиабилеты и экскурсии: Booking.com, Skyscanner, Airbnb…",
+    about:
+      "Скажите, куда и когда едете — MARYX подготовит готовые поиски с вашими датами и числом гостей: отели на Booking.com и Airbnb, билеты в Google Flights и Skyscanner, места и экскурсии на Tripadvisor и GetYourGuide. Цены и наличие — на сайте сервиса, бронируете вы сами.",
+    category: "travel",
+    examples: ["Найди отель в Барселоне на 12–15 ноября на двоих", "Билеты из Лондона в Рим на 5 декабря", "Что посмотреть и какие экскурсии в Стамбуле?"],
+    features: [
+      { title: "Отели и жильё", text: "Booking.com и Airbnb с вашими датами и гостями" },
+      { title: "Авиабилеты", text: "Google Flights и Skyscanner по маршруту и дате" },
+      { title: "Экскурсии и места", text: "Tripadvisor и GetYourGuide для города" },
+    ],
+    source: { name: "Booking.com, Airbnb, Google Flights, Skyscanner, Tripadvisor, GetYourGuide", url: "https://www.booking.com/" },
+  },
+  {
+    id: "music",
+    name: "Музыка",
+    description: "Песни, альбомы и исполнители: Apple Music, Spotify",
+    about:
+      "Найдите песню, альбом или исполнителя: MARYX покажет треки с годом выхода и альбомом, даст ссылку на Apple Music с отрывком для прослушивания и готовые поиски в Spotify и YouTube Music.",
+    category: "fun",
+    examples: ["Найди последние песни Dua Lipa", "В каком альбоме песня Bohemian Rhapsody?", "Посоветуй альбомы Daft Punk"],
+    features: [
+      { title: "Песни и альбомы", text: "Название, исполнитель, альбом и год" },
+      { title: "Послушать отрывок", text: "Ссылка на Apple Music" },
+      { title: "Spotify и YouTube Music", text: "Готовый поиск в один клик" },
+    ],
+    source: { name: "Apple iTunes Search", url: "https://music.apple.com/", terms: "https://www.apple.com/legal/internet-services/itunes/" },
+  },
+  {
+    id: "sports",
+    name: "Спорт",
+    description: "Счёт, расписание и результаты: футбол, NBA, NHL, NFL, MLB",
+    about:
+      "Результаты и расписание матчей: английская Премьер-лига, Ла Лига, Бундеслига, Серия A, Лига 1, Лига чемпионов, Лига Европы, MLS, NBA, NHL, NFL и MLB — счёт, статус матча и дата, прямо в ответе.",
+    category: "fun",
+    examples: ["Какой счёт в матчах АПЛ сегодня?", "Кто вчера выиграл в NBA?", "Когда следующий матч Реала в Лиге чемпионов?"],
+    features: [
+      { title: "Счёт и статус", text: "Идёт, закончился или ещё впереди" },
+      { title: "Лучшие лиги", text: "Футбол Европы и MLS, NBA, NHL, NFL, MLB" },
+      { title: "Любой день", text: "Сегодня, вчера или на неделе" },
+    ],
+    source: { name: "ESPN", url: "https://www.espn.com/" },
+  },
+  {
+    id: "stocks",
+    name: "Акции",
+    description: "Котировки акций США, Европы и Азии и изменение за день",
+    about: "Цена акций любой крупной компании мира — Apple, Tesla, Nvidia, SAP, Toyota — с открытием, максимумом, минимумом и изменением за торговый день. Не инвестиционный совет.",
+    category: "finance",
+    examples: ["Сколько стоят акции Apple?", "Как сегодня торгуется Nvidia?", "Сравни акции Tesla и BYD"],
+    features: [
+      { title: "Биржи мира", text: "США, Европа, Великобритания, Япония" },
+      { title: "За день", text: "Открытие, максимум, минимум, изменение" },
+      { title: "Несколько сразу", text: "До пяти компаний в одном вопросе" },
+    ],
+    source: { name: "Yahoo Finance, Stooq", url: "https://finance.yahoo.com/" },
+  },
+  {
+    id: "binance",
+    name: "Binance",
+    description: "Цены пар и объём торгов за сутки на Binance",
+    about: "Рыночные данные крупнейшей криптобиржи: цена любой пары (BTC/USDT, ETH/BTC, TON/USDT…), изменение, максимум, минимум и объём торгов за 24 часа. Без входа в аккаунт — только публичные данные.",
+    category: "finance",
+    examples: ["Какая цена BTC/USDT на Binance?", "Объём торгов ETH на Binance за сутки", "Как изменилась пара SOL/USDT за день?"],
+    features: [
+      { title: "Любая пара", text: "Тысячи торговых пар биржи" },
+      { title: "За 24 часа", text: "Изменение, максимум, минимум, объём" },
+      { title: "Без аккаунта", text: "Только публичные рыночные данные" },
+    ],
+    source: { name: "Binance Market Data", url: "https://www.binance.com/", terms: "https://www.binance.com/en/terms" },
+  },
+  {
+    id: "science",
+    name: "Научные исследования",
+    description: "Что говорит наука: 250 млн работ с цитированием",
+    about:
+      "Как Consensus и SciSpace: MARYX ищет научные работы по вашему вопросу во всех областях — медицина, психология, экономика, физика — и опирается на самые цитируемые, называя авторов, год и журнал, со ссылками на сами работы.",
+    category: "knowledge",
+    examples: ["Что говорят исследования о пользе кофе?", "Помогает ли медитация от тревожности — научные данные", "Последние исследования о сне и памяти"],
+    features: [
+      { title: "Все науки", text: "Работы из тысяч журналов мира" },
+      { title: "Самые значимые", text: "Число цитирований у каждой работы" },
+      { title: "Ссылки на работы", text: "DOI и журнал — чтобы проверить" },
+    ],
+    source: { name: "OpenAlex", url: "https://openalex.org/", terms: "https://openalex.org/about" },
+  },
+  {
+    id: "books",
+    name: "Книги",
+    description: "Поиск книг, авторов и годов издания",
+    about: "Найдите книгу по названию, автору или теме: MARYX назовёт автора, год первого издания и даст ссылку на страницу книги в открытой библиотеке.",
+    category: "knowledge",
+    examples: ["Какие книги написал Харуки Мураками?", "Найди книги о стоицизме", "Когда вышла книга «Sapiens»?"],
+    features: [
+      { title: "Миллионы книг", text: "Открытая библиотека Internet Archive" },
+      { title: "Автор и год", text: "Первое издание и число изданий" },
+      { title: "Ссылка на книгу", text: "Описание и где прочитать" },
+    ],
+    source: { name: "Open Library", url: "https://openlibrary.org/" },
+  },
+  {
+    id: "hackernews",
+    name: "Hacker News",
+    description: "О чём спорят разработчики и стартапы",
+    about: "Самые обсуждаемые истории Hacker News по теме: новые технологии, стартапы, ИИ — с числом голосов и комментариев и ссылками на обсуждение.",
+    category: "dev",
+    examples: ["Что обсуждают на Hacker News про ИИ-агентов?", "Самые популярные истории о Rust", "Что пишут на Hacker News о стартапах в 2026?"],
+    features: [
+      { title: "Главное по теме", text: "Истории с голосами и комментариями" },
+      { title: "Свежее", text: "Новые обсуждения первыми" },
+      { title: "Ссылки", text: "На статью и на обсуждение" },
+    ],
+    source: { name: "Hacker News (Algolia)", url: "https://news.ycombinator.com/" },
+  },
+  {
+    id: "packages",
+    name: "npm и PyPI",
+    description: "Последние версии библиотек JavaScript и Python",
+    about: "Актуальная версия любой библиотеки из npm или PyPI, дата выпуска, лицензия и описание — чтобы код от MARYX был на свежих версиях.",
+    category: "dev",
+    examples: ["Какая последняя версия react на npm?", "Последняя версия pandas на PyPI", "Что нового в next?"],
+    features: [
+      { title: "npm и PyPI", text: "JavaScript и Python" },
+      { title: "Последняя версия", text: "Номер, дата и лицензия" },
+      { title: "Для кода", text: "MARYX пишет под свежие версии" },
+    ],
+    source: { name: "npm, PyPI", url: "https://www.npmjs.com/" },
+  },
 ];
 
 /** On for everyone until they change it: the most useful ones. */
-export const DEFAULT_PLUGINS: PluginId[] = ["weather", "news", "time", "currency", "crypto", "wikipedia"];
+export const DEFAULT_PLUGINS: PluginId[] = ["weather", "news", "time", "currency", "crypto", "wikipedia", "travel", "music", "sports", "stocks"];
 
 export function isPluginId(id: unknown): id is PluginId {
   return typeof id === "string" && PLUGINS.some((p) => p.id === id);

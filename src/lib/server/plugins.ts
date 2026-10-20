@@ -38,6 +38,15 @@ const HINTS: Record<PluginId, RegExp> = {
   holidays: /праздни|выходн(ые|ой день|ых дн)|нерабоч|\bholiday/i,
   arxiv: /arxiv|научн(ые|ая|ых) стат|исследовани[еяй] (о|об|про|по)|публикаци|\bpapers?\b/i,
   time: /котор(ый|ом) час|сколько (сейчас )?времени|врем(я|ени) (в|сейчас в)|часов(ой|ом) пояс|time in\b|разниц[аеы] во времени/i,
+  travel: /отел|гостиниц|хостел|апартамент|airbnb|booking|брониров|забронир|авиабилет|билет[ыа]? (на самол|в |до |из )|перел[её]т|\bрейс|слетать|полететь|поездк|путешеств|отпуск|экскурси|достопримечательн|что посмотреть|skyscanner|tripadvisor|\bflights?\b|\bhotels?\b/i,
+  music: /песн|трек|альбом|исполнител|певиц|певец|музык|послушать|spotify|apple music|дискограф|сингл|плейлист|\bsongs?\b|\balbums?\b/i,
+  sports: /матч|сч[её]т (игр|матч)|какой сч[её]т|чемпионат|\bлиг[аеиу]\b|\bапл\b|ла лиг|бундеслиг|серия a|лига чемпионов|\bnba\b|\bnhl\b|\bnfl\b|\bmlb\b|\bнба\b|\bнхл\b|футбол|хоккей|баскетбол|бейсбол|кто (вчера |сегодня )?выиграл|результат(ы)? (игр|матч)|расписание (игр|матч)|premier league/i,
+  stocks: /акци[ияйюе]|котировк|фондов(ый|ом) рын|nasdaq|nyse|s&p|тикер|\bstocks?\b|\bshares?\b|капитализац/i,
+  binance: /binance|бинанс|торгов(ая|ой|ые|ых) пар|объ[её]м торгов|\b[a-z]{2,6}\/?usdt\b/i,
+  science: /исследовани|научн|уч[её]ные|доказан|метаанализ|клиническ|\bstud(y|ies)\b|\bresearch\b/i,
+  books: /книг|роман[аеуы]?\b|писател|автор[ау]? |прочитать|издани|\bbooks?\b/i,
+  hackernews: /hacker ?news|хакер ?ньюс|ycombinator|y combinator|\bhn\b/i,
+  packages: /\bnpm\b|pypi|pip install|последн(яя|юю|ей) верси|верси[яюи] (библиотек|пакет)|\bpackages?\b|пакет[аы]? (npm|python)/i,
 };
 
 const PLAN =
@@ -51,6 +60,17 @@ const PLAN =
   '- holidays: {"country": "DE" — код страны ISO 3166-1, названной в вопросе, "year": год}\n' +
   '- arxiv: {"query": "тема по-английски"}\n' +
   '- time: {"zones": ["Asia/Tokyo"] — часовые пояса IANA для названных мест}\n' +
+  '- travel: {"to": "город назначения по-английски", "from": "город отправления по-английски или null", "to_iata": "IATA главного аэропорта назначения (FCO)", ' +
+  '"from_iata": "IATA аэропорта вылета или null", "checkin": "ГГГГ-ММ-ДД или null", "checkout": "ГГГГ-ММ-ДД или null", "adults": число путешественников}\n' +
+  '- music: {"query": "исполнитель, песня или альбом", "kind": "song" | "album" | "artist"}\n' +
+  '- sports: {"league": одна из soccer/eng.1 (АПЛ), soccer/esp.1, soccer/ger.1, soccer/ita.1, soccer/fra.1, soccer/uefa.champions, soccer/uefa.europa, ' +
+  'soccer/usa.1, basketball/nba, hockey/nhl, football/nfl, baseball/mlb, "date": "ГГГГ-ММ-ДД или null (сегодня)", "team": "команда по-английски или null"}\n' +
+  '- stocks: {"symbols": ["AAPL", "SAP.DE", "7203.T"] — тикеры Yahoo Finance, до 5}\n' +
+  '- binance: {"pairs": ["BTCUSDT"] — торговые пары Binance, до 5}\n' +
+  '- science: {"query": "вопрос по-английски, 3–8 слов (поиск научных работ)"}\n' +
+  '- books: {"query": "название или тема", "author": "автор или null"}\n' +
+  '- hackernews: {"query": "тема по-английски"}\n' +
+  '- packages: {"npm": ["react"], "pypi": ["pandas"]} — названия пакетов\n' +
   "Из предложенных выбери только те, без которых ответ будет неточным или устаревшим, и заполни аргументы по сообщению " +
   "(предыдущее сообщение — для контекста). Ответь строго JSON без блока кода: " +
   '{"calls": [{"plugin": "weather", "args": {"place": "Казань", "days": 2}}]}. Не больше 3 вызовов. Если ничего не нужно — {"calls": []}.';
@@ -330,7 +350,345 @@ async function time(args: Record<string, unknown>): Promise<Found | null> {
   return { plugin: "time", text: `Точное время сейчас:\n${lines.join("\n")}`, sources: [] };
 }
 
-const RUN: Record<PluginId, (args: Record<string, unknown>) => Promise<Found | null>> = { weather, currency, crypto: cryptoPrices, wikipedia, news, github, holidays, arxiv, time };
+// ---------- Путешествия: ready searches on the services' own sites (no API, no key) ----------
+
+const isoDate = (v: unknown) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : "");
+const iata = (v: unknown) => (typeof v === "string" && /^[A-Za-z]{3}$/.test(v.trim()) ? v.trim().toLowerCase() : "");
+
+async function travel(args: Record<string, unknown>): Promise<Found | null> {
+  const to = str(args.to, 80);
+  if (!to) return null;
+  const from = str(args.from, 80);
+  const checkin = isoDate(args.checkin);
+  const checkout = isoDate(args.checkout) > checkin ? isoDate(args.checkout) : "";
+  const adults = Math.min(9, Math.max(1, Math.round(num(args.adults) ?? 2)));
+  const link = (base: string, params: Record<string, string>) => {
+    const u = new URL(base);
+    for (const [k, v] of Object.entries(params)) if (v) u.searchParams.set(k, v);
+    return u.toString();
+  };
+  const dates = checkin ? `${checkin}${checkout ? ` — ${checkout}` : ""}` : "даты не указаны";
+  const sources: Source[] = [
+    { title: `Отели: ${to} — Booking.com`, url: link("https://www.booking.com/searchresults.html", { ss: to, checkin, checkout, group_adults: String(adults), no_rooms: "1" }) },
+    { title: `Жильё: ${to} — Airbnb`, url: link(`https://www.airbnb.com/s/${encodeURIComponent(to)}/homes`, { checkin, checkout, adults: String(adults) }) },
+  ];
+  if (from) {
+    const words = `Flights from ${from} to ${to}${checkin ? ` on ${checkin}` : ""}${checkout ? ` returning ${checkout}` : ""}`;
+    sources.push({ title: `Авиабилеты ${from} → ${to} — Google Flights`, url: link("https://www.google.com/travel/flights", { q: words }) });
+    const a = iata(args.from_iata);
+    const b = iata(args.to_iata);
+    // Skyscanner's own address: airports and dates as yymmdd.
+    if (a && b && checkin) {
+      const day = (d: string) => d.slice(2).replaceAll("-", "");
+      sources.push({ title: `Авиабилеты ${a.toUpperCase()} → ${b.toUpperCase()} — Skyscanner`, url: `https://www.skyscanner.net/transport/flights/${a}/${b}/${day(checkin)}/${checkout ? `${day(checkout)}/` : ""}?adultsv2=${adults}` });
+    }
+  }
+  sources.push(
+    { title: `Что посмотреть: ${to} — Tripadvisor`, url: link("https://www.tripadvisor.com/Search", { q: to }) },
+    { title: `Экскурсии: ${to} — GetYourGuide`, url: link("https://www.getyourguide.com/s/", { q: to }) },
+  );
+  const lines = sources.map((s, i) => `${i + 1}. ${s.title}: ${s.url}`);
+  return {
+    plugin: "travel",
+    text: `Готовые поиски для поездки (${from ? `${from} → ` : ""}${to}, ${dates}, ${adults} чел.). Цены и наличие — на сайтах сервисов, бронирует пользователь сам:\n${lines.join("\n")}`,
+    sources,
+  };
+}
+
+// ---------- Музыка: Apple iTunes Search ----------
+
+interface ItunesItem {
+  wrapperType: string;
+  kind?: string;
+  artistName?: string;
+  trackName?: string;
+  collectionName?: string;
+  releaseDate?: string;
+  primaryGenreName?: string;
+  trackCount?: number;
+  trackViewUrl?: string;
+  collectionViewUrl?: string;
+  artistLinkUrl?: string;
+  artistViewUrl?: string;
+}
+
+async function music(args: Record<string, unknown>): Promise<Found | null> {
+  const query = str(args.query, 120);
+  if (!query) return null;
+  const entity = args.kind === "album" ? "album" : args.kind === "artist" ? "musicArtist" : "song";
+  const found = await getJson<{ results: ItunesItem[] }>(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&media=music&entity=${entity}&limit=6`);
+  const items = found.results.slice(0, 6);
+  const year = (d?: string) => (d ? d.slice(0, 4) : "");
+  const lines = items.map((r, i) =>
+    entity === "song"
+      ? `${i + 1}. «${r.trackName}» — ${r.artistName}${r.collectionName ? ` (альбом «${r.collectionName}»${year(r.releaseDate) ? `, ${year(r.releaseDate)}` : ""})` : ""}`
+      : entity === "album"
+        ? `${i + 1}. «${r.collectionName}» — ${r.artistName}${year(r.releaseDate) ? `, ${year(r.releaseDate)}` : ""}${r.trackCount ? `, ${r.trackCount} треков` : ""}`
+        : `${i + 1}. ${r.artistName}${r.primaryGenreName ? ` — ${r.primaryGenreName}` : ""}`,
+  );
+  const sources: Source[] = items
+    .map((r) => ({ url: r.trackViewUrl ?? r.collectionViewUrl ?? r.artistLinkUrl ?? r.artistViewUrl ?? "", title: `${r.trackName ?? r.collectionName ?? r.artistName} — Apple Music` }))
+    .filter((s) => /^https:\/\//.test(s.url));
+  sources.push(
+    { url: `https://open.spotify.com/search/${encodeURIComponent(query)}`, title: `«${query}» — поиск в Spotify` },
+    { url: `https://music.youtube.com/search?q=${encodeURIComponent(query)}`, title: `«${query}» — поиск в YouTube Music` },
+  );
+  return {
+    plugin: "music",
+    text: items.length ? `Музыка по запросу «${query}» (Apple Music):\n${lines.join("\n")}\nПослушать: ссылки Apple Music, а также поиск в Spotify и YouTube Music.` : `В Apple Music ничего не нашлось по запросу «${query}».`,
+    sources,
+  };
+}
+
+// ---------- Спорт: ESPN's scoreboards ----------
+
+const LEAGUES = new Set([
+  "soccer/eng.1",
+  "soccer/esp.1",
+  "soccer/ger.1",
+  "soccer/ita.1",
+  "soccer/fra.1",
+  "soccer/uefa.champions",
+  "soccer/uefa.europa",
+  "soccer/usa.1",
+  "basketball/nba",
+  "hockey/nhl",
+  "football/nfl",
+  "baseball/mlb",
+]);
+
+interface EspnEvent {
+  name: string;
+  date: string;
+  status?: { type?: { state?: string; shortDetail?: string; description?: string } };
+  competitions?: { competitors?: { homeAway?: string; score?: string; winner?: boolean; team?: { displayName?: string } }[] }[];
+  links?: { href?: string }[];
+}
+
+async function sports(args: Record<string, unknown>): Promise<Found | null> {
+  const league = str(args.league, 40);
+  if (!LEAGUES.has(league)) return null;
+  const date = isoDate(args.date);
+  const team = str(args.team, 60).toLowerCase();
+  const board = await getJson<{ leagues?: { name?: string }[]; events?: EspnEvent[] }>(
+    `https://site.api.espn.com/apis/site/v2/sports/${league}/scoreboard${date ? `?dates=${date.replaceAll("-", "")}` : ""}`,
+  );
+  const name = board.leagues?.[0]?.name ?? league;
+  let events = board.events ?? [];
+  // The team's own matches, when it has any that day.
+  const theirs = team ? events.filter((e) => e.name.toLowerCase().includes(team)) : [];
+  events = (theirs.length ? theirs : events).slice(0, 12);
+  if (!events.length) return { plugin: "sports", text: `${name}: матчей${date ? ` на ${date}` : " сегодня"} нет.`, sources: [] };
+  const lines = events.map((e) => {
+    const sides = e.competitions?.[0]?.competitors ?? [];
+    const home = sides.find((s) => s.homeAway === "home") ?? sides[0];
+    const away = sides.find((s) => s.homeAway === "away") ?? sides[1];
+    const state = e.status?.type?.state;
+    const when = new Date(e.date).toLocaleString("ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
+    const score = state === "pre" ? "" : ` ${home?.score ?? "?"}:${away?.score ?? "?"}`;
+    const status = state === "pre" ? `начало ${when} UTC` : state === "in" ? `идёт (${e.status?.type?.shortDetail ?? ""})` : "завершён";
+    return `${home?.team?.displayName ?? "?"}${score} ${away?.team?.displayName ?? "?"} — ${status}`;
+  });
+  const sources = events
+    .map((e) => ({ url: e.links?.[0]?.href ?? "", title: `${e.name} — ESPN` }))
+    .filter((s) => /^https:\/\//.test(s.url))
+    .slice(0, 6);
+  return { plugin: "sports", text: `${name}${date ? `, ${date}` : ", сегодня"} (ESPN):\n${lines.join("\n")}`, sources };
+}
+
+// ---------- Акции: Yahoo Finance's chart data (Stooq as a fallback) ----------
+
+async function stocks(args: Record<string, unknown>): Promise<Found | null> {
+  const symbols = list(args.symbols)
+    .map((s) => s.toUpperCase())
+    .filter((s) => /^[A-Z0-9.\-^=]{1,15}$/.test(s))
+    .slice(0, 5);
+  if (!symbols.length) return null;
+  const lines: string[] = [];
+  const sources: Source[] = [];
+  for (const symbol of symbols) {
+    try {
+      const chart = await getJson<{ chart: { result?: { meta: { regularMarketPrice?: number; chartPreviousClose?: number; previousClose?: number; currency?: string; exchangeName?: string; longName?: string; shortName?: string; regularMarketTime?: number; regularMarketDayHigh?: number; regularMarketDayLow?: number } }[] } }>(
+        `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1d`,
+      );
+      const meta = chart.chart.result?.[0]?.meta;
+      if (!meta?.regularMarketPrice) throw new Error("no price");
+      const before = meta.chartPreviousClose ?? meta.previousClose;
+      const change = before ? ((meta.regularMarketPrice - before) / before) * 100 : undefined;
+      const at = meta.regularMarketTime ? new Date(meta.regularMarketTime * 1000).toLocaleString("ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", timeZone: "UTC" }) : "";
+      lines.push(
+        `${meta.longName ?? meta.shortName ?? symbol} (${symbol}, ${meta.exchangeName ?? ""}): ${fixed(meta.regularMarketPrice)} ${meta.currency ?? ""}${change !== undefined ? `, ${change >= 0 ? "+" : ""}${fixed(change, 2)}% к прошлому закрытию` : ""}${meta.regularMarketDayHigh ? `, за день ${fixed(meta.regularMarketDayLow ?? 0)}–${fixed(meta.regularMarketDayHigh)}` : ""}${at ? ` (на ${at} UTC)` : ""}.`,
+      );
+      sources.push({ url: `https://finance.yahoo.com/quote/${encodeURIComponent(symbol)}`, title: `${symbol} — Yahoo Finance` });
+    } catch {
+      // Stooq names US shares "aapl.us"; others keep their market suffix.
+      const s = (symbol.includes(".") ? symbol : `${symbol}.US`).toLowerCase();
+      const csv = await getText(`https://stooq.com/q/l/?s=${encodeURIComponent(s)}&f=sd2t2ohlcvn&h&e=csv`).catch(() => "");
+      const row = csv.trim().split("\n")[1]?.split(",");
+      if (row && row[6] && row[6] !== "N/D") {
+        const [, date, , open, high, low, close] = row;
+        const change = ((Number(close) - Number(open)) / Number(open)) * 100;
+        lines.push(`${row[8] ?? symbol} (${symbol}): ${close} на ${date} (открытие ${open}, за день ${low}–${high}, ${change >= 0 ? "+" : ""}${fixed(change, 2)}% с открытия).`);
+        sources.push({ url: `https://stooq.com/q/?s=${s}`, title: `${symbol} — Stooq` });
+      } else lines.push(`${symbol}: котировка не найдена.`);
+    }
+  }
+  return { plugin: "stocks", text: `Котировки (с задержкой биржи; не инвестиционный совет):\n${lines.join("\n")}`, sources };
+}
+
+// ---------- Binance: public market data (no account) ----------
+
+async function binance(args: Record<string, unknown>): Promise<Found | null> {
+  const pairs = list(args.pairs)
+    .map((p) => p.toUpperCase().replace(/[^A-Z0-9]/g, ""))
+    .filter((p) => /^[A-Z0-9]{5,20}$/.test(p))
+    .slice(0, 5);
+  if (!pairs.length) return null;
+  const tickers = await getJson<{ symbol: string; lastPrice: string; priceChangePercent: string; highPrice: string; lowPrice: string; quoteVolume: string }[]>(
+    `https://data-api.binance.vision/api/v3/ticker/24hr?symbols=${encodeURIComponent(JSON.stringify(pairs))}`,
+  );
+  const lines = tickers.map((t) => {
+    const n = (v: string) => fixed(Number(v), Number(v) < 1 ? 6 : 2);
+    return `${t.symbol}: ${n(t.lastPrice)} (за 24 ч ${Number(t.priceChangePercent) >= 0 ? "+" : ""}${fixed(Number(t.priceChangePercent), 2)}%, от ${n(t.lowPrice)} до ${n(t.highPrice)}, объём ${fixed(Number(t.quoteVolume), 0)} в котируемой валюте).`;
+  });
+  return {
+    plugin: "binance",
+    text: `Binance, сейчас:\n${lines.join("\n")}`,
+    sources: tickers.map((t) => ({ url: `https://www.binance.com/en/trade/${t.symbol}`, title: `${t.symbol} — Binance` })),
+  };
+}
+
+// ---------- Научные исследования: OpenAlex ----------
+
+interface Work {
+  id: string;
+  display_name: string;
+  publication_year?: number;
+  cited_by_count?: number;
+  doi?: string | null;
+  primary_location?: { source?: { display_name?: string } | null } | null;
+  authorships?: { author?: { display_name?: string } }[];
+  abstract_inverted_index?: Record<string, number[]> | null;
+}
+
+/** OpenAlex keeps abstracts as word → positions. */
+function abstractOf(index: Work["abstract_inverted_index"], words = 70): string {
+  if (!index) return "";
+  const at: string[] = [];
+  for (const [word, places] of Object.entries(index)) for (const p of places) at[p] = word;
+  const text = at.filter(Boolean);
+  return text.slice(0, words).join(" ") + (text.length > words ? "…" : "");
+}
+
+async function science(args: Record<string, unknown>): Promise<Found | null> {
+  const query = str(args.query, 150);
+  if (!query) return null;
+  const found = await getJson<{ results: Work[] }>(
+    `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=6&filter=has_abstract:true&select=id,display_name,publication_year,cited_by_count,doi,primary_location,authorships,abstract_inverted_index`,
+  );
+  const works = found.results.slice(0, 6);
+  if (!works.length) return { plugin: "science", text: `Научных работ по запросу «${query}» не нашлось.`, sources: [] };
+  const lines = works.map((w, i) => {
+    const authors = (w.authorships ?? []).map((a) => a.author?.display_name).filter(Boolean);
+    const who = authors.length ? `${authors[0]}${authors.length > 1 ? " и др." : ""}` : "";
+    const journal = w.primary_location?.source?.display_name;
+    return `${i + 1}. «${w.display_name}» — ${[who, w.publication_year, journal].filter(Boolean).join(", ")}; цитирований: ${w.cited_by_count ?? 0}. ${abstractOf(w.abstract_inverted_index)}`;
+  });
+  return {
+    plugin: "science",
+    text: `Научные работы по запросу «${query}» (OpenAlex):\n${lines.join("\n")}`,
+    sources: works.map((w) => ({ url: w.doi ?? w.id, title: w.display_name })),
+  };
+}
+
+// ---------- Книги: Open Library ----------
+
+async function books(args: Record<string, unknown>): Promise<Found | null> {
+  const query = str(args.query, 150);
+  const author = str(args.author, 100);
+  if (!query && !author) return null;
+  const params = new URLSearchParams({ limit: "6", fields: "title,author_name,first_publish_year,edition_count,key" });
+  if (query) params.set("q", query);
+  if (author) params.set("author", author);
+  const found = await getJson<{ docs: { title: string; author_name?: string[]; first_publish_year?: number; edition_count?: number; key: string }[] }>(`https://openlibrary.org/search.json?${params}`);
+  const docs = found.docs.slice(0, 6);
+  if (!docs.length) return { plugin: "books", text: `Книг по запросу «${query || author}» не нашлось.`, sources: [] };
+  const lines = docs.map((d, i) => `${i + 1}. «${d.title}» — ${d.author_name?.slice(0, 2).join(", ") ?? "автор неизвестен"}${d.first_publish_year ? `, ${d.first_publish_year}` : ""}${d.edition_count ? `, изданий: ${d.edition_count}` : ""}`);
+  return {
+    plugin: "books",
+    text: `Книги по запросу «${query || author}» (Open Library):\n${lines.join("\n")}`,
+    sources: docs.map((d) => ({ url: `https://openlibrary.org${d.key}`, title: `${d.title} — Open Library` })),
+  };
+}
+
+// ---------- Hacker News (Algolia) ----------
+
+async function hackernews(args: Record<string, unknown>): Promise<Found | null> {
+  const query = str(args.query, 150);
+  if (!query) return null;
+  const found = await getJson<{ hits: { objectID: string; title?: string; url?: string; points?: number; num_comments?: number; created_at: string }[] }>(
+    `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(query)}&tags=story&hitsPerPage=6`,
+  );
+  const hits = found.hits.filter((h) => h.title).slice(0, 6);
+  if (!hits.length) return { plugin: "hackernews", text: `На Hacker News ничего не нашлось по запросу «${query}».`, sources: [] };
+  const lines = hits.map((h, i) => `${i + 1}. ${h.title} — ${h.points ?? 0} голосов, ${h.num_comments ?? 0} комментариев (${new Date(h.created_at).toLocaleDateString("ru-RU")})`);
+  return {
+    plugin: "hackernews",
+    text: `Hacker News по запросу «${query}»:\n${lines.join("\n")}`,
+    sources: hits.map((h) => ({ url: `https://news.ycombinator.com/item?id=${h.objectID}`, title: `${h.title} — Hacker News` })),
+  };
+}
+
+// ---------- npm и PyPI ----------
+
+async function packages(args: Record<string, unknown>): Promise<Found | null> {
+  const npm = list(args.npm).filter((n) => /^(@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*$/i.test(n)).slice(0, 4);
+  const pypi = list(args.pypi).filter((n) => /^[A-Za-z0-9][\w.-]*$/.test(n)).slice(0, 4);
+  if (!npm.length && !pypi.length) return null;
+  const lines: string[] = [];
+  const sources: Source[] = [];
+  for (const name of npm) {
+    try {
+      const p = await getJson<{ version: string; description?: string; license?: string }>(`https://registry.npmjs.org/${name.replace("/", "%2F")}/latest`);
+      lines.push(`npm ${name}: последняя версия ${p.version}${p.license ? `, лицензия ${p.license}` : ""}. ${p.description ?? ""}`.trim());
+      sources.push({ url: `https://www.npmjs.com/package/${name}`, title: `${name} — npm` });
+    } catch {
+      lines.push(`npm ${name}: пакет не найден.`);
+    }
+  }
+  for (const name of pypi) {
+    try {
+      const p = await getJson<{ info: { version: string; summary?: string; license?: string }; releases?: Record<string, { upload_time?: string }[]> }>(`https://pypi.org/pypi/${name}/json`);
+      const uploaded = p.releases?.[p.info.version]?.[0]?.upload_time;
+      lines.push(`PyPI ${name}: последняя версия ${p.info.version}${uploaded ? ` от ${new Date(uploaded).toLocaleDateString("ru-RU")}` : ""}${p.info.license && p.info.license.length < 40 ? `, лицензия ${p.info.license}` : ""}. ${p.info.summary ?? ""}`.trim());
+      sources.push({ url: `https://pypi.org/project/${name}/`, title: `${name} — PyPI` });
+    } catch {
+      lines.push(`PyPI ${name}: пакет не найден.`);
+    }
+  }
+  return { plugin: "packages", text: lines.join("\n"), sources };
+}
+
+const RUN: Record<PluginId, (args: Record<string, unknown>) => Promise<Found | null>> = {
+  weather,
+  currency,
+  crypto: cryptoPrices,
+  wikipedia,
+  news,
+  github,
+  holidays,
+  arxiv,
+  time,
+  travel,
+  music,
+  sports,
+  stocks,
+  binance,
+  science,
+  books,
+  hackernews,
+  packages,
+};
 
 /** Plugins whose words are in the message (or the one before it): they may help. */
 export function pluginsFor(text: string, installed: PluginId[]): PluginId[] {

@@ -26,20 +26,26 @@ const MAX_BYTES = 20 * 1024 * 1024;
 
 export async function generatePollinationsImage(req: GenerateRequest): Promise<GenerateResult> {
   const [width, height] = SIZES[req.aspectRatio] ?? SIZES["1:1"];
-  const url = new URL(`${pollinationsBase()}/prompt/${encodeURIComponent(req.prompt.trim().slice(0, 1500))}`);
-  url.search = new URLSearchParams({
-    model: "flux",
-    width: String(width),
-    height: String(height),
-    seed: String(Math.floor(Math.random() * 2 ** 31)),
-    nologo: "true",
-    // Not shown in its public feed.
-    private: "true",
-    // FLUX reads English best: a prompt in another language is rewritten (by Pollinations, free).
-    ...(/[^\x00-\x7F]/.test(req.prompt) ? { enhance: "true" } : {}),
-    referrer: "maryx",
-  }).toString();
   const token = apiKey("pollinations");
+  const url = new URL(`${pollinationsBase()}/${encodeURIComponent(req.prompt.trim().slice(0, 1500))}`);
+  const seed = String(Math.floor(Math.random() * 2 ** 31));
+  // With a key, its current address and its own model; without one, the old keyless address.
+  url.search = new URLSearchParams(
+    token
+      ? { width: String(width), height: String(height), seed }
+      : {
+          model: "flux",
+          width: String(width),
+          height: String(height),
+          seed,
+          nologo: "true",
+          // Not shown in its public feed.
+          private: "true",
+          // FLUX reads English best: a prompt in another language is rewritten (by Pollinations, free).
+          ...(/[^\x00-\x7F]/.test(req.prompt) ? { enhance: "true" } : {}),
+          referrer: "maryx",
+        },
+  ).toString();
   let res: Response;
   try {
     res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: AbortSignal.timeout(TIMEOUT_MS) });
@@ -47,6 +53,10 @@ export async function generatePollinationsImage(req: GenerateRequest): Promise<G
     return { status: "failed", error: "Бесплатная нейросеть не ответила — попробуйте ещё раз через минуту." };
   }
   if (res.status === 429) return { status: "failed", error: "Бесплатная нейросеть сейчас занята — попробуйте через минуту." };
+  if (res.status === 401 || res.status === 402 || res.status === 403) {
+    console.error("[pollinations] refused", res.status, await res.text().catch(() => ""));
+    return { status: "failed", error: "Бесплатная нейросеть сейчас недоступна. Картинки GPT Image — на платном тарифе или за кредиты." };
+  }
   if (!res.ok) return { status: "failed", error: `Бесплатная нейросеть не смогла нарисовать (${res.status}) — попробуйте ещё раз.` };
   const mime = res.headers.get("content-type")?.split(";")[0].trim().toLowerCase() ?? "";
   const data = Buffer.from(await res.arrayBuffer());

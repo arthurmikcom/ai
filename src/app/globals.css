@@ -2195,3 +2195,15 @@ a.vs-reel-button { text-decoration: none; }
 .plan-consent-note { max-width: 760px; margin-top: 10px; color: var(--color-violet-200); font-size: 12.5px; line-height: 1.55; }
 @media (max-width: 1180px) { .plans-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 26px; } }
 @media (max-width: 640px) { .plans-grid { grid-template-columns: 1fr; } }
+.plugin-icon[data-plugin="travel"] { background: linear-gradient(140deg, #4fc3ff, #1f6fe0); }
+.plugin-icon[data-plugin="music"] { background: linear-gradient(140deg, #ff6b9a, #e0245e); }
+.plugin-icon[data-plugin="sports"] { background: linear-gradient(140deg, #5fe08a, #12924a); }
+.plugin-icon[data-plugin="stocks"] { background: linear-gradient(140deg, #7b8cff, #3346c9); }
+.plugin-icon[data-plugin="binance"] { background: linear-gradient(140deg, #f8d33a, #d99a06); color: #1b1300; }
+.plugin-icon[data-plugin="science"] { background: linear-gradient(140deg, #b48cff, #6c3be0); }
+.plugin-icon[data-plugin="books"] { background: linear-gradient(140deg, #e7b98a, #a8642b); }
+.plugin-icon[data-plugin="hackernews"] { background: linear-gradient(140deg, #ff9a3d, #e05a00); }
+.plugin-icon[data-plugin="packages"] { background: linear-gradient(140deg, #ff5f5f, #b8243c); }
+.plugin-showcase[data-plugin="travel"] { background: radial-gradient(ellipse at 10% 0%, #4fc3ff77, transparent 60%), radial-gradient(ellipse at 100% 100%, #ffb34755, transparent 55%), linear-gradient(140deg, #0f2140, #1b1240); }
+.plugin-showcase[data-plugin="music"] { background: radial-gradient(ellipse at 10% 0%, #ff6b9a77, transparent 60%), radial-gradient(ellipse at 100% 100%, #7c5cff55, transparent 55%), linear-gradient(140deg, #2a0f24, #120d2a); }
+.plugin-showcase[data-plugin="sports"] { background: radial-gradient(ellipse at 10% 0%, #5fe08a66, transparent 60%), radial-gradient(ellipse at 100% 100%, #3b82f655, transparent 55%), linear-gradient(140deg, #0c2418, #0d1630); }

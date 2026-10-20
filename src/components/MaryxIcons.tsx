@@ -152,3 +152,9 @@ export function EffectSymbol({ emoji, className = "" }: { emoji: string; classNa
   return <Icon className={`effect-symbol ${className}`} />;
 }
 export const Puzzle = glyph("Plugins", <><path d="M9 4.5a2 2 0 1 1 4 0V6h3.5A1.5 1.5 0 0 1 18 7.5V11h1.5a2 2 0 1 1 0 4H18v3.5a1.5 1.5 0 0 1-1.5 1.5H13v-1.5a2 2 0 1 0-4 0V20H5.5A1.5 1.5 0 0 1 4 18.5V15h1.5a2 2 0 1 0 0-4H4V7.5A1.5 1.5 0 0 1 5.5 6H9Z" fill="currentColor" fillOpacity=".1" /></>);
+export const Plane = glyph("Travel", <><path d="M2.5 13.2 9 12l4.3-7.6h2.1L13.6 12l5.4-.4 1.9-2.6h1.6l-.9 3.6.9 3.6h-1.6L19 13.6l-5.4-.4 1.8 7.6h-2.1L9 13.2l-6.5-1.2Z" fill="currentColor" fillOpacity=".12" /></>);
+export const Music = glyph("Music", <><path d="M9 18V5.5L20 3.5V16" /><circle cx="6.5" cy="18" r="2.6" fill="currentColor" fillOpacity=".14" /><circle cx="17.5" cy="16" r="2.6" fill="currentColor" fillOpacity=".14" /><path d="M9 9.5 20 7.5" /></>);
+export const Trophy = glyph("Sports", <><path d="M7 3.5h10v5.5a5 5 0 0 1-10 0Z" fill="currentColor" fillOpacity=".13" /><path d="M7 5.5H4.5a3 3 0 0 0 3 4.3M17 5.5h2.5a3 3 0 0 1-3 4.3M12 14v3.5M8.5 20.5h7M9.5 17.5h5" /></>);
+export const BookOpen = glyph("Books", <><path d="M3 5.5c3-1.3 6-1.3 9 .5v14c-3-1.8-6-1.8-9-.5Z" fill="currentColor" fillOpacity=".12" /><path d="M21 5.5c-3-1.3-6-1.3-9 .5v14c3-1.8 6-1.8 9-.5Z" fill="currentColor" fillOpacity=".06" /></>);
+export const Package = glyph("Packages", <><path d="m12 2.8 8.3 4.6v9.2L12 21.2l-8.3-4.6V7.4Z" fill="currentColor" fillOpacity=".1" /><path d="m3.9 7.5 8.1 4.6 8.1-4.6M12 12.1v9M7.9 5.1l8.2 4.6" /></>);
+export const Flame = glyph("Trending", <><path d="M12 21c-4 0-6.5-2.6-6.5-6.2 0-3.2 2.2-5 3.5-7.3.4 1.6 1.2 2.7 2.3 3.2-.2-3.3 1.2-6.2 3.9-7.7-.5 3 1 4.8 2.4 6.8 1 1.4 1.4 3 1.4 4.8 0 3.8-2.8 6.4-7 6.4Z" fill="currentColor" fillOpacity=".12" /><path d="M12 21c-1.8 0-3-1.2-3-2.9 0-1.6 1.2-2.5 2-3.6.4 1.1 1.4 1.6 2.2 1.7.4-.8.5-1.6.4-2.4 1.1.9 1.9 2.2 1.9 3.6 0 2.2-1.4 3.6-3.5 3.6Z" /></>);

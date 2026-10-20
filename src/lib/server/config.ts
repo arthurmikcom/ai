@@ -107,9 +107,14 @@ export function comfyBase(): string {
   return (env("COMFYUI_URL") ?? "").replace(/\/+$/, "");
 }
 
-/** Pollinations' public image endpoint (POLLINATIONS_URL points it elsewhere, e.g. a local mock in tests). */
+/**
+ * Where Pollinations draws: the prompt goes after it (POLLINATIONS_URL points
+ * it elsewhere, e.g. a local mock in tests). Without a token, its old keyless
+ * address; with POLLINATIONS_TOKEN, its current one (which asks for a key).
+ */
 export function pollinationsBase(): string {
-  return (env("POLLINATIONS_URL") ?? "https://image.pollinations.ai").replace(/\/+$/, "");
+  const fallback = env("POLLINATIONS_TOKEN") ? "https://gen.pollinations.ai/image" : "https://image.pollinations.ai/prompt";
+  return (env("POLLINATIONS_URL") ?? fallback).replace(/\/+$/, "");
 }
 
 /**

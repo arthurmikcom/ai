@@ -2,7 +2,26 @@
 
 import type { ComponentType } from "react";
 import type { PluginId } from "@/lib/plugins";
-import { Banknote, CalendarDays, Clock, Code2, Coins, FileText, GraduationCap, Sun, Telescope, type MaryxIconProps } from "./MaryxIcons";
+import {
+  Banknote,
+  BookOpen,
+  Brain,
+  CalendarDays,
+  Chart,
+  Clock,
+  Code2,
+  Coins,
+  FileText,
+  Flame,
+  GraduationCap,
+  Music,
+  Package,
+  Plane,
+  Sun,
+  Telescope,
+  Trophy,
+  type MaryxIconProps,
+} from "./MaryxIcons";
 
 const ICONS: Record<PluginId, ComponentType<MaryxIconProps>> = {
   weather: Sun,
@@ -14,6 +33,15 @@ const ICONS: Record<PluginId, ComponentType<MaryxIconProps>> = {
   wikipedia: GraduationCap,
   arxiv: Telescope,
   github: Code2,
+  travel: Plane,
+  music: Music,
+  sports: Trophy,
+  stocks: Chart,
+  binance: Coins,
+  science: Brain,
+  books: BookOpen,
+  hackernews: Flame,
+  packages: Package,
 };
 
 /** The app-store tile of a plugin: its glyph on its own colours. */
