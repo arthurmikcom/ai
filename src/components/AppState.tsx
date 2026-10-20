@@ -397,6 +397,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           webSearch: options.webSearch,
           research: options.research,
           council: options.council,
+          better: options.better,
           message: message && {
             id: message.id,
             content: message.content,

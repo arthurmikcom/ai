@@ -185,6 +185,8 @@ export interface SendOptions {
   research?: boolean;
   /** Консилиум: several strong models answer, MARYX combines the best of them. */
   council?: boolean;
+  /** «Ответить лучше»: the last answer again, from a stronger model than the one that gave it (MARYX). */
+  better?: boolean;
   /** Answer with this model in the browser (see client/local-ai.ts) instead of the server. */
   local?: { model: string };
 }
@@ -211,6 +213,8 @@ export interface ChatSendRequest {
   research?: boolean;
   /** Консилиум (MARYX): several strong models answer, then one combines the best. */
   council?: boolean;
+  /** «Ответить лучше» (MARYX, regenerating): a stronger model than the one that gave the answer. */
+  better?: boolean;
   /** The new user message; omitted when regenerating the last answer. */
   message?: { id: string; content: string; attachments?: InlineFile[] };
   /** Id for the assistant message the server will store. */

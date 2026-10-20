@@ -401,6 +401,9 @@ export function ChatView() {
           else if (el.scrollTop < lastTop.current - 1) stickToBottom.current = false;
           lastTop.current = el.scrollTop;
         }}
+        // The browser's scroll anchoring moved the view up when the last answer's buttons went
+        // away under a new message, which read as the reader scrolling up: following is ours.
+        style={{ overflowAnchor: "none" }}
         className="min-h-0 flex-1 overflow-y-auto"
       >
         {chat && !chat.loaded ? (
@@ -455,6 +458,16 @@ export function ChatView() {
                       }
                 }
                 onRegenerate={localBlocked ? undefined : () => app.regenerate(chat.id, sendOptions(answerMode(m)))}
+                onBetter={
+                  // MARYX on the server, and a text answer (a picture or a clip is redone as it was).
+                  !localBlocked && current?.provider === "maryx" && !current.local && !answerMode(m).image && !answerMode(m).video
+                    ? () => {
+                        stickToBottom.current = true;
+                        stopSpeaking();
+                        app.regenerate(chat.id, { ...sendOptions(answerMode(m)), better: true });
+                      }
+                    : undefined
+                }
               />
             ))}
           </div>

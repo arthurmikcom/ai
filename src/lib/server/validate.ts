@@ -36,7 +36,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 /** Returns the parsed request, or an error message for the client. */
 export function parseChatSendRequest(body: unknown): ChatSendRequest | string {
   if (!isObject(body)) return "Пустой запрос";
-  const { chatId, create, deepThinking, image, video, camera, style, webSearch, research, council, message, answerId, replyTo, replace } = body;
+  const { chatId, create, deepThinking, image, video, camera, style, webSearch, research, council, better, message, answerId, replyTo, replace } = body;
   // Tabs opened before the rename to MARYX still say "nexus".
   const provider = body.provider === "nexus" ? "maryx" : body.provider;
   const model = body.model === "nexus" ? "maryx" : body.model;
@@ -119,6 +119,7 @@ export function parseChatSendRequest(body: unknown): ChatSendRequest | string {
     webSearch: webSearch === true,
     research: research === true,
     council: council === true,
+    better: better === true,
     replyTo: replyTo as string | undefined,
     ...(typeof replace === "string" ? { replace } : {}),
     message: parsedMessage,

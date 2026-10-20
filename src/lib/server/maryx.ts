@@ -147,14 +147,27 @@ export function wantsAnimate(text: string): boolean {
 }
 
 /** Questions about the world right now, which a model can't know without searching. */
-function wantsSearch(text: string): boolean {
-  return /(новост|что нового|что (произошло|случилось)|курс (доллар|евро|рубл|юан|валют|биткоин|акци)|погод[аеуы]|кто выиграл|результат(ы)? (матча|игры|выборов)|latest news|current price|weather)/i.test(
-    text.slice(0, 300),
+export function wantsSearch(text: string): boolean {
+  const t = text.slice(0, 300);
+  if (/(новост|что нового|что (произошло|случилось)|курс (доллар|евро|рубл|юан|валют|биткоин|акци)|погод[аеуы]|кто выиграл|результат(ы)? (матча|игры|выборов)|latest news|current price|weather)/i.test(t)) {
+    return true;
+  }
+  // "Now" and "the latest": newer than what a model knows (a question, not a task like "напиши пост на сегодня").
+  return (
+    /(\?|^(какой|какая|какие|каков|сколько|кто|когда|где|есть ли|вышел ли|вышла ли|что сейчас)(?![а-яё]))/i.test(t.trim()) &&
+    /(сейчас|на сегодня|на данный момент|в этом (году|месяце)|актуальн|(вышел|вышла|вышло|вышли) ли|последн(яя|юю|ий|ие|ей|их) (верси|модел|релиз|выпуск|данн|цен|исследован)|в 20(2[6-9]|3\d)(?![\d])|right now|currently|latest (version|release|model))/i.test(t)
   );
 }
 
-function needsSmart(text: string, hasDocuments: boolean): boolean {
+/** Where a wrong answer costs the most: maths and science, health, law, money, careful translation. */
+const ACCURACY_MATTERS =
+  /(уравнени|интеграл|производн|вероятност|логарифм|матриц|геометри|теорем|вычисли|посчитай|сколько будет|физик|хими|диагноз|симптом|лекарств|таблетк|дозировк|анализ(ы)? крови|беременн|давлени[ея]|налог|закон|юрист|юридич|суд(?![а-яё])|иск(?![а-яё])|штраф|трудов(ой|ого) договор|увольнени|наследств|кредит|ипотек|инвестиц|вклад(?![а-яё])|переведи|перевод (на|с) |translate|equation|integral|probability|diagnos|symptom|dosage|lawyer|legal|tax|mortgage|invest)/i;
+
+export function needsSmart(text: string, hasDocuments: boolean): boolean {
   if (hasDocuments || text.length > 700) return true;
+  if (ACCURACY_MATTERS.test(text)) return true;
+  // Several asks in one message ("сделай…, добавь…, а ещё…") is a task, not a quick question.
+  if ((text.match(/[?;]|\n[-•\d]/g) ?? []).length >= 3) return true;
   return /(```|(?<![а-яё])код|функци|скрипт|программ|python|javascript|typescript|\bjava\b|c\+\+|\bsql\b|regex|регулярн|баг|ошибк[а-яё]* в код|компил|\bapi\b|html|css|react|игр[уаы]|сайт|лендинг|приложени|калькулятор|анимаци|алгоритм|подробно|детально|проанализируй|сравни|стратеги|бизнес-план|презентаци|слайд|эссе|статью|докажи|реши задачу|рассчитай|переведи текст|резюме|договор)/i.test(
     text,
   );
@@ -166,6 +179,8 @@ function needsSmart(text: string, hasDocuments: boolean): boolean {
  */
 const SMALL_TALK =
   /^(спасибо|благодарю|спс|ок|окей|ok|понятно|ясно|супер|класс|отлично|круто|привет|здравствуй(те)?|пока|до свидания|thanks|thank you|hi|hello)(?:[\s!.,)?:]+|большое|огромное|тебе|вам|друг|бро)*$/;
+
+const TIER_RANK: Record<Tier, number> = { fast: 0, smart: 1, deep: 2 };
 
 function tierOf(provider: ProviderId, id: string): Tier | undefined {
   // The strongest tier that lists the model (Gemini Pro is in both smart and deep).
@@ -200,6 +215,8 @@ export async function planRoute(input: {
   research?: boolean;
   /** A strong model, whatever the text (MARYX's writing jobs: a document edit). */
   strong?: boolean;
+  /** «Ответить лучше»: the model that gave the answer being redone; a stronger one answers. */
+  better?: { provider?: ProviderId; model?: string };
 }): Promise<MaryxPlan> {
   const { models } = await listModels("chat", { ownKey: input.ownKey });
   // Only server models: the browser ones run on the visitor's device, not here.
@@ -216,6 +233,12 @@ export async function planRoute(input: {
   if (tier === "fast" && prev && input.text.length < 400 && !SMALL_TALK.test(input.text.trim().toLowerCase())) {
     const prevTier = prev.provider && prev.model ? tierOf(prev.provider, prev.model) : undefined;
     if (prevTier === "smart" || prevTier === "deep" || prev.content.includes("```")) tier = "smart";
+  }
+  // «Ответить лучше»: a tier above the answer being redone (at least a strong model).
+  if (input.better) {
+    const was = input.better.provider && input.better.model ? tierOf(input.better.provider, input.better.model) : undefined;
+    const up: Tier = was === "smart" || was === "deep" ? "deep" : "smart";
+    if (TIER_RANK[up] > TIER_RANK[tier]) tier = up;
   }
   // Fall back to the neighbouring tiers when the preferred one has nothing available.
   const order: Tier[] = tier === "fast" ? ["fast", "smart", "deep"] : tier === "smart" ? ["smart", "deep", "fast"] : ["deep", "smart", "fast"];
@@ -490,10 +513,23 @@ export function councilBrief(opinions: string[]): string {
 
 /** How answers should look, for MARYX and for every other model in the chat. */
 export const ANSWER_STYLE = [
-  "Отвечай на языке пользователя. Сразу к сути, без вступлений вроде «Конечно!» или «Отличный вопрос».",
-  "Длина — по задаче: на простой вопрос хватит пары предложений, сложный разбери по шагам с заголовками и списками.",
-  "Markdown: таблицы для сравнений, код в блоках с указанием языка, формулы в LaTeX ($...$ в строке, $$...$$ отдельной строкой).",
-  "Не выдумывай факты, цифры, цитаты и ссылки. Если не уверен или данных не хватает — так и скажи.",
+  "Как отвечать:",
+  "- На языке пользователя и в его тоне. Тепло, но без лести и «воды»: никаких «Конечно!», «Отличный вопрос», " +
+    "пересказа вопроса и дежурных концовок вроде «Если остались вопросы — обращайтесь».",
+  "- Сначала главное: прямой ответ или вывод в первых 1–2 предложениях, потом подробности.",
+  "- Длина — по задаче: на простой вопрос хватит пары предложений, сложный разбери по шагам. Короткие абзацы " +
+    "(ответ часто читают с телефона); заголовки и списки — только когда текст длинный; **жирным** — лишь самое важное.",
+  "- Markdown: таблицы для сравнений, код в блоках с указанием языка, формулы в LaTeX ($...$ в строке, $$...$$ отдельной строкой).",
+  "- Если просьба неоднозначна, но разумный вариант очевиден — сделай его и коротко скажи, из чего исходил. " +
+    "Уточняющий вопрос задавай, только когда без ответа на него работа пойдёт впустую.",
+  "- Точность: не выдумывай факты, цифры, цитаты, ссылки и названия. Отделяй факты от мнений. Если не уверен или " +
+    "сведения могли устареть (цены, версии, события после твоих знаний) — так и скажи и подскажи, где проверить.",
+  "- Задачи и расчёты: решай по шагам, проверяй результат (подстановкой или другим способом) и выдели итоговый ответ.",
+  "- Код: полный и рабочий, на современных версиях, без «… остальное аналогично»; кратко — как запустить и где тонкие места. " +
+    "Найдя ошибку в чужом коде, объясни причину и дай исправленный вариант.",
+  "- Здоровье, право, деньги: давай конкретную полезную информацию и порядок действий; один раз коротко скажи, когда " +
+    "нужен врач, юрист или специалист, и сразу — если есть признаки опасности. Не отказывай в обычных вопросах.",
+  "- Тексты (письма, посты, описания): сразу готовый текст без пояснений вокруг; если стиль не задан и важен — дай 2 варианта.",
   // The chat opens HTML answers in the Canvas, an isolated frame beside it (see chat/artifacts.tsx).
   "Если просят сделать игру, сайт, лендинг, анимацию, калькулятор, визуализацию или другое мини-приложение — пиши один " +
     "самодостаточный HTML-файл (весь CSS и JS внутри) в блоке ```html: оно сразу откроется в Холсте рядом с чатом, " +
@@ -507,6 +543,25 @@ export const ANSWER_STYLE = [
     "(тезисы, цифры, схемы и графики через SVG), продуманная цветовая тема, титульный и итоговый слайды. Добавь " +
     "@media print, где все слайды показаны подряд, каждый на отдельной странице (@page { size: 16in 9in; margin: 0 }), " +
     "без кнопок — так её сохраняют в PDF. Если число слайдов не названо — 8–10.",
+].join("\n");
+
+/**
+ * What the platform does besides answering, so MARYX points people to it when
+ * it fits ("напомни завтра" → «Задачи») instead of saying it can't.
+ */
+export const PLATFORM_FEATURES = [
+  "Что ещё умеет платформа MARYX Ai (подсказывай, когда к месту, одной фразой, и не делай вид, что сделал это сам текстом):",
+  "- «Задачи» в меню: напоминания и задачи по расписанию (каждое утро новости, следить за курсом). Сам ты писать " +
+    "пользователю позже не можешь — для напоминаний предлагай «Задачи».",
+  "- «Карты»: настоящие кафе, аптеки, музеи и другие места рядом или в любом городе.",
+  "- «Плагины»: свежие погода, курсы, акции, новости, спорт, музыка, поездки (отели, билеты), научные работы — ты " +
+    "пользуешься ими сам, когда они включены.",
+  "- В поле сообщения: «Исследование» — глубокий отчёт по десяткам источников; «Консилиум» — три эксперта и лучший " +
+    "ответ; «Думать глубже» — для самых сложных задач; «Поиск» — интернет; «Картинка» и «Видео»; голосовой ввод; " +
+    "скрепка — фото и документы (PDF, Word, Excel), их можно разбирать.",
+  "- «Изображения» и «Видео» в меню — студии: стили, фотосессии, эффекты, тренды, оживление фото.",
+  "- «Мои ассистенты» — свои помощники с постоянными инструкциями; «Настройки» — о себе, стиль ответов и память.",
+  "Ты не отправляешь письма и сообщения, не звонишь, не совершаешь покупки и не входишь в чужие аккаунты — скажи об этом честно и помоги подготовить текст или план.",
 ].join("\n");
 
 /** Personal instructions from settings: who the user is and how they like answers. */
@@ -543,6 +598,7 @@ export function maryxSystem(
           "Ты умеешь рисовать картинки, обрабатывать фото, снимать видео и оживлять фото. Если просят обработать, изменить " +
             "или оживить фото, а фото не приложено, попроси прикрепить его (скрепка) и написать, что сделать. " +
             "Видео снимается по просьбе «сними видео…» или в режиме «Видео». Не делай вид, что обработал фото или снял видео, текстом.",
+          PLATFORM_FEATURES,
         ]),
     maryxOnly()
       ? // Our own AI to its users: what it runs on stays behind the scenes (it can't be fully guaranteed).

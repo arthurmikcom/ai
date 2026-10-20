@@ -16,6 +16,7 @@ import { EffectSymbol,
   Info,
   LoaderCircle,
   Pencil,
+  Play,
   RefreshCw,
   Square,
   TriangleAlert,
@@ -39,6 +40,8 @@ interface Props {
   streaming: boolean;
   isLast: boolean;
   onRegenerate?: () => void;
+  /** «Ответить лучше»: the answer again from a stronger model (MARYX). */
+  onBetter?: () => void;
   /** Sends one of MARYX's follow-up suggestions as the next message. */
   onSuggest?: (text: string) => void;
   /** Only MARYX is offered: answers don't name the model behind it. */
@@ -91,6 +94,10 @@ function EditQuestion({ text, onSend, onCancel }: { text: string; onSend: (text:
     </div>
   );
 }
+
+/** An answer the length limit (or the time limit) cut off can go on where it stopped. */
+const CUT_SHORT = /^Ответ обрезан: (достигнут лимит длины|модель отвечала дольше)/;
+const CONTINUE = "Продолжи свой последний ответ ровно с того места, где он оборвался: без повторов и вступлений, а если оборвался код — продолжи его в новом блоке.";
 
 /** One-click changes to the last answer, sent as the next message (the user sees what was asked). */
 const REWRITES = [
@@ -275,6 +282,7 @@ export function MessageView({
   streaming,
   isLast,
   onRegenerate,
+  onBetter,
   onSuggest,
   maryxOnly,
   onEditPicture,
@@ -547,9 +555,18 @@ export function MessageView({
       )}
 
       {message.notice && (
-        <div className="mt-2 flex items-start gap-2 rounded-xl bg-zinc-800/60 px-3 py-2 text-xs text-zinc-400">
-          <Info className="mt-0.5 size-3.5 shrink-0" />
-          <span className="whitespace-pre-wrap">{message.notice}</span>
+        <div className="mt-2 flex flex-wrap items-center gap-2 rounded-xl bg-zinc-800/60 px-3 py-2 text-xs text-zinc-400">
+          <Info className="size-3.5 shrink-0" />
+          <span className="min-w-0 flex-1 whitespace-pre-wrap">{message.notice}</span>
+          {isLast && !streaming && onSuggest && CUT_SHORT.test(message.notice) && (
+            <button
+              type="button"
+              onClick={() => onSuggest(CONTINUE)}
+              className="flex items-center gap-1.5 rounded-full border border-violet-300/40 bg-violet-500/15 px-3 py-1 text-xs font-medium text-violet-100 transition hover:border-violet-300/70"
+            >
+              <Play className="size-3" /> Продолжить ответ
+            </button>
+          )}
         </div>
       )}
 
@@ -621,6 +638,16 @@ export function MessageView({
 
       {isLast && !streaming && onSuggest && message.content && !message.error && !message.mediaId && !picture && (
         <div role="group" aria-label="Изменить ответ" className="mt-2 flex flex-wrap items-center gap-1.5">
+          {onBetter && (
+            <button
+              type="button"
+              onClick={onBetter}
+              title="Ответить заново более сильной моделью"
+              className="flex items-center gap-1 rounded-full border border-violet-300/30 bg-violet-500/10 px-2.5 py-0.5 text-xs text-violet-100 transition hover:border-violet-300/60"
+            >
+              <WandSparkles className="size-3" /> Ответить лучше
+            </button>
+          )}
           {onOpenDocument && (
             <button
               type="button"

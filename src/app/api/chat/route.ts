@@ -552,7 +552,15 @@ export async function POST(request: Request) {
 
     const assistant = chat.assistantId ? await findAssistant(user.id, chat.assistantId) : undefined;
     const prefs = await userPrefs(user.id);
-    const omitted = first > 0 ? [`Начало этого диалога (${first} сообщ.) не поместилось в контекст и здесь не показано.`] : [];
+    // The chat's first question usually sets the task: it stays in view even when its turn doesn't fit.
+    const opening = first > 0 ? kept.slice(0, first).find((m) => m.role === "user" && m.content.trim()) : undefined;
+    const omitted =
+      first > 0
+        ? [
+            `Начало этого диалога (${first} сообщ.) не поместилось в контекст и здесь не показано.`,
+            ...(opening ? [`С чего пользователь начал этот диалог (учитывай как контекст задачи): «${shorten(opening.content, 2000)}»`] : []),
+          ]
+        : [];
 
     // MARYX: pick the real model for this message, then speak as MARYX with its memory.
     let route: MaryxPlan | undefined;
@@ -577,6 +585,8 @@ export async function POST(request: Request) {
         route = await planRoute({
           research: researching,
           strong: consulting,
+          // «Ответить лучше» redoes `replaced` with a stronger model.
+          better: req.better && replaced ? { provider: replaced.provider ?? undefined, model: replaced.model ?? undefined } : undefined,
           text: last.m.content,
           hasImages: last.images.length > 0,
           hasDocuments: loaded.some((l) => l.docs.some((d) => d.max > 0)),
