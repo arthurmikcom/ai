@@ -164,11 +164,11 @@ npm run dev
 6. Сделайте Redeploy и откройте `/api/health`: строка «Оплата» покажет, что подключено, а «Условия и реквизиты» — хватает ли данных для проверки Stripe.
 
 **4. Paddle — подписки по всему миру, Paddle сам платит налоги** (Merchant of Record: официально продаёт он, а вам переводит выручку).
-1. Зарегистрируйтесь на [paddle.com](https://www.paddle.com) и пройдите проверку бизнеса. Для теста сначала заведите **песочницу** на [sandbox-vendors.paddle.com](https://sandbox-vendors.paddle.com): ключи там свои, деньги не списываются.
+1. Зарегистрируйтесь на [login.paddle.com/signup](https://login.paddle.com/signup) и пройдите проверку бизнеса. Для теста сначала заведите **песочницу** на [sandbox-login.paddle.com/signup](https://sandbox-login.paddle.com/signup): ключи там свои, деньги не списываются.
 2. **Catalog → Products**: создайте продукт «MARYX Ai» и три месячные цены (Plus, Pro, Ultra). Их ID (`pri_...`) задайте в `PADDLE_PRICE_PLUS`, `PADDLE_PRICE_PRO`, `PADDLE_PRICE_ULTRA`. Для пакетов кредитов ничего создавать не нужно: цена берётся из `CREDIT_PACKS`.
-3. **Developer tools → Authentication**: API-ключ (`pdl_live_...` или `pdl_sdbx_...`) → `PADDLE_API_KEY`, client-side token (`live_...` или `test_...`) → `PADDLE_CLIENT_TOKEN`.
+3. **My account → Settings → Authentication**: API-ключ (`pdl_live_...` или `pdl_sdbx_...`) → `PADDLE_API_KEY`, на вкладке **Client-side tokens** — токен (`live_...` или `test_...`) → `PADDLE_CLIENT_TOKEN`.
 4. **Developer tools → Notifications → New destination**: адрес `https://ваш-сайт/api/billing/paddle/webhook`, события `transaction.completed`, `transaction.paid` и все `subscription.*`. Секрет (`pdl_ntfset_...`, показывается один раз) → `PADDLE_WEBHOOK_SECRET`. Сайт проверяет подпись каждого уведомления и отклоняет старые (старше 5 минут).
-5. **Checkout → Checkout settings**: ссылка на оплату по умолчанию — `https://ваш-сайт/pay/paddle`. **Website approval**: отправьте домен сайта на одобрение — в боевом режиме окно оплаты открывается только на одобренном домене.
+5. **Checkout → Checkout configuration**: в поле **Default payment link** — `https://ваш-сайт/pay/paddle`. **My account → Settings → Website approval**: отправьте домен сайта на одобрение — в боевом режиме окно оплаты открывается только на одобренном домене (в песочнице одобряется сам).
 6. Сделайте Redeploy и проверьте строку «Оплата» в `/api/health`.
 
 Окно оплаты Paddle открывается на странице сайта `/pay/paddle`. Там же передаётся `pwCustomer` (ID покупателя в Paddle) для Paddle Retain. Смена тарифа происходит сразу, а Paddle тут же пересчитывает разницу. «Управлять подпиской» в настройках открывает портал Paddle: там меняют карту и отменяют подписку. При удалении аккаунта подписка Paddle отменяется.
