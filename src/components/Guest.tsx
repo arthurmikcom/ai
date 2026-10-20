@@ -37,8 +37,8 @@ export function GuestCard() {
     <div className="guest-card mx-5 mb-5 shrink-0 rounded-2xl border border-violet-300/15 p-4">
       <p className="text-[13px] font-medium text-zinc-100">Сохраняйте чаты и пользуйтесь всем</p>
       <p className="mt-1.5 text-[11px] leading-5 text-zinc-400">Картинки, видео, фото и файлы — после бесплатной регистрации. Чаты отсюда останутся с вами.</p>
-      <Link href={loginHref("signup", pathname)} className="maryx-button mt-3 flex w-full items-center justify-center gap-2 rounded-xl py-2 text-xs">
-        Зарегистрироваться бесплатно
+      <Link href={loginHref("signup", pathname)} className="maryx-button mt-3 flex w-full items-center justify-center gap-2 rounded-xl py-2 text-center text-xs">
+        Зарегистрироваться
       </Link>
       <Link href={loginHref("signin", pathname)} className="mt-2 flex w-full items-center justify-center rounded-xl border border-white/10 py-2 text-xs text-zinc-200 hover:border-violet-300/30">
         Войти

@@ -349,19 +349,25 @@ export function ChatView() {
         ) : (
           <ModelPicker models={models} value={choice} onChange={onPick} loading={loading} />
         )}
-        {/* «Временный чат»: kept nowhere (like ChatGPT's); turning it off (or leaving) deletes it. */}
-        <button
-          type="button"
-          onClick={() => app.setTemporary(!temporary)}
-          aria-pressed={temporary}
-          aria-label="Временный чат"
-          title={temporary ? "Выйти из временного чата — он удалится" : "Временный чат: не сохранится в истории и в памяти MARYX"}
-          className="temporary-chat-toggle"
-        >
-          <Ghost className="size-3.5" />
-          <span>Временный<span className="hidden sm:inline"> чат</span></span><span className="temporary-toggle-track" aria-hidden="true" />
-        </button>
-        <span className="hidden items-center gap-2 text-[11px] text-zinc-500 lg:flex">{temporary ? "Не сохраняется" : "Ваш личный диалог"}</span>
+        {/* «Временный чат»: kept nowhere (like ChatGPT's); turning it off (or leaving) deletes it. Not for a guest. */}
+        {guest ? (
+          <span className="ml-auto" />
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => app.setTemporary(!temporary)}
+              aria-pressed={temporary}
+              aria-label="Временный чат"
+              title={temporary ? "Выйти из временного чата — он удалится" : "Временный чат: не сохранится в истории и в памяти MARYX"}
+              className="temporary-chat-toggle"
+            >
+              <Ghost className="size-3.5" />
+              <span>Временный<span className="hidden sm:inline"> чат</span></span><span className="temporary-toggle-track" aria-hidden="true" />
+            </button>
+            <span className="hidden items-center gap-2 text-[11px] text-zinc-500 lg:flex">{temporary ? "Не сохраняется" : "Ваш личный диалог"}</span>
+          </>
+        )}
         {chat && chat.messages.length > 0 && (
           <button
             type="button"

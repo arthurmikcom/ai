@@ -97,7 +97,7 @@ interface Props {
   onStop: () => void;
   /** Pictures put in from the chat ("Изменить" under a picture); taken once per `id`. */
   inject?: ComposerInject | null;
-  /** A guest (no account): files, pictures, video and the heavier modes ask to sign in instead. */
+  /** A guest (no account): files, pictures and video ask to sign in instead; search and the heavier modes aren't offered. */
   guest?: boolean;
 }
 
@@ -839,10 +839,10 @@ export function Composer({
             </button>
           )}
 
-          {model?.search && !mediaMode && onResearchChange && (
+          {model?.search && !mediaMode && !guest && onResearchChange && (
             <button
               type="button"
-              onClick={forGuest("запускать глубокое исследование", () => onResearchChange(!research))}
+              onClick={() => onResearchChange(!research)}
               aria-pressed={research}
               title="Глубокое исследование: MARYX ищет по нескольким направлениям и пишет отчёт со ссылками"
               aria-label="Исследование"
@@ -855,10 +855,10 @@ export function Composer({
             </button>
           )}
 
-          {!mediaMode && onCouncilChange && (
+          {!mediaMode && !guest && onCouncilChange && (
             <button
               type="button"
-              onClick={forGuest("звать совет экспертов", () => onCouncilChange(!council))}
+              onClick={() => onCouncilChange(!council)}
               aria-pressed={council}
               title="Консилиум: на вопрос сразу отвечают три сильных ИИ, MARYX сверяет их и пишет лучший ответ"
               aria-label="Консилиум"
@@ -871,7 +871,7 @@ export function Composer({
             </button>
           )}
 
-          {model?.search && !mediaMode && !research && (
+          {model?.search && !mediaMode && !research && !guest && (
             <button
               type="button"
               onClick={() => onWebSearchChange(!webSearch)}
@@ -889,7 +889,7 @@ export function Composer({
             </button>
           )}
 
-          {model?.reasoning && !mediaMode && (
+          {model?.reasoning && !mediaMode && !guest && (
             <button
               type="button"
               onClick={() => onDeepThinkingChange(!deepThinking)}

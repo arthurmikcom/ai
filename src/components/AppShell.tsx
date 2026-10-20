@@ -46,6 +46,11 @@ import { GuestButtons, GuestCard, GuestGate, loginHref } from "./Guest";
 const LEGAL_PATHS = ["/terms", "/refund", "/privacy"];
 /** What a guest (no account) can open: the chat, and the plans to see what an account gives. */
 const GUEST_PATHS = ["/", "/pricing"];
+/** Sections a guest's menu doesn't show at all (the rest lead to signing up). */
+const GUEST_HIDDEN = ["/maps", "/scheduled", "/plugins", "/pricing", "/settings"];
+/** The menu for this visitor: a guest's is shorter, like ChatGPT's before signing in. */
+const navFor = <T extends { href: string }>(items: T[], guest: boolean | undefined) =>
+  guest ? items.filter((n) => !GUEST_HIDDEN.includes(n.href)) : items;
 
 const NAV = [
   { href: "/", label: "Чат", icon: MessageSquare },
@@ -208,7 +213,7 @@ function Sidebar({ onNavigate, onPalette, onCollapse }: { onNavigate: () => void
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div className="section-label mb-2 mt-7 px-6">Пространство</div>
       <nav aria-label="Основная навигация" className="space-y-1 px-5">
-        {NAV.map(({ href, label, icon: Icon }) => {
+        {navFor(NAV, app.me?.guest).map(({ href, label, icon: Icon }) => {
           const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
           return (
             <Link
@@ -330,7 +335,7 @@ function NavigationRail({ onExpand, onPalette }: { onExpand: () => void; onPalet
     <button type="button" onClick={onExpand} title="Развернуть меню" aria-label="Развернуть меню" className="rail-brand"><BrandMark /></button>
     <button type="button" className="rail-new" title="Новый чат" aria-label="Новый чат" onClick={() => { app.openChat(null); router.push("/"); }}><MessageSquarePlus size={19} /></button>
     <button type="button" title="Поиск и команды" aria-label="Поиск и команды" onClick={onPalette}><Search size={18} /></button>
-    <nav aria-label="Основная навигация">{NAV.map(({ href, label, icon: Icon }) => <Link key={href} href={href} aria-label={label} title={label} aria-current={pathname === href ? "page" : undefined}><Icon size={19} /></Link>)}</nav>
+    <nav aria-label="Основная навигация">{navFor(NAV, app.me?.guest).map(({ href, label, icon: Icon }) => <Link key={href} href={href} aria-label={label} title={label} aria-current={pathname === href ? "page" : undefined}><Icon size={19} /></Link>)}</nav>
     <div className="rail-bottom"><button type="button" onClick={onExpand} title="Развернуть меню" aria-label="Развернуть меню"><PanelLeftOpen size={18} /></button><Link href={app.me?.guest ? loginHref("signin", pathname) : "/settings"} title={app.me?.guest ? "Войти" : "Мой профиль"} aria-label={app.me?.guest ? "Войти" : "Мой профиль"} className="rail-avatar">{(app.me?.user.name || "M").slice(0, 1).toUpperCase()}</Link></div>
   </div>;
 }
@@ -502,7 +507,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           )}
         </div>
         <nav className="mobile-workspace-nav" aria-label="Быстрая навигация">
-          {MOBILE_NAV.map(({ href, label, icon: Icon }) => <Link key={href} href={href} aria-current={pathname === href ? "page" : undefined}><Icon size={21} /><span>{label}</span></Link>)}
+          {navFor(MOBILE_NAV, guest).map(({ href, label, icon: Icon }) => <Link key={href} href={href} aria-current={pathname === href ? "page" : undefined}><Icon size={21} /><span>{label}</span></Link>)}
         </nav>
       </main>
       {palette && <CommandPalette onClose={() => setPalette(false)} />}

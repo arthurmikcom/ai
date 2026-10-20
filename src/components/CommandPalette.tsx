@@ -49,6 +49,9 @@ interface Command {
 /** How many chats show before anything is typed. */
 const RECENT_CHATS = 6;
 
+/** What a guest (no account) isn't offered: the same as in their menu. */
+const GUEST_HIDDEN = ["maps", "tasks", "plugins", "temporary", "pricing", "settings"];
+
 /**
  * The command palette (Ctrl/⌘+K): find a chat (by its title or what was said
  * in it), go to a section, start something new or change the look — from the
@@ -80,7 +83,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
   }, [q]);
 
   const go = (href: string) => () => router.push(href);
-  const commands: Command[] = [
+  const all: Command[] = [
     {
       id: "new",
       group: "Действия",
@@ -134,6 +137,8 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
       run: () => setLook({ text: t.id }),
     })),
   ];
+  // A guest (no account) isn't offered what's hidden from their menu.
+  const commands = app.me?.guest ? all.filter((c) => !GUEST_HIDDEN.includes(c.id)) : all;
 
   const inMessages = found && found.query === q ? new Set(found.ids) : null;
   const chats = app.chats

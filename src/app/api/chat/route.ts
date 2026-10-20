@@ -157,6 +157,11 @@ export async function POST(request: Request) {
   if (user.isAnonymous && (req.research || req.council)) {
     return loginRequired(`Чтобы ${req.research ? "запускать глубокое исследование" : "звать совет экспертов"}, войдите или зарегистрируйтесь — это бесплатно.`);
   }
+  // Nor are «Поиск» and «Думать глубже» offered to a guest (MARYX may still look up what's new by itself).
+  if (user.isAnonymous) {
+    req.webSearch = false;
+    req.deepThinking = false;
+  }
 
   const db = await getDb();
   const maryx = req.provider === "maryx";
