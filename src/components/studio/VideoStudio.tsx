@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
   Camera,
   Check,
@@ -116,6 +116,13 @@ function Pill({
   wide?: boolean;
 }) {
   const box = useRef<HTMLDivElement>(null);
+  const pop = useRef<HTMLDivElement>(null);
+  // The panel opens upwards: it never reaches past the top of the screen (a tall composer on a phone).
+  useLayoutEffect(() => {
+    const el = pop.current;
+    if (!open || !el) return;
+    el.style.maxHeight = `min(520px, 62vh, ${Math.max(160, Math.floor(el.getBoundingClientRect().bottom - 12))}px)`;
+  }, [open]);
   useEffect(() => {
     if (!open) return;
     const away = (e: PointerEvent) => !box.current?.contains(e.target as Node) && onClose();
@@ -143,7 +150,7 @@ function Pill({
         <ChevronDown size={13} className="lx-pill-chevron" />
       </button>
       {open && (
-        <div className={`lx-pop ${wide ? "lx-pop--wide" : ""}`} role="dialog" aria-label={title}>
+        <div ref={pop} className={`lx-pop ${wide ? "lx-pop--wide" : ""}`} role="dialog" aria-label={title}>
           {children}
         </div>
       )}
