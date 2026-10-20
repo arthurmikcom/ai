@@ -6,7 +6,7 @@ type Context = { params: Promise<{ id: string }> };
 
 /** 👍/👎 on an answer: { messageId, rating: 1 | -1 | 0, reason? } (0 takes the verdict back). */
 export async function PUT(request: Request, { params }: Context) {
-  const user = await requireUser(request);
+  const user = await requireUser(request, { guest: true });
   if (user instanceof Response) return user;
   const body = (await request.json().catch(() => null)) as { messageId?: unknown; rating?: unknown; reason?: unknown } | null;
   const rating = body?.rating;

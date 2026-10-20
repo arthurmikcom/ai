@@ -29,6 +29,10 @@ async function Content() {
         <li>Страницы (игры, сайты), которыми вы поделились по ссылке: их видит каждый, у кого есть ссылка.</li>
         <li>Тариф, история платежей и расход лимитов. Данные карт принимает и хранит {providersText(providers, "платёжная система")}, а не мы.</li>
         <li>Технические данные: IP-адрес и сведения о браузере — для защиты от злоупотреблений и для статистики скорости сайта.</li>
+        <li>
+          Без аккаунта (гостевой чат) — только ваши чаты, привязанные к этому браузеру. Они удаляются, когда гостевой вход истекает (через неделю
+          без визитов); если вы зарегистрируетесь или войдёте, они перейдут в ваш аккаунт.
+        </li>
       </ul>
 
       <h2>Зачем</h2>
@@ -73,10 +77,11 @@ async function Content() {
         {info.name} stores your account (name, email, hashed password), your chats, files, generated media, assistants and preferences,
         your plan and payment history (card details are handled by {providers.length ? providers.join(" and ") : "the payment provider"}, never by us) and technical data (IP, browser) for security
         and performance statistics. Data is used only to provide the service, take payments and prevent abuse, and — when you rate an answer 👎 — the
-        site's administrator may read that question and answer (without your name or email) to improve the service; it is never sold and there are
+        administrator of the site may read that question and answer (without your name or email) to improve the service; it is never sold and there are
         no ads. Request content is sent to AI model providers to generate answers, with a pseudonymous id instead of your email; these processors may be located outside your country. Only
-        essential sign-in cookies are used. Data is kept while your account exists; deleting the account in Settings deletes it. Contact us to
-        get a copy of your data or correct it.
+        essential sign-in cookies are used. Data is kept while your account exists; deleting the account in Settings deletes it. Without an account
+        (guest chat), only your chats are kept, tied to this browser, and deleted a week after your last visit unless you sign up or sign in, which
+        moves them to your account. Contact us to get a copy of your data or correct it.
       </p>
     </LegalPage>
   );

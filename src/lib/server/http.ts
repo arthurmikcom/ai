@@ -4,10 +4,24 @@ export function jsonError(message: string, status: number): Response {
   return Response.json({ error: message }, { status });
 }
 
-/** The signed-in user, or a 401 response to return as-is. */
-export async function requireUser(request: Request): Promise<SessionUser | Response> {
+/**
+ * What a guest (chatting without an account) is told about everything else.
+ * `code` "login" makes the UI offer to sign in or up; 403, not 401, so the
+ * page isn't sent to the login screen by itself.
+ */
+export function loginRequired(message = "Войдите или зарегистрируйтесь — это бесплатно."): Response {
+  return Response.json({ error: message, code: "login" }, { status: 403 });
+}
+
+/**
+ * The signed-in user, or a response to return as-is: 401 without a session,
+ * and for a guest unless the route lets guests in (`guest`: the chat and
+ * what it needs).
+ */
+export async function requireUser(request: Request, opts: { guest?: boolean } = {}): Promise<SessionUser | Response> {
   const user = await getSessionUser(request.headers);
-  return user ?? jsonError("Войдите в аккаунт", 401);
+  if (!user) return jsonError("Войдите в аккаунт", 401);
+  return user.isAnonymous && !opts.guest ? loginRequired() : user;
 }
 
 /**

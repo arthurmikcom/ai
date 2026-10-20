@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { Capability, ModelsResponse } from "@/lib/types";
+import { sessionReady } from "./session";
 
 // One request per capability per page load, shared by every component.
 const cache = new Map<string, Promise<ModelsResponse>>();
@@ -10,7 +11,7 @@ function load(capability: Capability | "all"): Promise<ModelsResponse> {
   let promise = cache.get(capability);
   if (!promise) {
     const query = capability === "all" ? "" : `?capability=${capability}`;
-    promise = fetch(`/api/models${query}`).then((res) => {
+    promise = sessionReady.then(() => fetch(`/api/models${query}`)).then((res) => {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json() as Promise<ModelsResponse>;
     });

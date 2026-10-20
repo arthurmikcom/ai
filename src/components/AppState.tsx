@@ -13,6 +13,7 @@ import {
 } from "react";
 import { api, ApiError, errorOf } from "@/lib/client/api";
 import { authClient } from "@/lib/client/auth";
+import { sessionSettled } from "@/lib/client/session";
 import { track } from "@/lib/client/media";
 import { useStoredJson } from "@/lib/client/useStored";
 import { buildMessages, generateLocal, localSupport, localSystemPrompt, personalInstructions } from "@/lib/client/local-ai";
@@ -97,6 +98,28 @@ export function useApp(): AppState {
   return ctx;
 }
 
+/** Crawlers see the pages without becoming guests (each would be a new user). */
+const BOT = /bot|crawl|spider|slurp|preview|facebookexternalhit|lighthouse/i;
+
+/** An answer from the API, or its error (a missing session goes to the login page). */
+async function json<T>(res: Response): Promise<T> {
+  if (!res.ok) throw await errorOf(res);
+  return (await res.json()) as T;
+}
+
+/**
+ * The profile. A visitor without a session becomes a guest first (like
+ * ChatGPT's: chatting needs no account; the other sections ask to sign in).
+ */
+async function loadProfile(): Promise<{ me: MeResponse; fresh: boolean }> {
+  const res = await fetch("/api/me");
+  if (res.status === 401 && !BOT.test(navigator.userAgent)) {
+    const { error } = await authClient.signIn.anonymous();
+    if (!error) return { me: await json<MeResponse>(await fetch("/api/me")), fresh: true };
+  }
+  return { me: await json<MeResponse>(res), fresh: false };
+}
+
 function titleFrom(text: string, attachments: Attachment[]): string {
   const clean = text.replace(/\s+/g, " ").trim();
   if (!clean) return attachments.find((a) => !a.mime.startsWith("image/"))?.name ?? (attachments.length ? "Изображение" : "Новый чат");
@@ -106,7 +129,7 @@ function titleFrom(text: string, attachments: Attachment[]): string {
 export function AppStateProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   // Pages seen without signing in: nothing to load for them.
-  const onLoginPage = pathname === "/login" || pathname === "/terms" || pathname === "/refund" || pathname === "/privacy";
+  const onLoginPage = ["/login", "/reset-password", "/terms", "/refund", "/privacy"].includes(pathname);
   const [ready, setReady] = useState(false);
   const [me, setMe] = useState<MeResponse | null>(null);
   // The ref is the source of truth so async streaming code always sees the
@@ -149,14 +172,24 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (onLoginPage) return;
+    // Nothing to wait for on the pages seen signed out.
+    if (onLoginPage) return sessionSettled();
     // The profile also says which mode the site is in: loaded on its own, so it arrives even if the rest fails.
-    const profile = api<MeResponse>("/api/me").then((p) => {
-      setMe(p);
-      return p;
-    });
-    Promise.all([profile, api<ChatSummary[]>("/api/chats"), api<Assistant[]>("/api/assistants")])
-      .then(([, list, saved]) => {
+    const profile = loadProfile()
+      .then((p) => {
+        setMe(p.me);
+        return p;
+      })
+      .finally(sessionSettled);
+    // The lists load alongside; a guest's session only now begun gets them again with it.
+    const early = Promise.all([fetch("/api/chats"), fetch("/api/assistants")]).catch(() => null);
+    Promise.all([profile, early])
+      .then(([{ fresh }, res]) =>
+        fresh || !res
+          ? Promise.all([api<ChatSummary[]>("/api/chats"), api<Assistant[]>("/api/assistants")])
+          : Promise.all([json<ChatSummary[]>(res[0]), json<Assistant[]>(res[1])]),
+      )
+      .then(([list, saved]) => {
         for (const c of list) {
           if (!chatsRef.current.has(c.id)) chatsRef.current.set(c.id, { ...c, messages: [], loaded: false, saved: true });
         }

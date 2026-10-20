@@ -36,6 +36,7 @@ import { PHOTO_EFFECTS } from "@/lib/effects";
 import type { ChatMessage, ModelInfo } from "@/lib/types";
 import { Markdown } from "./Markdown";
 import { BrandMark } from "../Design";
+import { GuestButtons } from "../Guest";
 
 interface Props {
   message: ChatMessage;
@@ -578,7 +579,13 @@ export function MessageView({
         </div>
       )}
 
-      {message.error && (
+      {message.error && message.errorCode === "login" ? (
+        // A guest asked for what needs an account: the way in, not an error.
+        <div className="mt-2 rounded-xl border border-violet-300/25 bg-violet-500/10 px-4 py-3 text-sm text-zinc-200">
+          <span>{message.error}</span>
+          <GuestButtons className="message-login" />
+        </div>
+      ) : message.error && (
         <div className="mt-2 flex items-start gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
           <TriangleAlert className="mt-0.5 size-4 shrink-0" />
           <span>

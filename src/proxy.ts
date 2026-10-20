@@ -1,11 +1,9 @@
 import { getSessionCookie } from "better-auth/cookies";
 import { NextResponse, type NextRequest } from "next/server";
 
-// /api/health is the owner's setup check; it reports only whether settings are present.
-// The legal pages are public: payment providers and visitors read them before signing up.
-// The app manifest and icons are read by browsers (to install the app) without a session,
-// and pages shared by a link (/s/<id>) open for anyone who has it.
-const PUBLIC_PATHS = ["/login", "/api/auth", "/api/health", "/terms", "/refund", "/privacy", "/manifest.webmanifest", "/icons", "/s"];
+// Signing in (/api/auth) and the owner's setup check (/api/health, which reports only
+// whether settings are present) work without a session.
+const PUBLIC_API = ["/api/auth", "/api/health"];
 /** Called by payment providers and Vercel Cron; each route authenticates itself. */
 const MACHINE_PATHS = [
   "/api/billing/stripe/webhook",
@@ -45,25 +43,20 @@ function passwordGate(request: NextRequest): NextResponse | null {
 }
 
 /**
- * Sends visitors without a session to the login page. This only looks at the
- * cookie (fast); every API route still verifies the session itself.
+ * Every page opens without signing in, like ChatGPT's: a visitor becomes a
+ * guest who can chat, and the other sections ask them to sign in or up (the
+ * pages hold no data of their own). The API needs a session; this only looks
+ * at the cookie (fast), and every route still verifies the session itself.
  */
 export function proxy(request: NextRequest) {
-  const { pathname, search } = request.nextUrl;
+  const { pathname } = request.nextUrl;
   if (matches(pathname, MACHINE_PATHS)) return NextResponse.next();
 
   const blocked = passwordGate(request);
   if (blocked) return blocked;
 
-  if (matches(pathname, PUBLIC_PATHS)) return NextResponse.next();
-  if (getSessionCookie(request)) return NextResponse.next();
-
-  if (pathname.startsWith("/api/")) {
-    return NextResponse.json({ error: "Войдите в аккаунт" }, { status: 401 });
-  }
-  const login = new URL("/login", request.url);
-  if (pathname !== "/") login.searchParams.set("next", pathname + search);
-  return NextResponse.redirect(login);
+  if (!pathname.startsWith("/api/") || matches(pathname, PUBLIC_API) || getSessionCookie(request)) return NextResponse.next();
+  return NextResponse.json({ error: "Войдите в аккаунт" }, { status: 401 });
 }
 
 export const config = {

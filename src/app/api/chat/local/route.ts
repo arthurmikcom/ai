@@ -50,7 +50,7 @@ async function countQuestion(user: SessionUser): Promise<boolean> {
  * previous answer to it.
  */
 export async function POST(request: Request) {
-  const user = await requireUser(request);
+  const user = await requireUser(request, { guest: true });
   if (user instanceof Response) return user;
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body || !isValidId(body.chatId)) return jsonError("Неверный идентификатор", 400);

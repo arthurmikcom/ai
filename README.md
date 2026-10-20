@@ -111,6 +111,8 @@ npm run dev
 
 - **Вход через Google.** В [Google Cloud Console](https://console.cloud.google.com/apis/credentials) создайте OAuth Client ID (Web application). Redirect URI: `https://ваш-сайт/api/auth/callback/google`. Затем задайте `GOOGLE_CLIENT_ID` и `GOOGLE_CLIENT_SECRET`.
 - **Вход через VK ID.** Создайте приложение на [id.vk.com](https://id.vk.com/about/business/go). Redirect URI: `https://ваш-сайт/api/auth/callback/vk`. Затем задайте `VK_CLIENT_ID` и `VK_CLIENT_SECRET`.
+- **«Забыли пароль?» — письмо со ссылкой.** Нужна почта, через которую сайт отправляет письма (SMTP). Проще всего Gmail: включите в аккаунте Google двухэтапную проверку, откройте [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords), создайте пароль приложения (16 букв) и добавьте в Vercel `SMTP_HOST=smtp.gmail.com`, `SMTP_USER=ваш@gmail.com`, `SMTP_PASS=` этот пароль приложения (не обычный пароль от почты), затем Redeploy. Подойдёт любая почта с SMTP: Яндекс (`smtp.yandex.ru`), Mail.ru (`smtp.mail.ru`), Brevo, Resend (`smtp.resend.com`, логин `resend`, пароль — API-ключ). Порт по умолчанию 465 (`SMTP_PORT=587` — со STARTTLS), отправитель — `SMTP_USER` или `MAIL_FROM` (например `MARYX Ai <ваш@gmail.com>`). Ссылка в письме действует 1 час и один раз; новый пароль выходит из аккаунта на всех устройствах. Пока почта не подключена, на странице входа вместо формы — адрес для связи из `LEGAL_EMAIL`. Проверка — строка «Почта» на `/api/health`.
+- **Гости, как в ChatGPT.** Сайт открывается без регистрации: посетитель сразу становится гостем и может писать MARYX — `GUEST_DAILY_CHAT` сообщений в день (по умолчанию 10, `0` — сразу на вход). Картинки, видео, фото и файлы, исследование, консилиум и остальные разделы просят войти или зарегистрироваться (кнопки «Войти» и «Зарегистрироваться бесплатно» вверху). Когда гость регистрируется или входит, его чаты переходят в аккаунт. Гостевые чаты живут, пока действует вход в этом браузере (неделю после последнего визита), потом крон их удаляет. Гости тратят бюджет бесплатных запросов, поэтому задайте `AI_DAILY_BUDGET_USD`. С одного адреса — не больше 30 новых гостей в час.
 - **Лимиты.** `FREE_DAILY_CHAT`, `FREE_DAILY_IMAGE`, `FREE_DAILY_VIDEO`: число в сутки или `unlimited`.
 - **Закрытая бета.** `APP_PASSWORD` спрашивает общий пароль ещё до входа в аккаунт.
 - **Задачи минута в минуту.** Пока сайт открыт, задачи выполняются вовремя сами (страница проверяет их раз в минуту), а без открытого сайта — раз в сутки по крону Vercel. Чтобы они приходили точно в срок всегда, подключите бесплатный «будильник», например [cron-job.org](https://cron-job.org): создайте задание на адрес `https://ваш-сайт/api/cron/tasks` каждые 5 минут, метод GET, заголовок `Authorization` со значением `Bearer ` и ваш `CRON_SECRET`. Сам секрет храните только там и в Vercel.
@@ -369,13 +371,15 @@ src/
   lib/
     catalog.ts            провайдеры и подобранные модели
     server/db/            схема базы (Drizzle ORM): PostgreSQL или встроенный PGlite
-    server/auth.ts        аккаунты, сессии, вход через Google/VK
+    server/auth.ts        аккаунты, сессии, вход через Google/VK, сброс пароля
+    server/guests.ts      гости без регистрации: перенос чатов в аккаунт, чистка
+    server/mail.ts        письма через SMTP («Забыли пароль?»)
     server/chat/          адаптеры чата: Anthropic, OpenAI-совместимые, Google
     server/media/         адаптеры генерации: OpenAI, Google, Replicate
     server/storage.ts     файлы: Vercel Blob или папка .data/
     server/usage.ts       дневные лимиты
     server/billing/       тарифы, промокоды, ЮKassa, Stripe, Paddle, PayPal, TON
-  proxy.ts                без входа — перенаправление на /login
+  proxy.ts                API без сессии — 401 (страницы открыты: посетитель становится гостем)
 drizzle/                  миграции базы данных
 ```
 

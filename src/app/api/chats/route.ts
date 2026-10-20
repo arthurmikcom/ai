@@ -3,7 +3,7 @@ import { jsonError, requireUser } from "@/lib/server/http";
 
 /** The user's chats; with ?q=, the ids of those whose title or messages contain it. */
 export async function GET(request: Request) {
-  const user = await requireUser(request);
+  const user = await requireUser(request, { guest: true });
   if (user instanceof Response) return user;
   const query = new URL(request.url).searchParams.get("q")?.trim();
   if (query !== undefined) {

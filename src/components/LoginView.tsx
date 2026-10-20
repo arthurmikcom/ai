@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowUpRight, LoaderCircle, LockKeyhole, Sparkles } from "@/components/MaryxIcons";
-import { useState, type FormEvent } from "react";
+import { useState, useSyncExternalStore, type FormEvent } from "react";
 import { authClient } from "@/lib/client/auth";
 import { LegalLinks } from "./LegalPage";
 import { BrandMark, BrandName } from "./Design";
@@ -9,7 +9,13 @@ import { StudioImage } from "./WorkspaceVisuals";
 
 interface Props {
   social: { google: boolean; vk: boolean };
+  /** Letters can be sent (SMTP is set up): «Забыли пароль?» sends a link. */
+  mail: boolean;
+  /** Where to write when they can't (LEGAL_EMAIL). */
+  support?: string;
 }
+
+type Mode = "signin" | "signup" | "forgot";
 
 /** Where to go after signing in: ?next=/path (same-site paths only). */
 function nextPath(): string {
@@ -29,7 +35,9 @@ const ERRORS: Record<string, string> = {
 function serverError(status: number | undefined): string | null {
   return status !== undefined && status >= 500
     ? "Ошибка на сервере. Если вы владелец сайта, откройте /api/health — там видно, что не настроено."
-    : null;
+    : status === 429
+      ? "Слишком много попыток — подождите минуту и попробуйте снова."
+      : null;
 }
 
 function GoogleIcon() {
@@ -43,18 +51,49 @@ function GoogleIcon() {
   );
 }
 
-export function LoginView({ social }: Props) {
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+const TITLES: Record<Mode, [string, string]> = {
+  signin: ["Вход в MARYX Ai", "Хорошие идеи начинаются с диалога. Продолжим?"],
+  signup: ["Регистрация", "Создайте аккаунт — и дайте идеям больше свободы."],
+  forgot: ["Забыли пароль?", "Укажите почту аккаунта — пришлём ссылку, чтобы задать новый пароль."],
+};
+
+const noSubscribe = () => () => {};
+
+export function LoginView({ social, mail, support }: Props) {
+  // «Зарегистрироваться бесплатно» (a guest's button) opens the sign-up form: /login?mode=signup.
+  const signupLink = useSyncExternalStore(
+    noSubscribe,
+    () => new URLSearchParams(window.location.search).get("mode") === "signup",
+    () => false,
+  );
+  const [chosen, setMode] = useState<Mode | null>(null);
+  const mode: Mode = chosen ?? (signupLink ? "signup" : "signin");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // «Забыли пароль?»: the letter is on its way.
+  const [sent, setSent] = useState(false);
+
+  const go = (next: Mode) => {
+    setMode(next);
+    setError(null);
+    setSent(false);
+  };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setError(null);
+    if (mode === "forgot") {
+      // The answer is the same whether the email has an account or not.
+      const result = await authClient.requestPasswordReset({ email, redirectTo: "/reset-password" });
+      setBusy(false);
+      if (result.error) setError(serverError(result.error.status) ?? "Не удалось отправить письмо. Попробуйте ещё раз.");
+      else setSent(true);
+      return;
+    }
     const result =
       mode === "signup"
         ? await authClient.signUp.email({ name: name.trim() || email.split("@")[0], email, password })
@@ -80,6 +119,7 @@ export function LoginView({ social }: Props) {
 
   const field =
     "login-input w-full text-sm text-zinc-100 outline-none placeholder:text-zinc-600";
+  const link = "font-medium text-violet-300 hover:text-violet-200";
 
   return (
     <div className="login-page">
@@ -108,15 +148,11 @@ export function LoginView({ social }: Props) {
       <div className="relative w-full max-w-[360px]">
         <div className="mb-8">
           <div className="page-eyebrow"><span>01</span>Ваше пространство</div>
-          <h1 className="text-[30px] font-medium tracking-[-0.04em] text-zinc-100">
-            {mode === "signin" ? "Вход в MARYX Ai" : "Регистрация"}
-          </h1>
-          <p className="mt-3 text-sm leading-6 text-zinc-400">
-            {mode === "signin" ? "Хорошие идеи начинаются с диалога. Продолжим?" : "Создайте аккаунт — и дайте идеям больше свободы."}
-          </p>
+          <h1 className="text-[30px] font-medium tracking-[-0.04em] text-zinc-100">{TITLES[mode][0]}</h1>
+          <p className="mt-3 text-sm leading-6 text-zinc-400">{TITLES[mode][1]}</p>
         </div>
 
-        {(social.google || social.vk) && (
+        {mode !== "forgot" && (social.google || social.vk) && (
           <div className="mb-5 space-y-2">
             {social.google && (
               <button
@@ -144,62 +180,97 @@ export function LoginView({ social }: Props) {
           </div>
         )}
 
-        <form onSubmit={submit} className="space-y-3">
-          {mode === "signup" && (
+        {mode === "forgot" && !mail ? (
+          // No mail service set up: the way that works today.
+          <p role="status" className="rounded-xl border border-white/10 bg-white/[0.03] p-4 text-sm leading-6 text-zinc-300">
+            Восстановление по почте пока не подключено.{" "}
+            {support ? (
+              <>
+                Напишите нам на <a href={`mailto:${support}`} className={link}>{support}</a> с почты аккаунта — поможем сменить пароль.
+              </>
+            ) : (
+              "Напишите администратору сайта с почты аккаунта — он поможет сменить пароль."
+            )}
+          </p>
+        ) : mode === "forgot" && sent ? (
+          <p role="status" className="rounded-xl border border-emerald-400/20 bg-emerald-400/5 p-4 text-sm leading-6 text-emerald-200">
+            Если аккаунт с почтой <b>{email}</b> есть, мы отправили на неё письмо со ссылкой. Ссылка действует 1 час. Не видите письма — загляните в «Спам».
+          </p>
+        ) : (
+          <form onSubmit={submit} className="space-y-3">
+            {mode === "signup" && (
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Как вас зовут"
+                aria-label="Как вас зовут"
+                autoComplete="name"
+                className={field}
+              />
+            )}
             <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Как вас зовут"
-              aria-label="Как вас зовут"
-              autoComplete="name"
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Почта"
+              aria-label="Почта"
+              autoComplete="email"
               className={field}
             />
-          )}
-          <input
-            type="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="Почта"
-            aria-label="Почта"
-            autoComplete="email"
-            className={field}
-          />
-          <input
-            type="password"
-            required
-            minLength={8}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder={mode === "signup" ? "Пароль (от 8 символов)" : "Пароль"}
-            aria-label="Пароль"
-            autoComplete={mode === "signup" ? "new-password" : "current-password"}
-            className={field}
-          />
-          {error && <p role="alert" className="rounded-xl border border-red-400/20 bg-red-400/5 p-3 text-sm text-red-300">{error}</p>}
-          <button
-            type="submit"
-            disabled={busy}
-            className="maryx-button mt-2 flex h-[52px] w-full items-center justify-center gap-3 rounded-xl text-sm"
-          >
-            {busy && <LoaderCircle className="size-4 animate-spin" />}
-            {mode === "signin" ? "Войти" : "Создать аккаунт"}
-            {!busy && <ArrowUpRight className="size-4" aria-hidden="true" />}
-          </button>
-        </form>
+            {mode !== "forgot" && (
+              <input
+                type="password"
+                required
+                minLength={8}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={mode === "signup" ? "Пароль (от 8 символов)" : "Пароль"}
+                aria-label="Пароль"
+                autoComplete={mode === "signup" ? "new-password" : "current-password"}
+                className={field}
+              />
+            )}
+            {mode === "signin" && (
+              <div className="flex justify-end">
+                <button type="button" onClick={() => go("forgot")} className="text-xs text-zinc-400 hover:text-violet-200">
+                  Забыли пароль?
+                </button>
+              </div>
+            )}
+            {error && <p role="alert" className="rounded-xl border border-red-400/20 bg-red-400/5 p-3 text-sm text-red-300">{error}</p>}
+            <button
+              type="submit"
+              disabled={busy}
+              className="maryx-button mt-2 flex h-[52px] w-full items-center justify-center gap-3 rounded-xl text-sm"
+            >
+              {busy && <LoaderCircle className="size-4 animate-spin" />}
+              {mode === "signin" ? "Войти" : mode === "signup" ? "Создать аккаунт" : "Прислать ссылку"}
+              {!busy && <ArrowUpRight className="size-4" aria-hidden="true" />}
+            </button>
+          </form>
+        )}
 
         <p className="mt-6 text-center text-sm text-zinc-400">
-          {mode === "signin" ? "Нет аккаунта?" : "Уже есть аккаунт?"}{" "}
-          <button
-            type="button"
-            onClick={() => {
-              setMode(mode === "signin" ? "signup" : "signin");
-              setError(null);
-            }}
-            className="font-medium text-violet-300 hover:text-violet-200"
-          >
-            {mode === "signin" ? "Зарегистрироваться" : "Войти"}
-          </button>
+          {mode === "forgot" ? (
+            <button type="button" onClick={() => go("signin")} className={link}>
+              ← Назад ко входу
+            </button>
+          ) : (
+            <>
+              {mode === "signin" ? "Нет аккаунта?" : "Уже есть аккаунт?"}{" "}
+              <button type="button" onClick={() => go(mode === "signin" ? "signup" : "signin")} className={link}>
+                {mode === "signin" ? "Зарегистрироваться" : "Войти"}
+              </button>
+            </>
+          )}
+        </p>
+        {/* Like ChatGPT: the chat works without an account (a full load, so the guest session starts there). */}
+        <p className="mt-3 text-center text-sm">
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+          <a href="/" className="text-zinc-500 underline-offset-4 hover:text-zinc-200 hover:underline">
+            Продолжить без аккаунта
+          </a>
         </p>
         <div className="mt-8 flex items-center justify-center gap-2 border-t border-white/5 pt-6 text-[11px] text-zinc-500">
           <LockKeyhole className="size-3.5" aria-hidden="true" />

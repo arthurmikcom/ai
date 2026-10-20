@@ -1,6 +1,7 @@
 import { PROVIDERS } from "@/lib/catalog";
 import { getAuth, vercelHosts } from "@/lib/server/auth";
-import { isConfigured, maryxOnly } from "@/lib/server/config";
+import { guestDailyChat, isConfigured, maryxOnly } from "@/lib/server/config";
+import { mailConfigured } from "@/lib/server/mail";
 import { sellablePacks } from "@/lib/server/billing/packs";
 import { paddleCreditsConfigured, paddleSandbox, paddleSells } from "@/lib/server/billing/paddle";
 import { paypalConfigured, paypalSandbox } from "@/lib/server/billing/paypal";
@@ -113,6 +114,13 @@ export async function GET(request: Request) {
   checks["Задачи по расписанию"] = process.env.CRON_SECRET?.trim()
     ? "✓ выполняются вовремя, пока сайт открыт, и раз в сутки сами; для точного времени всегда — «будильник» на /api/cron/tasks (см. README)"
     : `⚠ без CRON_SECRET задачи выполняются, только пока у пользователя открыт сайт. Добавьте CRON_SECRET (16+ случайных символов): ${SETTINGS}`;
+  checks["Почта"] = mailConfigured()
+    ? `✓ письма уходят через ${process.env.SMTP_HOST!.trim()} — «Забыли пароль?» присылает ссылку`
+    : `⚠ не подключена: «Забыли пароль?» не может прислать ссылку (на странице входа будет адрес для связи из LEGAL_EMAIL). Добавьте SMTP_HOST, SMTP_USER, SMTP_PASS (например Gmail с паролем приложения, см. README): ${SETTINGS}`;
+  const guests = guestDailyChat();
+  checks["Гости"] = guests
+    ? `✓ чат без регистрации: ${guests} сообщений в день, остальное — после входа${budget === null ? " (задайте AI_DAILY_BUDGET_USD — он ограничит и гостей)" : ""}`
+    : "— чат без регистрации выключен (GUEST_DAILY_CHAT=0)";
   const payments: string[] = [];
   let paymentsWarn = false;
   if (yookassaConfigured()) {

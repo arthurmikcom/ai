@@ -25,7 +25,7 @@ async function paidModels(kind: "image" | "video"): Promise<string[]> {
 
 /** Plans, their limits and the payment methods this server accepts. */
 export async function GET(request: Request) {
-  const user = await requireUser(request);
+  const user = await requireUser(request, { guest: true });
   if (user instanceof Response) return user;
 
   const each = <T,>(f: (plan: PlanId) => T) => Object.fromEntries(PLAN_ORDER.map((p) => [p, f(p)])) as Record<PlanId, T>;

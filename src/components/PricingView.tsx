@@ -2,12 +2,14 @@
 
 import { Banknote, Check, Coins, CreditCard, Gem, KeyRound, LoaderCircle, Sparkles } from "@/components/MaryxIcons";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { api } from "@/lib/client/api";
 import { PLAN_NAMES, PLAN_ORDER, PLAN_TAGLINES, planRank } from "@/lib/plans";
 import type { BillingOptions, PaidPlanId, PaymentMethod as Method, PlanId, UsageKind } from "@/lib/types";
 import { useApp } from "./AppState";
 import { PromoForm } from "./PromoForm";
+import { loginHref } from "./Guest";
 import { LegalLinks } from "./LegalPage";
 import { PageHeading } from "./Design";
 
@@ -43,6 +45,13 @@ export function PricingView() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [consent, setConsent] = useState(false);
+  const router = useRouter();
+  // A guest sees the plans; buying one starts with a (free) account.
+  const needsAccount = () => {
+    if (!me?.guest) return false;
+    router.push(loginHref("signup", "/pricing"));
+    return true;
+  };
 
   useEffect(() => {
     api<BillingOptions>("/api/billing/plans").then(setOptions, (e: Error) => setError(e.message));
@@ -57,6 +66,7 @@ export function PricingView() {
   }, [options]);
 
   const buyCredits = async (method: Method, pack: string) => {
+    if (needsAccount()) return;
     setBusy(`${method}:${pack}`);
     setError(null);
     try {
@@ -73,6 +83,7 @@ export function PricingView() {
 
   const [notice, setNotice] = useState<string | null>(null);
   const checkout = async (method: Method, plan: PaidPlanId) => {
+    if (needsAccount()) return;
     setBusy(`${method}:${plan}`);
     setError(null);
     setNotice(null);

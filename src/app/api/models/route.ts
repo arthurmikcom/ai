@@ -13,7 +13,7 @@ const CAPABILITIES = new Set<string>(["chat", "image", "video"]);
 
 /** Providers (with connection status) and the models available to this user. */
 export async function GET(request: Request) {
-  const user = await requireUser(request);
+  const user = await requireUser(request, { guest: true });
   if (user instanceof Response) return user;
   const param = new URL(request.url).searchParams.get("capability");
   const capability = param && CAPABILITIES.has(param) ? (param as Capability) : null;

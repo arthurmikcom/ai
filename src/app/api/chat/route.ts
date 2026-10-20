@@ -18,7 +18,7 @@ import type { StoredFile } from "@/lib/server/db/schema";
 import { describeAiError, maryxOnly, publicNotice } from "@/lib/server/brand";
 import { errorDetail, StorageUnavailableError, statusOf } from "@/lib/server/errors";
 import { loadOpenRouterChatModels } from "@/lib/server/models";
-import { jsonError, requireUser, storageUnavailable } from "@/lib/server/http";
+import { jsonError, loginRequired, requireUser, storageUnavailable } from "@/lib/server/http";
 import { IMAGE_STYLES, withStyle } from "@/lib/effects";
 import { startMediaJob } from "@/lib/server/media-job";
 import {
@@ -143,13 +143,20 @@ function isUniqueViolation(err: unknown): boolean {
 export async function POST(request: Request) {
   // The answer's deadline counts from here: preparing a big request takes part of maxDuration too.
   const requestStarted = Date.now();
-  const user = await requireUser(request);
+  const user = await requireUser(request, { guest: true });
   if (user instanceof Response) return user;
 
   const req = parseChatSendRequest(await request.json().catch(() => null));
   if (typeof req === "string") return jsonError(req, 400);
   // An uploaded video must be one of the user's own files.
   if (req.message?.attachments?.some((a) => a.key && !isOwnVideoKey(user.id, a.key))) return jsonError("Неверное вложение", 400);
+  // A guest only chats (pictures and video are refused when charged): files and the heavier modes need an account.
+  if (user.isAnonymous && req.message?.attachments?.length) {
+    return loginRequired("Чтобы прикреплять фото и файлы, войдите или зарегистрируйтесь — это бесплатно.");
+  }
+  if (user.isAnonymous && (req.research || req.council)) {
+    return loginRequired(`Чтобы ${req.research ? "запускать глубокое исследование" : "звать совет экспертов"}, войдите или зарегистрируйтесь — это бесплатно.`);
+  }
 
   const db = await getDb();
   const maryx = req.provider === "maryx";
@@ -271,7 +278,8 @@ export async function POST(request: Request) {
     // A video isn't something words can stand in for: the user is told why (and about plans).
     // …unless it's a photo edit on the free plan: the user is told it's for credits or a paid plan.
     const why = paid as { charge?: Charge; reason?: string };
-    if (film || (!autoDraw && !autoEdit) || why.reason) return refuse(kind, paid.denied, why.charge, why.reason);
+    // A guest is asked to sign up instead (drawing is free with an account).
+    if (film || (!autoDraw && !autoEdit) || why.reason || user.isAnonymous) return refuse(kind, paid.denied, why.charge, why.reason);
     paid = await charge(user, "chat", key);
     if ("denied" in paid) return refuse("chat", paid.denied);
     draw = false;

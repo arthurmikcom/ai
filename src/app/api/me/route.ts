@@ -11,7 +11,7 @@ import type { MeResponse } from "@/lib/types";
 
 /** The signed-in user, their plan, today's usage and limits, credits and own key. */
 export async function GET(request: Request) {
-  const user = await requireUser(request);
+  const user = await requireUser(request, { guest: true });
   if (user instanceof Response) return user;
   const [plan, usage, credits, ownKey, spent, photoEdits] = await Promise.all([
     planInfo(user.id),
@@ -21,7 +21,8 @@ export async function GET(request: Request) {
     userSpendToday(user.id),
     photoEditsToday(user.id),
   ]);
-  const freeImages = plan.id === "free" && !isAdmin(user) && freePlanFreeImages();
+  const guest = Boolean(user.isAnonymous);
+  const freeImages = plan.id === "free" && !isAdmin(user) && !guest && freePlanFreeImages();
   const body: MeResponse = {
     user: { id: user.id, name: user.name, email: user.email, image: user.image },
     admin: isAdmin(user),
@@ -31,10 +32,11 @@ export async function GET(request: Request) {
     credits,
     ownKey,
     social: socialProviders(),
-    voice: { transcribe: transcriptionAvailable(Boolean(ownKey)) },
+    voice: { transcribe: !guest && transcriptionAvailable(Boolean(ownKey)) },
     maryxOnly: maryxOnly(),
     freeImages,
     ...(freeImages ? { photoEdits } : {}),
+    ...(guest ? { guest } : {}),
   };
   return Response.json(body, { headers: { "Cache-Control": "no-store" } });
 }

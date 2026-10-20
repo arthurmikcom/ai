@@ -5,7 +5,7 @@ import { isProvider } from "@/lib/server/validate";
 import type { Assistant } from "@/lib/types";
 
 export async function GET(request: Request) {
-  const user = await requireUser(request);
+  const user = await requireUser(request, { guest: true });
   if (user instanceof Response) return user;
   return Response.json(await listAssistants(user.id), { headers: { "Cache-Control": "no-store" } });
 }

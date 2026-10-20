@@ -2287,3 +2287,34 @@ a.vs-reel-button { text-decoration: none; }
   .ton-body { grid-template-columns: 1fr; justify-items: center; }
   .ton-fields { width: 100%; }
 }
+
+/* Guests (chatting without an account, like on ChatGPT): the way to sign in or up. */
+.guest-buttons { display: flex; align-items: center; gap: 8px; }
+.guest-buttons a { display: inline-flex; align-items: center; height: 32px; padding: 0 14px; border-radius: 999px; font-size: .74rem; font-weight: 550; white-space: nowrap; transition: background 160ms, border-color 160ms; }
+.guest-login { background: var(--color-zinc-100); color: var(--color-zinc-950); }
+.guest-login:hover { background: var(--color-zinc-300); }
+.guest-signup { border: 1px solid var(--line-strong); color: var(--color-zinc-100); }
+.guest-signup:hover { border-color: color-mix(in oklab, var(--color-violet-300) 50%, transparent); }
+@media (max-width: 767px) {
+  .guest-signup span { display: none; }
+  .guest-buttons { gap: 6px; }
+  .guest-buttons a { height: 30px; padding: 0 11px; font-size: .72rem; }
+  /* On a phone the two buttons take the brand's word: its mark stays. */
+  .workspace-topbar:has(.guest-buttons) .workspace-breadcrumb .brand-wordmark { display: none; }
+}
+.guest-card { background: radial-gradient(ellipse at 100% 0, var(--orbit-glow), transparent 70%), var(--surface); }
+.guest-gate { display: grid; place-items: center; height: 100%; overflow-y: auto; padding: 24px 16px 96px; }
+.guest-gate-card { width: 100%; max-width: 440px; padding: 30px 28px; border-radius: 22px; text-align: center; }
+.guest-gate-icon { display: inline-grid; place-items: center; width: 46px; height: 46px; border-radius: 15px; border: 1px solid var(--line-strong); background: linear-gradient(135deg, var(--orbit-glow), var(--surface)); color: var(--color-violet-300); }
+.guest-gate h1 { margin-top: 16px; color: var(--color-zinc-100); font-size: 1.3rem; font-weight: 600; letter-spacing: -.02em; }
+.guest-gate p { margin-top: 8px; color: var(--color-zinc-400); font-size: .84rem; line-height: 1.6; }
+.guest-gate ul { display: grid; gap: 9px; margin: 20px 0 22px; text-align: left; }
+.guest-gate li { display: flex; align-items: center; gap: 10px; color: var(--color-zinc-300); font-size: .82rem; }
+.guest-gate li svg { color: var(--color-violet-300); flex-shrink: 0; }
+.guest-gate-main { display: flex; align-items: center; justify-content: center; gap: 8px; height: 48px; border-radius: 14px; font-size: .86rem; }
+.guest-gate-second { display: flex; align-items: center; justify-content: center; height: 44px; margin-top: 10px; border: 1px solid var(--line-strong); border-radius: 14px; color: var(--color-zinc-200); font-size: .84rem; }
+.guest-gate-second:hover { border-color: color-mix(in oklab, var(--color-violet-300) 45%, transparent); }
+.guest-gate-back { display: inline-block; margin-top: 16px; color: var(--color-zinc-500); font-size: .78rem; }
+.guest-gate-back:hover { color: var(--color-zinc-200); }
+.message-login { display: inline-flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.message-login a { display: inline-flex; align-items: center; height: 32px; padding: 0 14px; border-radius: 999px; font-size: .78rem; font-weight: 550; }

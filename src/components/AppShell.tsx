@@ -41,8 +41,11 @@ import { useStoredJson } from "@/lib/client/useStored";
 import { useApp } from "./AppState";
 import { CommandPalette } from "./CommandPalette";
 import { BrandMark, BrandName } from "./Design";
+import { GuestButtons, GuestCard, GuestGate, loginHref } from "./Guest";
 
 const LEGAL_PATHS = ["/terms", "/refund", "/privacy"];
+/** What a guest (no account) can open: the chat, and the plans to see what an account gives. */
+const GUEST_PATHS = ["/", "/pricing"];
 
 const NAV = [
   { href: "/", label: "Чат", icon: MessageSquare },
@@ -68,7 +71,7 @@ const MOBILE_NAV = [
 function UserMenu() {
   const { me, signOut } = useApp();
   const [look, setLook] = useAppearance();
-  if (!me) return null;
+  if (!me || me.guest) return null;
   const { used, limit } = me.usage.chat;
   return (
     <div className="border-t border-white/5 px-3 py-4">
@@ -303,7 +306,8 @@ function Sidebar({ onNavigate, onPalette, onCollapse }: { onNavigate: () => void
         })}
       </div>
       <InstallApp />
-      {app.me?.plan.id === "free" && (
+      {app.me?.guest && <GuestCard />}
+      {app.me?.plan.id === "free" && !app.me.guest && (
         <Link href="/pricing" onClick={onNavigate} className="sidebar-upgrade mx-5 mb-5 shrink-0 rounded-2xl border border-violet-300/15 p-4 hover:border-violet-300/35">
           <div className="flex items-center justify-between text-xs font-medium text-violet-200">
             <span className="flex items-center gap-2"><Sparkles className="size-3.5" /> MARYX Pro</span>
@@ -327,7 +331,7 @@ function NavigationRail({ onExpand, onPalette }: { onExpand: () => void; onPalet
     <button type="button" className="rail-new" title="Новый чат" aria-label="Новый чат" onClick={() => { app.openChat(null); router.push("/"); }}><MessageSquarePlus size={19} /></button>
     <button type="button" title="Поиск и команды" aria-label="Поиск и команды" onClick={onPalette}><Search size={18} /></button>
     <nav aria-label="Основная навигация">{NAV.map(({ href, label, icon: Icon }) => <Link key={href} href={href} aria-label={label} title={label} aria-current={pathname === href ? "page" : undefined}><Icon size={19} /></Link>)}</nav>
-    <div className="rail-bottom"><button type="button" onClick={onExpand} title="Развернуть меню" aria-label="Развернуть меню"><PanelLeftOpen size={18} /></button><Link href="/settings" title="Мой профиль" aria-label="Мой профиль" className="rail-avatar">{(app.me?.user.name || "M").slice(0, 1).toUpperCase()}</Link></div>
+    <div className="rail-bottom"><button type="button" onClick={onExpand} title="Развернуть меню" aria-label="Развернуть меню"><PanelLeftOpen size={18} /></button><Link href={app.me?.guest ? loginHref("signin", pathname) : "/settings"} title={app.me?.guest ? "Войти" : "Мой профиль"} aria-label={app.me?.guest ? "Войти" : "Мой профиль"} className="rail-avatar">{(app.me?.user.name || "M").slice(0, 1).toUpperCase()}</Link></div>
   </div>;
 }
 
@@ -343,14 +347,16 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     reload.current = reloadChats;
   }, [reloadChats]);
-  const signedIn = Boolean(me);
+  // A guest has no tasks to run (and no account to show).
+  const signedIn = Boolean(me) && !me?.guest;
+  const guest = Boolean(me?.guest);
   const [open, setOpen] = useState(false);
   // The command palette: Ctrl/⌘+K anywhere (the key, whatever the keyboard layout).
   const [palette, setPalette] = useState(false);
   const [compact, setCompact] = useStoredJson<boolean>("maryx:sidebar-compact");
   const menu = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
-  const standalone = pathname === "/login" || LEGAL_PATHS.includes(pathname);
+  const standalone = pathname === "/login" || pathname === "/reset-password" || LEGAL_PATHS.includes(pathname);
 
   useEffect(() => {
     if (standalone) return;
@@ -457,7 +463,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         <header className="workspace-topbar">
           <div className="workspace-breadcrumb"><span className="hidden items-center gap-2 md:flex"><LockKeyhole size={12} />Личное пространство<ChevronRight size={13} /></span><Link href="/" className="flex items-center gap-2 md:hidden"><BrandMark className="!size-7 !rounded-lg" /><BrandName className="!text-base" /></Link><strong className="hidden md:block">{NAV.find(n => n.href === pathname || (n.href !== "/" && pathname.startsWith(`${n.href}/`)))?.label || "MARYX Ai"}</strong></div>
         <div className="workspace-topbar-actions">
-          {me && (
+          {guest && <GuestButtons />}
+          {signedIn && me && (
             // Credits and a top-up, like other AI studios' token counter.
             <Link href="/pricing#credits" className="workspace-credits" title="AI-кредиты: на запросы сверх лимитов тарифа" aria-label={`Кредиты: ${me.credits}. Пополнить`}>
               <Coins size={13} />
@@ -465,7 +472,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <span>Пополнить</span>
             </Link>
           )}
-          {me?.plan.id === "free" && <Link href="/pricing" className="workspace-plan-link"><Sparkles size={13} /><span>Возможности Pro</span></Link>}
+          {signedIn && me?.plan.id === "free" && <Link href="/pricing" className="workspace-plan-link"><Sparkles size={13} /><span>Возможности Pro</span></Link>}
         <button
           type="button"
           onClick={() => setPalette(true)}
@@ -487,7 +494,13 @@ export function AppShell({ children }: { children: ReactNode }) {
         </button>
         </div>
         </header>
-        <div className="workspace-content">{children}</div>
+        <div className="workspace-content">
+          {guest && !GUEST_PATHS.includes(pathname) ? (
+            <GuestGate title={NAV.find((n) => n.href !== "/" && pathname.startsWith(n.href))?.label ?? "Этот раздел"} />
+          ) : (
+            children
+          )}
+        </div>
         <nav className="mobile-workspace-nav" aria-label="Быстрая навигация">
           {MOBILE_NAV.map(({ href, label, icon: Icon }) => <Link key={href} href={href} aria-current={pathname === href ? "page" : undefined}><Icon size={21} /><span>{label}</span></Link>)}
         </nav>

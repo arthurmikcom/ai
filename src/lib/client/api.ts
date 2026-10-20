@@ -1,5 +1,7 @@
 "use client";
 
+import { sessionPending, sessionReady } from "./session";
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -28,10 +30,17 @@ export function goToLogin() {
 }
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    ...init,
-    headers: init?.body ? { "Content-Type": "application/json", ...init.headers } : init?.headers,
-  });
+  const send = () =>
+    fetch(path, {
+      ...init,
+      headers: init?.body ? { "Content-Type": "application/json", ...init.headers } : init?.headers,
+    });
+  let res = await send();
+  // A page's first requests can come before a new visitor's guest session: once more after it.
+  if (res.status === 401 && sessionPending()) {
+    await sessionReady;
+    res = await send();
+  }
   if (!res.ok) throw await errorOf(res);
   return (await res.json()) as T;
 }

@@ -4,7 +4,7 @@ import type { InstructionsResponse } from "@/lib/types";
 
 /** The signed-in user's personal instructions for every chat. */
 export async function GET(request: Request) {
-  const user = await requireUser(request);
+  const user = await requireUser(request, { guest: true });
   if (user instanceof Response) return user;
   const { instructions } = await userPrefs(user.id);
   return Response.json(instructions satisfies InstructionsResponse, { headers: { "Cache-Control": "no-store" } });

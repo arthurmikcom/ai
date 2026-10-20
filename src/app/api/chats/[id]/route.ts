@@ -5,7 +5,7 @@ import { isSelectable } from "@/lib/server/validate";
 type Context = { params: Promise<{ id: string }> };
 
 export async function GET(request: Request, { params }: Context) {
-  const user = await requireUser(request);
+  const user = await requireUser(request, { guest: true });
   if (user instanceof Response) return user;
   const chat = await getChat(user.id, (await params).id);
   return chat
@@ -15,7 +15,7 @@ export async function GET(request: Request, { params }: Context) {
 
 /** Rename a chat or switch its model. */
 export async function PATCH(request: Request, { params }: Context) {
-  const user = await requireUser(request);
+  const user = await requireUser(request, { guest: true });
   if (user instanceof Response) return user;
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   const changes: Parameters<typeof updateChat>[2] = {};
@@ -31,7 +31,7 @@ export async function PATCH(request: Request, { params }: Context) {
 }
 
 export async function DELETE(request: Request, { params }: Context) {
-  const user = await requireUser(request);
+  const user = await requireUser(request, { guest: true });
   if (user instanceof Response) return user;
   return (await deleteChat(user.id, (await params).id))
     ? Response.json({ ok: true })

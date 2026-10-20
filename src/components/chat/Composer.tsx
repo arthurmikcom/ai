@@ -46,6 +46,7 @@ import { discardVideo, uploadVideo, videoMime } from "@/lib/client/upload";
 import { MAX_VIDEO_MB, sizeText } from "@/lib/limits";
 import { CAMERA_MOTIONS, IMAGE_STYLES, PHOTO_EFFECTS } from "@/lib/effects";
 import type { Attachment, ModelInfo } from "@/lib/types";
+import { GuestButtons } from "../Guest";
 import { CameraDialog } from "./CameraDialog";
 
 interface Props {
@@ -96,6 +97,8 @@ interface Props {
   onStop: () => void;
   /** Pictures put in from the chat ("Изменить" under a picture); taken once per `id`. */
   inject?: ComposerInject | null;
+  /** A guest (no account): files, pictures, video and the heavier modes ask to sign in instead. */
+  guest?: boolean;
 }
 
 export interface ComposerInject {
@@ -178,6 +181,7 @@ export function Composer({
   onSend,
   onStop,
   inject = null,
+  guest = false,
 }: Props) {
   const [text, setText] = useState("");
   const [listening, setListening] = useState<"idle" | "recording" | "transcribing">("idle");
@@ -198,6 +202,9 @@ export function Composer({
   const [menu, setMenu] = useState(false);
   const [shooting, setShooting] = useState(false);
   const [busy, setBusy] = useState<"screen" | "video" | null>(null);
+  // A guest tried what needs an account: what it was, said with the way in.
+  const [ask, setAsk] = useState<string | null>(null);
+  const forGuest = (what: string, go: () => void) => () => (guest ? setAsk(what) : go());
 
   // A picture to change goes first: the first photo is the one that is edited.
   const [injected, setInjected] = useState(inject?.id);
@@ -247,6 +254,7 @@ export function Composer({
   };
 
   const addFiles = async (files: File[]) => {
+    if (guest) return setAsk("прикреплять фото и файлы");
     setError(null);
     const room = MAX_ATTACHMENTS - attachments.length;
     const problems: string[] = [];
@@ -673,7 +681,7 @@ export function Composer({
                   : "Прикрепить документ: PDF, Word, Excel, CSV, TXT"
             }
             disabled={!canAttach || disabled || attachments.length >= MAX_ATTACHMENTS || busy !== null}
-            onClick={() => setMenu((m) => !m)}
+            onClick={forGuest("прикреплять фото и файлы", () => setMenu((m) => !m))}
             aria-expanded={menu}
             aria-label="Прикрепить"
             className="rounded-full p-2 text-zinc-400 transition hover:bg-white/5 hover:text-zinc-100 disabled:opacity-40"
@@ -724,6 +732,15 @@ export function Composer({
                     close={() => setMenu(false)}
                   />
                 )}
+              </div>
+            </>
+          )}
+          {ask && (
+            <>
+              <button type="button" aria-hidden="true" tabIndex={-1} onClick={() => setAsk(null)} className="fixed inset-0 z-10 cursor-default" />
+              <div role="dialog" aria-label="Нужен аккаунт" className="absolute bottom-14 left-2 z-20 w-[min(20rem,calc(100%-1rem))] rounded-xl border border-white/10 bg-zinc-900 p-4 shadow-2xl">
+                <p className="text-sm leading-6 text-zinc-200">Чтобы {ask}, войдите или зарегистрируйтесь — это бесплатно.</p>
+                <GuestButtons className="mt-3" />
               </div>
             </>
           )}
@@ -789,7 +806,7 @@ export function Composer({
           {canDraw && (
             <button
               type="button"
-              onClick={() => onImageModeChange(!imageMode)}
+              onClick={forGuest("создавать картинки и обрабатывать фото", () => onImageModeChange(!imageMode))}
               aria-pressed={imageMode}
               title={canEditPhotos ? "Нарисовать картинку по описанию или обработать фото" : "Нарисовать картинку по описанию"}
               aria-label="Картинка"
@@ -807,7 +824,7 @@ export function Composer({
           {canFilm && onVideoModeChange && (
             <button
               type="button"
-              onClick={() => onVideoModeChange(!videoMode)}
+              onClick={forGuest("создавать видео", () => onVideoModeChange(!videoMode))}
               aria-pressed={videoMode}
               title={canAnimate ? "Снять видео по описанию или оживить фото" : "Снять видео по описанию"}
               aria-label="Видео"
@@ -825,7 +842,7 @@ export function Composer({
           {model?.search && !mediaMode && onResearchChange && (
             <button
               type="button"
-              onClick={() => onResearchChange(!research)}
+              onClick={forGuest("запускать глубокое исследование", () => onResearchChange(!research))}
               aria-pressed={research}
               title="Глубокое исследование: MARYX ищет по нескольким направлениям и пишет отчёт со ссылками"
               aria-label="Исследование"
@@ -841,7 +858,7 @@ export function Composer({
           {!mediaMode && onCouncilChange && (
             <button
               type="button"
-              onClick={() => onCouncilChange(!council)}
+              onClick={forGuest("звать совет экспертов", () => onCouncilChange(!council))}
               aria-pressed={council}
               title="Консилиум: на вопрос сразу отвечают три сильных ИИ, MARYX сверяет их и пишет лучший ответ"
               aria-label="Консилиум"

@@ -12,7 +12,8 @@ import {
   takeCredits,
 } from "./billing/credits";
 import { currentPlan, planLimit } from "./billing/plans";
-import { freePhotoEdits, freePlanFreeImages, maryxOnly } from "./config";
+import { loginRequired } from "./http";
+import { freePhotoEdits, freePlanFreeImages, guestDailyChat, maryxOnly } from "./config";
 import { sellablePacks } from "./billing/packs";
 import { getDb, schema } from "./db";
 import {
@@ -32,11 +33,16 @@ import {
   type CostEntry,
 } from "./spend";
 
+/** A guest (no account) only chats, a few messages a day; otherwise the plan's limit. */
+function limitOf(user: SessionUser, plan: PlanId, kind: UsageKind): number | null {
+  return user.isAnonymous ? (kind === "chat" ? guestDailyChat() : 0) : planLimit(plan, kind);
+}
+
 /** Today's limit for this user; null means unlimited. */
 export async function dailyLimit(user: SessionUser, kind: UsageKind): Promise<number | null> {
   if (isAdmin(user)) return null;
   const { plan } = await currentPlan(user.id);
-  return planLimit(plan, kind);
+  return limitOf(user, plan, kind);
 }
 
 export function today(): string {
@@ -48,6 +54,14 @@ const LIMIT_NAMES: Record<UsageKind, string> = {
   image: "изображения",
   video: "видео",
   voice: "голосовой ввод",
+};
+
+/** What a guest is asked to sign in for. */
+const GUEST_ASKS: Record<UsageKind, string> = {
+  chat: "писать MARYX",
+  image: "создавать и редактировать картинки",
+  video: "создавать видео",
+  voice: "диктовать голосом",
 };
 
 /** Error body for a reached limit; `code` lets the UI offer an upgrade. */
@@ -122,7 +136,7 @@ export async function usageSummary(user: SessionUser): Promise<UsageSummary> {
   const admin = isAdmin(user);
   const { plan } = await currentPlan(user.id);
   const used = (kind: UsageKind) => rows.find((r) => r.kind === kind)?.count ?? 0;
-  const limit = (kind: UsageKind) => (admin ? null : planLimit(plan, kind));
+  const limit = (kind: UsageKind) => (admin ? null : limitOf(user, plan, kind));
   return Object.fromEntries(USAGE_KINDS.map((k) => [k, { used: used(k), limit: limit(k) }])) as UsageSummary;
 }
 
@@ -212,7 +226,7 @@ export async function charge(
     if (budget - (await userSpendToday(user.id, undefined, { settled: true })) >= 0.001) return { denied: "busy" };
     denied = "spend";
   } else if (plan === "free" && !costless && (await siteBudgetSpent())) denied = "budget";
-  else if (await bump(user.id, kind, planLimit(plan, kind))) return { ...base, paidBy: plan };
+  else if (await bump(user.id, kind, limitOf(user, plan, kind))) return { ...base, paidBy: plan };
   else denied = "limit";
 
   const need = MIN_CREDITS[kind];
@@ -236,6 +250,7 @@ export async function photoEditsToday(userId: string): Promise<{ perDay: number;
  * budget for free use lasts, else credits.
  */
 export async function chargePhotoEdit(user: SessionUser, ownKey?: string): Promise<Charge | { denied: Denial }> {
+  if (user.isAnonymous) return { denied: "limit" };
   if (!(await siteBudgetSpent()) && (await bump(user.id, "photo", freePhotoEdits()))) {
     return { id: crypto.randomUUID(), userId: user.id, kind: "image", held: 0, day: today(), paidBy: "free", photoEdit: true };
   }
@@ -453,6 +468,19 @@ export async function deniedResponse(
         code: "own-key-limit",
       },
       { status: 429 },
+    );
+  }
+  // A guest is offered an account (free): it lifts their limits. A full site budget or a running request is the same for everyone.
+  if (user.isAnonymous && denied !== "busy" && denied !== "budget") {
+    const perDay = guestDailyChat();
+    return loginRequired(
+      kind === "chat"
+        ? denied === "limit" && perDay > 0
+          ? `Без аккаунта можно ${perDay} сообщений в день — на сегодня они закончились. Войдите или зарегистрируйтесь — это бесплатно, и сообщений станет больше.`
+          : denied === "limit"
+            ? "Чтобы писать MARYX, войдите или зарегистрируйтесь — это бесплатно."
+            : "Такой большой запрос без аккаунта не выполнить. Войдите или зарегистрируйтесь — это бесплатно."
+        : `Чтобы ${GUEST_ASKS[kind]}, войдите или зарегистрируйтесь — это бесплатно.`,
     );
   }
   const { plan } = await currentPlan(user.id);

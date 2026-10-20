@@ -3,7 +3,7 @@ import { getFile, getFileRange, mimeOfKey, userPrefix } from "@/lib/server/stora
 
 /** Serves a stored file to its owner only. */
 export async function GET(request: Request, { params }: { params: Promise<{ key: string[] }> }) {
-  const user = await requireUser(request);
+  const user = await requireUser(request, { guest: true });
   if (user instanceof Response) return user;
   const key = (await params).key.join("/");
   if (!key.startsWith(userPrefix(user.id))) return jsonError("Нет доступа", 403);

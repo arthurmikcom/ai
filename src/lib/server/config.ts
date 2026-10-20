@@ -143,6 +143,16 @@ export function freePhotoEdits(): number {
   return Number.isFinite(n) && n >= 0 ? n : 2;
 }
 
+/**
+ * Messages a day for a guest — someone chatting without an account, like on
+ * ChatGPT (GUEST_DAILY_CHAT, default 10; 0 sends everyone to sign in). Guests
+ * only chat: pictures, video, files and the rest need an account.
+ */
+export function guestDailyChat(): number {
+  const n = Number.parseInt(env("GUEST_DAILY_CHAT") ?? "", 10);
+  return Number.isFinite(n) && n >= 0 ? n : 10;
+}
+
 /** Higgsfield's API (HIGGSFIELD_BASE_URL points it elsewhere, e.g. a local mock in tests). */
 export function higgsfieldBase(): string {
   return (env("HIGGSFIELD_BASE_URL") ?? "https://api.higgsfield.ai").replace(/\/+$/, "");

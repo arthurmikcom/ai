@@ -461,6 +461,8 @@ export interface MeResponse {
   freeImages: boolean;
   /** The free plan's photo edits a day (made like a paid plan's), and how many are left today. */
   photoEdits?: { perDay: number; left: number };
+  /** A guest chatting without an account (like ChatGPT's): the rest of the site asks to sign in. */
+  guest?: boolean;
 }
 
 /** Admins: how users rate MARYX's answers (👍/👎), for the last `days`. */

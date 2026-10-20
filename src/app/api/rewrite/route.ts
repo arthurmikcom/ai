@@ -18,7 +18,7 @@ const MAX_DOCUMENT = 60_000;
  * counts as one chat message (its cost is recorded like a background job).
  */
 export async function POST(request: Request) {
-  const user = await requireUser(request);
+  const user = await requireUser(request, { guest: true });
   if (user instanceof Response) return user;
 
   const body = (await request.json().catch(() => null)) as

@@ -148,6 +148,13 @@
       "when": 1792496450038,
       "tag": "0020_paddle_paypal_ton",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1792505240166,
+      "tag": "0021_guests",
+      "breakpoints": true
     }
   ]
 }

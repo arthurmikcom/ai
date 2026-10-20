@@ -4,11 +4,15 @@ import path from "node:path";
 import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
+import { anonymous } from "better-auth/plugins/anonymous";
+import { and, eq, gt, like } from "drizzle-orm";
 import { getDb, schema, type DB } from "./db";
 import { grantCredits } from "./billing/credits";
 import { cancelPaddleForUser, paddleCreditsConfigured } from "./billing/paddle";
 import { welcomeCredits } from "./config";
 import { cancelStripeForUser, stripeCreditsConfigured } from "./billing/stripe";
+import { moveGuestData } from "./guests";
+import { mailConfigured, sendPasswordReset } from "./mail";
 import { deleteUserFiles } from "./storage";
 
 /** Sign-in methods beyond email + password, enabled by their env keys. */
@@ -90,14 +94,41 @@ function createAuth(db: DB, secret: string) {
         rateLimit: schema.rateLimit,
       },
     }),
-    emailAndPassword: { enabled: true, minPasswordLength: 8, autoSignIn: true },
+    emailAndPassword: {
+      enabled: true,
+      minPasswordLength: 8,
+      autoSignIn: true,
+      // «Забыли пароль?»: a link by email, valid for an hour; a new password signs out every device.
+      resetPasswordTokenExpiresIn: 3600,
+      revokeSessionsOnPasswordReset: true,
+      sendResetPassword: async ({ user, url }) => {
+        if (!mailConfigured() || (user as { isAnonymous?: boolean | null }).isAnonymous) return;
+        // Not more than a few letters an hour to one address, whoever keeps asking.
+        const asked = await db
+          .select({ id: schema.verification.id })
+          .from(schema.verification)
+          .where(
+            and(
+              like(schema.verification.identifier, "reset-password:%"),
+              eq(schema.verification.value, user.id),
+              gt(schema.verification.createdAt, new Date(Date.now() - 3600_000)),
+            ),
+          );
+        if (asked.length > 3) return;
+        // The answer is the same whether a letter went or not (it doesn't tell which emails have accounts).
+        await sendPasswordReset(user.email, user.name, url).catch((err) =>
+          console.error("[auth] password reset letter not sent — check SMTP_* in Vercel", user.id, err),
+        );
+      },
+    },
     databaseHooks: {
       user: {
         create: {
           // A gift to try what the free plan doesn't include (photo edits beyond the daily ones, video); once per account.
           after: async (user) => {
             const credits = welcomeCredits();
-            if (!credits) return;
+            // Guests get theirs when they sign up (that's a new account).
+            if (!credits || (user as { isAnonymous?: boolean | null }).isAnonymous) return;
             await grantCredits({ id: `welcome:${user.id}`, userId: user.id, credits, source: "welcome", note: "подарок при регистрации" }).catch((err) =>
               console.error("[auth] welcome credits not added", user.id, err),
             );
@@ -124,8 +155,20 @@ function createAuth(db: DB, secret: string) {
       },
     },
     // Stored in the database so limits hold across serverless instances.
-    rateLimit: { enabled: true, storage: "database" },
-    plugins: [nextCookies()],
+    // A guest is a new user each time the cookie is gone: not too many from one address.
+    rateLimit: { enabled: true, storage: "database", customRules: { "/sign-in/anonymous": { window: 3600, max: 30 } } },
+    plugins: [
+      // Guests chat without an account; signing up or in keeps their chats (see guests.ts).
+      anonymous({
+        generateName: () => "Гость",
+        onLinkAccount: async ({ anonymousUser, newUser }) => {
+          await moveGuestData(db, anonymousUser.user.id, newUser.user.id).catch((err) =>
+            console.error("[auth] guest chats not moved", anonymousUser.user.id, newUser.user.id, err),
+          );
+        },
+      }),
+      nextCookies(),
+    ],
   });
 }
 
@@ -149,6 +192,8 @@ export interface SessionUser {
   email: string;
   emailVerified: boolean;
   image?: string | null;
+  /** A guest without an account (see guests.ts). */
+  isAnonymous?: boolean | null;
 }
 
 export async function getSessionUser(headers: Headers): Promise<SessionUser | null> {

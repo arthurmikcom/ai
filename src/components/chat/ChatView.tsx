@@ -51,7 +51,8 @@ export function ChatView() {
   const temporary = app.activeChat ? Boolean(app.activeChat.temporary) : app.draftTemporary;
   const hour = useSyncExternalStore(noSubscribe, () => new Date().getHours(), () => null);
   const greeting = hour === null ? null : greetingAt(hour);
-  const firstName = app.me?.user.name?.trim().split(/\s+/)[0] ?? "";
+  const guest = Boolean(app.me?.guest);
+  const firstName = guest ? "" : (app.me?.user.name?.trim().split(/\s+/)[0] ?? "");
   const { data, loading, error: modelsError } = useModels("chat");
   const models = useMemo(() => data?.models ?? [], [data]);
   const chat = app.activeChat;
@@ -372,7 +373,7 @@ export function ChatView() {
             <Download className="size-4" />
           </button>
         )}
-        <Link href="/settings" aria-label="Открыть профиль" className="profile-shortcut ml-2 lg:ml-3">{(app.me?.user.name || "M").slice(0, 1).toUpperCase()}</Link>
+        {!guest && <Link href="/settings" aria-label="Открыть профиль" className="profile-shortcut ml-2 lg:ml-3">{(app.me?.user.name || "M").slice(0, 1).toUpperCase()}</Link>}
         {assistant && (
           <span className="flex min-w-0 max-w-[45%] items-center gap-1.5 rounded-full bg-violet-500/15 px-3 py-1 text-xs text-violet-200">
             <PersonaSymbol emoji={assistant.emoji} />
@@ -561,6 +562,7 @@ export function ChatView() {
           disabled={!choice || !current || noProviders || !app.ready || loading || localBlocked}
           disabledText={disabledText}
           allowFiles={!onDevice}
+          guest={guest}
           streaming={streaming}
           deepThinking={deepThinking}
           onDeepThinkingChange={setDeepThinking}

@@ -4,7 +4,7 @@ import { installedPlugins, setPlugin } from "@/lib/server/plugins";
 
 /** «Плагины»: the ones the user has on. */
 export async function GET(request: Request) {
-  const user = await requireUser(request);
+  const user = await requireUser(request, { guest: true });
   if (user instanceof Response) return user;
   return Response.json({ installed: await installedPlugins(user.id) }, { headers: { "Cache-Control": "no-store" } });
 }
