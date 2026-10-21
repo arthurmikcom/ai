@@ -22,7 +22,13 @@
         "foregroundImage": "./assets/images/android-icon-foreground.png"
       },
       "softwareKeyboardLayoutMode": "resize",
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_MEDIA_AUDIO",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.SYSTEM_ALERT_WINDOW"
+      ]
     },
     "web": {
       "output": "single",
@@ -43,14 +49,18 @@
         "expo-image-picker",
         {
           "photosPermission": "MARYX открывает фото, которые вы выбираете, чтобы отправить их в чат.",
-          "cameraPermission": "MARYX использует камеру, чтобы вы могли сфотографировать и отправить снимок в чат."
+          "cameraPermission": "MARYX использует камеру, чтобы вы могли сфотографировать и отправить снимок в чат.",
+          "microphonePermission": false
         }
       ],
       [
         "expo-media-library",
         {
           "savePhotosPermission": "MARYX сохраняет созданные картинки в вашу галерею.",
-          "isAccessMediaLocationEnabled": false
+          "isAccessMediaLocationEnabled": false,
+          "granularPermissions": [
+            "photo"
+          ]
         }
       ]
     ],

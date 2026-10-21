@@ -1,56 +1,48 @@
-# Welcome to your Expo app 👋
+# MARYX Ai — приложение для Android и iPhone
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Настоящее приложение (React Native + Expo SDK 58), не сайт в обёртке. Работает с тем же сервером и теми же аккаунтами, что и сайт.
 
-## Get started
+- **Чат как в ChatGPT:** открыл — и пишешь, без регистрации (гостем). Ответ появляется по словам, с оформлением: списки, код, таблицы.
+- **Вход, регистрация, «Забыли пароль?».** Чаты гостя после регистрации остаются.
+- **Изображения:** картинка по описанию, своя галерея, сохранение в галерею телефона.
+- **Фото в чат:** из галереи или с камеры.
+- **Профиль:** тариф, кредиты, смена пароля, выход, удаление аккаунта (его требует Apple).
+- **Оплаты в приложении нет:** Apple и Google разрешают продавать подписки и кредиты только через свою оплату. Тариф, купленный на сайте, в приложении работает.
 
-1. Install dependencies
+## Android: скачать .apk
 
-   ```bash
-   npm install
-   ```
+Приложение собирается само на серверах GitHub при каждом изменении папки `mobile/`.
 
-2. Start the app
+1. Откройте репозиторий на GitHub → вкладка **Actions** → **Android APK** → последний зелёный запуск.
+2. Внизу, в **Artifacts**, скачайте `maryx-ai-android` (zip), внутри — `app-release.apk`.
+3. Перекиньте файл на телефон и откройте. Android попросит разрешить установку из этого источника — разрешите.
 
-   ```bash
-   npx expo start
-   ```
+Запустить сборку вручную: Actions → Android APK → **Run workflow**.
 
-In the output, you'll find options to open the app in a
+Этот `.apk` подписан тестовым ключом: годится для установки и проверки. Для **Google Play** нужен свой ключ и файл `.aab` — проще всего через облачную сборку Expo (ниже).
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+## iPhone
 
-You can start developing by editing the files inside the **src/app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+Собрать приложение для iPhone можно только на Mac или в облаке Expo.
 
-## Get a fresh project
+**Посмотреть бесплатно, без сборки (Expo Go):**
+1. Поставьте на iPhone приложение **Expo Go** из App Store.
+2. На компьютере: `cd mobile && npm install && npx expo start --tunnel`.
+3. Отсканируйте QR-код камерой iPhone — приложение откроется в Expo Go.
 
-When you're ready, run:
+**В App Store:**
+1. Аккаунт **Apple Developer** — $99 в год (developer.apple.com).
+2. Бесплатный аккаунт **Expo** (expo.dev).
+3. На компьютере: `cd mobile && npx eas-cli@latest login`, затем `npx eas-cli@latest build -p ios --profile production` — Expo соберёт приложение и сам попросит войти в Apple.
+4. Отправить в App Store: `npx eas-cli@latest submit -p ios`. Дальше — описание и скриншоты в App Store Connect и проверка Apple (обычно 1–3 дня).
 
-```bash
-npm run reset-project
-```
+**В Google Play:** аккаунт разработчика Google Play ($25 один раз), затем `npx eas-cli@latest build -p android --profile production` и `npx eas-cli@latest submit -p android`.
 
-This command will move the starter code to the **example** directory and create a blank **src/app** directory where you can start developing.
+Пароли и ключи от Apple, Google и Expo вводите только в их собственных окнах входа — никому их не пересылайте.
 
-### Other setup steps
+## Для разработчика
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
-
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+- Адрес сервера: `EXPO_PUBLIC_API_URL` (по умолчанию живой сайт). Сервер принимает вход из приложения по схеме `maryx://` (и `exp://` в Expo Go) — см. `appOrigin` в `src/lib/server/auth.ts` сайта.
+- Проверки: `npx tsc --noEmit`, `npx expo lint`.
+- Название, иконка, пакет (`com.maryx.ai`) и разрешения — в `app.json`. Папки `android/` и `ios/` не хранятся: их создаёт `npx expo prebuild`.
+- Код: экраны — `src/app/`, части экранов — `src/components/`, связь с сервером, вход, чаты — `src/lib/`.
