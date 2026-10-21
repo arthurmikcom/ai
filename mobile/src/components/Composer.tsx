@@ -72,7 +72,7 @@ export function Composer({
           {photos.map((p, i) => (
             <View key={p.uri}>
               <Image source={{ uri: p.uri }} style={s.photo} contentFit="cover" />
-              <Pressable accessibilityLabel="Убрать фото" onPress={() => setPhotos((list) => list.filter((_, j) => j !== i))} style={s.remove} hitSlop={6}>
+              <Pressable accessibilityRole="button" accessibilityLabel="Убрать фото" onPress={() => setPhotos((list) => list.filter((_, j) => j !== i))} style={s.remove} hitSlop={6}>
                 <Ionicons name="close" size={14} color={C.text} />
               </Pressable>
             </View>
@@ -92,13 +92,14 @@ export function Composer({
         submitBehavior="newline"
       />
       <View style={s.row}>
-        <Pressable accessibilityLabel="Прикрепить фото" onPress={() => void pick(false)} style={s.tool} hitSlop={6}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Прикрепить фото" onPress={() => void pick(false)} style={s.tool} hitSlop={6}>
           <Ionicons name="image-outline" size={22} color={C.muted} />
         </Pressable>
-        <Pressable accessibilityLabel="Сфотографировать" onPress={() => void pick(true)} style={s.tool} hitSlop={6}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Сфотографировать" onPress={() => void pick(true)} style={s.tool} hitSlop={6}>
           <Ionicons name="camera-outline" size={22} color={C.muted} />
         </Pressable>
         <Pressable
+          accessibilityRole="button"
           accessibilityLabel="Картинка"
           accessibilityState={{ selected: drawing }}
           onPress={() => (guest ? ask("создавать картинки") : setDrawing((d) => !d))}
@@ -109,11 +110,11 @@ export function Composer({
         </Pressable>
         <View style={{ flex: 1 }} />
         {streaming ? (
-          <Pressable accessibilityLabel="Остановить" onPress={onStop} style={[s.send, { backgroundColor: C.text }]}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Остановить" onPress={onStop} style={[s.send, { backgroundColor: C.text }]}>
             <Ionicons name="stop" size={16} color={C.bg} />
           </Pressable>
         ) : (
-          <Pressable accessibilityLabel="Отправить" onPress={submit} disabled={!canSend} style={[s.send, !canSend && { opacity: 0.35 }]}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Отправить" onPress={submit} disabled={!canSend} style={[s.send, !canSend && { opacity: 0.35 }]}>
             <Ionicons name="arrow-up" size={20} color={C.text} />
           </Pressable>
         )}

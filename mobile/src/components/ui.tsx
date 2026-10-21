@@ -1,7 +1,7 @@
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
-import { ActivityIndicator, Alert, Modal, Platform, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
+import { ActivityIndicator, Alert, Modal, Platform, Pressable, StyleSheet, Text, type StyleProp, type ViewStyle } from "react-native";
 import { siteUrl } from "@/lib/config";
 import { C } from "@/lib/theme";
 
@@ -102,7 +102,7 @@ export function SignInAskProvider({ children }: { children: ReactNode }) {
             <Text style={a.text}>Чтобы {what}, войдите или зарегистрируйтесь — это бесплатно. Чаты, которые вы уже начали, останутся с вами.</Text>
             <Button title="Зарегистрироваться бесплатно" onPress={() => go("signup")} style={{ alignSelf: "stretch" }} />
             <Button title="Войти" kind="ghost" onPress={() => go("signin")} style={{ alignSelf: "stretch" }} />
-            <Pressable onPress={() => setWhat(null)} hitSlop={10}>
+            <Pressable accessibilityRole="button" onPress={() => setWhat(null)} hitSlop={10}>
               <Text style={a.later}>Не сейчас</Text>
             </Pressable>
           </Pressable>

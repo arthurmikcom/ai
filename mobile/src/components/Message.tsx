@@ -70,6 +70,7 @@ export function Message({ message, onSuggestion }: { message: ChatMessage; onSug
       {!message.streaming && message.content ? (
         <View style={s.actions}>
           <Pressable
+            accessibilityRole="button"
             accessibilityLabel="Копировать ответ"
             hitSlop={8}
             onPress={() => {
@@ -86,7 +87,7 @@ export function Message({ message, onSuggestion }: { message: ChatMessage; onSug
       {!message.streaming && message.suggestions?.length ? (
         <View style={s.suggestions}>
           {message.suggestions.slice(0, 3).map((q) => (
-            <Pressable key={q} onPress={() => onSuggestion(q)} style={({ pressed }) => [s.chip, pressed && { opacity: 0.7 }]}>
+            <Pressable key={q} accessibilityRole="button" onPress={() => onSuggestion(q)} style={({ pressed }) => [s.chip, pressed && { opacity: 0.7 }]}>
               <Ionicons name="return-down-forward" size={14} color={C.accentText} />
               <Text style={s.chipText}>{q}</Text>
             </Pressable>

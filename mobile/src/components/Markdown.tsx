@@ -115,7 +115,7 @@ function CodeBlock({ lang, text }: { lang: string; text: string }) {
     <View style={s.code}>
       <View style={s.codeHead}>
         <Text style={s.codeLang}>{lang || "код"}</Text>
-        <Pressable onPress={() => void Clipboard.setStringAsync(text)} hitSlop={8}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Копировать код" onPress={() => void Clipboard.setStringAsync(text)} hitSlop={8}>
           <Text style={s.codeCopy}>Копировать</Text>
         </Pressable>
       </View>

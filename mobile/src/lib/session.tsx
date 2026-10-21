@@ -17,6 +17,18 @@ interface Session {
 
 const Ctx = createContext<Session | null>(null);
 
+/** The profile; without a session the app becomes a guest first (like the site's chat). */
+async function loadProfile(): Promise<Me> {
+  try {
+    return await api<Me>("/api/me");
+  } catch (err) {
+    if (!(err instanceof ApiError) || err.status !== 401) throw err;
+    const { error } = await authClient.signIn.anonymous();
+    if (error) throw new ApiError(error.status ?? 0, error.status === 429 ? "Слишком много попыток — попробуйте через минуту." : "Не удалось открыть чат. Попробуйте ещё раз.");
+    return api<Me>("/api/me");
+  }
+}
+
 export function useSession(): Session {
   const ctx = useContext(Ctx);
   if (!ctx) throw new Error("useSession must be used inside <SessionProvider>");
@@ -33,30 +45,25 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const reload = useCallback(async () => {
-    setError(null);
-    try {
-      let profile: Me;
-      try {
-        profile = await api<Me>("/api/me");
-      } catch (err) {
-        if (!(err instanceof ApiError) || err.status !== 401) throw err;
-        const { error: failed } = await authClient.signIn.anonymous();
-        if (failed) throw new ApiError(failed.status ?? 0, failed.status === 429 ? "Слишком много попыток — попробуйте через минуту." : "Не удалось открыть чат. Попробуйте ещё раз.");
-        profile = await api<Me>("/api/me");
-      }
-      setMe(profile);
-      setCookie(await sessionCookie());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setReady(true);
-    }
-  }, []);
+  // State is set once the answer is in (the first load and every reload).
+  const settle = useCallback(
+    (load: Promise<Me>) =>
+      load
+        .then(async (profile) => {
+          setError(null);
+          setMe(profile);
+          setCookie(await sessionCookie());
+        })
+        .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
+        .finally(() => setReady(true)),
+    [],
+  );
+
+  const reload = useCallback(() => settle(loadProfile()), [settle]);
 
   useEffect(() => {
-    void reload();
-  }, [reload]);
+    void settle(loadProfile());
+  }, [settle]);
 
   const signOut = useCallback(async () => {
     await authClient.signOut().catch(() => {});
