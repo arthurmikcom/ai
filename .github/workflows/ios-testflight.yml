@@ -1,0 +1,83 @@
+# The iPhone app (mobile/) built in Expo's cloud and sent to TestFlight — by hand:
+# Actions → iOS TestFlight → Run workflow. It uses these repository secrets (Settings → Secrets and
+# variables → Actions; never put them in chats or code): EXPO_TOKEN, ASC_KEY_ID, ASC_ISSUER_ID,
+# ASC_KEY_P8, APPLE_TEAM_ID, and optionally ASC_APP_ID and APPLE_TEAM_TYPE. See mobile/README.md.
+# Apple is reached with the App Store Connect key, so no Apple password or phone code is needed.
+name: iOS TestFlight
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  testflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+
+      - name: Check the secrets are there
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          missing=""
+          for name in EXPO_TOKEN ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8 APPLE_TEAM_ID; do
+            [ -n "${!name}" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Не хватает секретов в GitHub (Settings → Secrets and variables → Actions):$missing"
+            exit 1
+          fi
+
+      - name: The App Store Connect key, and where the build goes
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
+        run: |
+          printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/asc.p8"
+          node -e '
+            const fs = require("fs");
+            const eas = JSON.parse(fs.readFileSync("eas.json", "utf8"));
+            const env = process.env;
+            eas.submit.production.ios = {
+              ...(env.ASC_APP_ID ? { ascAppId: env.ASC_APP_ID } : {}),
+              ascApiKeyPath: `${env.RUNNER_TEMP}/asc.p8`,
+              ascApiKeyId: env.ASC_KEY_ID,
+              ascApiKeyIssuerId: env.ASC_ISSUER_ID,
+            };
+            fs.writeFileSync("eas.json", JSON.stringify(eas, null, 2));
+          '
+
+      # EAS asks its questions the first time (create the project, the certificate, the profile):
+      # answer-prompts.py says yes. CI is unset, or EAS would refuse to ask and stop.
+      - name: Build in Expo's cloud and send to TestFlight
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EXPO_ASC_API_KEY_PATH: ${{ runner.temp }}/asc.p8
+          EXPO_ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          EXPO_ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          EXPO_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          EXPO_APPLE_TEAM_TYPE: ${{ secrets.APPLE_TEAM_TYPE || 'INDIVIDUAL' }}
+          TERM: xterm-256color
+        run: env -u CI python3 ../.github/scripts/answer-prompts.py npx --yes eas-cli@24.12.1 build --platform ios --profile production --auto-submit
+
+      - name: Forget the key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/asc.p8"
