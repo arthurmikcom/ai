@@ -33,11 +33,22 @@
 2. На компьютере: `cd mobile && npm install && npx expo start --tunnel`.
 3. Отсканируйте QR-код камерой iPhone — приложение откроется в Expo Go.
 
-**В App Store:**
-1. Аккаунт **Apple Developer** — $99 в год (developer.apple.com).
+**В TestFlight (свой iPhone и тестировщики) и App Store** — Mac не нужен, подойдёт Windows:
+1. Аккаунт **Apple Developer** — $99 в год (developer.apple.com → Account → Join the Apple Developer Program). Без него Apple не пускает приложения ни в TestFlight, ни в App Store.
 2. Бесплатный аккаунт **Expo** (expo.dev).
-3. На компьютере: `cd mobile && npx eas-cli@latest login`, затем `npx eas-cli@latest build -p ios --profile production` — Expo соберёт приложение и сам попросит войти в Apple.
-4. Отправить в App Store: `npx eas-cli@latest submit -p ios`. Дальше — описание и скриншоты в App Store Connect и проверка Apple (обычно 1–3 дня).
+3. Поставьте **Node.js** (nodejs.org, версия LTS).
+4. Скачайте проект: на GitHub → кнопка **Code → Download ZIP**, распакуйте. Откройте папку `mobile` в терминале (в Windows: правый клик по папке → «Открыть в терминале»).
+5. Выполните по очереди:
+   ```
+   npm install
+   npx eas-cli@latest login
+   npx eas-cli@latest build -p ios --profile production --auto-submit
+   ```
+   На вопросы отвечайте «Yes»: войти в аккаунт Apple (вход идёт напрямую в Apple), создать сертификаты, создать ключ App Store Connect для отправки. Expo соберёт приложение в своём облаке (20–40 минут) и само загрузит его в TestFlight.
+6. Через 10–30 минут после загрузки: App Store Connect → ваше приложение → **TestFlight** → добавьте себя в тестировщики (Internal Testing). На iPhone поставьте приложение **TestFlight** — MARYX Ai появится там.
+7. Для App Store: в App Store Connect заполните описание и скриншоты и отправьте на проверку Apple (обычно 1–3 дня).
+
+Если Expo скажет, что идентификатор `com.maryx.ai` уже занят, поменяйте `ios.bundleIdentifier` в `app.json` на свой (например `com.ваше-имя.maryx`).
 
 **В Google Play:** аккаунт разработчика Google Play ($25 один раз), затем `npx eas-cli@latest build -p android --profile production` и `npx eas-cli@latest submit -p android`.
 
