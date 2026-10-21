@@ -1,6 +1,8 @@
 # The phone app (mobile/) as an Android .apk, built on GitHub's machines (they have the Android SDK).
-# The file is under Actions → this run → Artifacts → maryx-ai-android. Signed with the debug key:
-# fine to install and test; Google Play needs the app's own key (see mobile/README.md).
+# Each build replaces the file in the "android" release, so one link always gives the latest:
+# https://github.com/arthurmikcom/ai/releases/download/android/maryx-ai.apk
+# (also under Actions → this run → Artifacts). Signed with the debug key: fine to install and
+# test; Google Play needs the app's own key (see mobile/README.md).
 name: Android APK
 
 on:
@@ -10,7 +12,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  # To put the .apk in the release.
+  contents: write
 
 jobs:
   apk:
@@ -38,8 +41,19 @@ jobs:
       - name: Build the .apk
         working-directory: mobile/android
         run: ./gradlew assembleRelease --no-daemon
+      - run: cp android/app/build/outputs/apk/release/app-release.apk maryx-ai.apk
       - uses: actions/upload-artifact@v4
         with:
           name: maryx-ai-android
-          path: mobile/android/app/build/outputs/apk/release/*.apk
+          path: mobile/maryx-ai.apk
           retention-days: 30
+      - name: Put the .apk in the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view android --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release create android --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+              --title "MARYX Ai для Android" \
+              --notes "Приложение MARYX Ai для Android. Скачайте maryx-ai.apk на телефон и откройте его; Android попросит разрешить установку из этого источника — разрешите. Файл обновляется с каждой новой версией приложения."
+          fi
+          gh release upload android maryx-ai.apk --repo "$GITHUB_REPOSITORY" --clobber
