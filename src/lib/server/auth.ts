@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { betterAuth, type BetterAuthOptions } from "better-auth";
+import { betterAuth, type BetterAuthOptions, type BetterAuthPlugin } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
 import { anonymous } from "better-auth/plugins/anonymous";
@@ -77,6 +77,27 @@ function baseURL(): BetterAuthOptions["baseURL"] {
   return undefined; // derived from the request (fine for localhost)
 }
 
+/**
+ * The phone app (mobile/, Expo) signs in like the site. React Native sends no
+ * Origin, so its auth client sends `expo-origin` (maryx://, or exp://… in Expo
+ * Go) and this takes it as the origin — what @better-auth/expo's server plugin
+ * does, without its Expo packages on the site. Browsers can't send that
+ * header to another site without CORS, which the API doesn't allow.
+ */
+const appOrigin = (): BetterAuthPlugin => ({
+  id: "app-origin",
+  async onRequest(request) {
+    const origin = request.headers.get("expo-origin");
+    if (!origin || request.headers.get("origin")) return;
+    const headers = new Headers(request.headers);
+    headers.set("origin", origin);
+    return { request: new Request(request, { headers }) };
+  },
+});
+
+/** The phone app's own scheme (app.json), and Expo Go's while testing on a phone. */
+const APP_ORIGINS = ["maryx://", "exp://"];
+
 function createAuth(db: DB, secret: string) {
   const env = process.env;
   const social = socialProviders();
@@ -84,6 +105,7 @@ function createAuth(db: DB, secret: string) {
     appName: "MARYX Ai",
     secret,
     baseURL: baseURL(),
+    trustedOrigins: APP_ORIGINS,
     database: drizzleAdapter(db, {
       provider: "pg",
       schema: {
@@ -167,6 +189,7 @@ function createAuth(db: DB, secret: string) {
           );
         },
       }),
+      appOrigin(),
       nextCookies(),
     ],
   });

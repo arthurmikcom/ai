@@ -1,0 +1,62 @@
+{
+  "expo": {
+    "name": "MARYX Ai",
+    "slug": "maryx-ai",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "maryx",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#09080f",
+    "ios": {
+      "bundleIdentifier": "com.maryx.ai",
+      "supportsTablet": true,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.maryx.ai",
+      "adaptiveIcon": {
+        "backgroundColor": "#3b1fa8",
+        "foregroundImage": "./assets/images/android-icon-foreground.png"
+      },
+      "softwareKeyboardLayoutMode": "resize",
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "output": "single",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#09080f",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 140
+        }
+      ],
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "MARYX открывает фото, которые вы выбираете, чтобы отправить их в чат.",
+          "cameraPermission": "MARYX использует камеру, чтобы вы могли сфотографировать и отправить снимок в чат."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "savePhotosPermission": "MARYX сохраняет созданные картинки в вашу галерею.",
+          "isAccessMediaLocationEnabled": false
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}
