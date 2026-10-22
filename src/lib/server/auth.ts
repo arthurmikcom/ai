@@ -89,9 +89,18 @@ const appOrigin = (): BetterAuthPlugin => ({
   async onRequest(request) {
     const origin = request.headers.get("expo-origin");
     if (!origin || request.headers.get("origin")) return;
-    const headers = new Headers(request.headers);
-    headers.set("origin", origin);
-    return { request: new Request(request, { headers }) };
+    try {
+      request.headers.set("origin", origin);
+      return { request };
+    } catch {
+      // Read-only headers: the same request, rebuilt from its parts. Not
+      // `new Request(request)`: on Vercel the request is of another Request
+      // class than the runtime's, and that throws ("Cannot read private member #state").
+      const headers = new Headers(request.headers);
+      headers.set("origin", origin);
+      const body = request.method === "GET" || request.method === "HEAD" ? undefined : await request.arrayBuffer();
+      return { request: new Request(request.url, { method: request.method, headers, body }) };
+    }
   },
 });
 
