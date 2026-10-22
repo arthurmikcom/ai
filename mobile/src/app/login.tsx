@@ -18,6 +18,9 @@ const ERRORS: Record<string, string> = {
   USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL: "Аккаунт с этой почтой уже есть — войдите.",
   PASSWORD_TOO_SHORT: "Пароль должен быть не короче 8 символов.",
   INVALID_EMAIL: "Проверьте адрес почты.",
+  // The site doesn't know the app yet: its newest version isn't live.
+  MISSING_OR_NULL_ORIGIN: "Сервер обновляется. Попробуйте через пару минут.",
+  INVALID_ORIGIN: "Сервер обновляется. Попробуйте через пару минут.",
 };
 
 const TITLES: Record<Mode, [string, string]> = {
@@ -28,7 +31,7 @@ const TITLES: Record<Mode, [string, string]> = {
 
 const failure = (status: number | undefined, code?: string) =>
   ERRORS[code ?? ""] ??
-  (status === 429 ? "Слишком много попыток — подождите минуту и попробуйте снова." : status === 0 || status === undefined ? "Нет связи с сервером. Проверьте интернет." : "Не получилось. Попробуйте ещё раз.");
+  (status === 429 ? "Слишком много попыток — подождите минуту и попробуйте снова." : status === 0 || status === undefined ? "Нет связи с сервером. Проверьте интернет." : `Не получилось (ошибка ${code || status}). Попробуйте ещё раз.`);
 
 /** Sign in, sign up or ask for a new password (the same accounts as the site). */
 export default function LoginScreen() {
